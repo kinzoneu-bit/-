@@ -134,7 +134,7 @@ async function fetchShelfData() {
     } else {
       bs.groups = myGroups.map(g => ({
         name: g.name,
-        cats: (catsByGroup[g.id] || []).map(c => ({ id: c.id, name: c.name, st: c.st || "idle", chatName: c.chat_name || null })),
+        cats: (catsByGroup[g.id] || []).map(c => ({ id: c.id, name: c.name, st: c.st || "idle", chatName: c.chat_name || null, chatUrl: c.chat_url || null })),
       }));
     }
     BRAND_SHELF[b.code] = bs;
@@ -711,12 +711,14 @@ function Shelf() {
                                       <Caret open={cOpen} small />
                                       <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, display: "inline-block" }} />
                                       <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
-                                      {c.chatName && (
-                                        <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: c.name, path: `${g.name} › ${c.name}`, chatName: c.chatName }); }}
-                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", marginLeft: 6 }}>
-                                          · 进入分析 →
-                                        </span>
-                                      )}
+                                      <span onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (c.chatUrl) { window.open(c.chatUrl, "_blank", "noopener,noreferrer"); return; }
+                                          setProjectFor({ name: c.name, path: `${g.name} › ${c.name}`, chatName: c.chatName });
+                                        }}
+                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", marginLeft: 6 }}>
+                                        · 进入分析 →
+                                      </span>
                                       {(() => {
                                         const prods = detail ? (detail.leaves ? detail.leaves.flatMap(l => l.products) : (detail.products || [])) : [];
                                         const leaves = detail && detail.leaves ? detail.leaves : [];
