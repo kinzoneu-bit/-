@@ -74,448 +74,80 @@ const TRACKING = {
   ],
 };
 
-// 品牌货架: 品牌 -> 大类(groups) -> 类目(cats)
-// 状态: selling(在售) / ready(已分析可做) / idle(还没动) / skip(暂不做)
-const BRAND_SHELF = {
-  kila: { store: "胤顺", fullName: "KlimaRaum", groups: [
-    { name: "Cuisine et Maison 厨房与家庭", cats: [
-      { name: "Ameublement et décoration 家具与装饰", st: "idle" },
-      { name: "Loisirs créatifs 创意手工", st: "idle" },
-      { name: "Rangement et organisation 收纳与整理", st: "selling" },
-      { name: "Aspirateurs, entretien des sols et nettoyeurs de vitres 吸尘器、地面护理与玻璃清洁", st: "idle" },
-      { name: "Petit électroménager 小型家电", st: "selling" },
-      { name: "Couteaux et ustensiles de cuisine 刀具与厨房用具", st: "idle" },
-      { name: "Produits et accessoires de nettoyage 清洁产品与配件", st: "idle" },
-      { name: "Café, thé et expresso 咖啡、茶与意式浓缩咖啡", st: "idle", chatName: "二级类目-法国-咖啡、茶和浓缩" },
-      { name: "Pâtisserie 烘焙", st: "idle" },
-      { name: "Casseroles, plats et poêles 锅具、烤盘与煎锅", st: "idle" },
-      { name: "Vaisselle 餐具", st: "idle" },
-      { name: "Chauffage et climatisation 取暖与空调", st: "idle" },
-      { name: "Fers, centrales vapeur et accessoires 熨斗、蒸汽熨烫系统与配件", st: "idle" },
-      { name: "Fontaines à eau, filtres et cartouches 饮水机、过滤器与滤芯", st: "idle" },
-      { name: "Tableaux, posters et arts décoratifs 画作、海报与装饰艺术", st: "idle" },
-    ]},
-    { name: "Bricolage DIY 五金建材", cats: [
-      { name: "Quincaillerie 五金", st: "idle" },
-      { name: "Outillage à main et électroportatif 手动及电动工具", st: "selling" },
-      { name: "Électricité 电气", st: "idle" },
-      { name: "Sécurité 安全", st: "selling" },
-      { name: "Peintures, outils et traitement des murs 油漆、工具及墙面处理", st: "idle" },
-      { name: "Construction 建筑/施工", st: "idle" },
-      { name: "Cuisines et salles de bain 厨房和浴室", st: "idle" },
-      { name: "Plomberie 管道水暖（很小）", st: "skip" },
-      { name: "Rangement et organisation 收纳与整理", st: "idle" },
-    ]},
-    { name: "Luminaires et Éclairage 灯具与照明", cats: [
-      { name: "Éclairage Intelligent 智能照明", st: "idle" },
-      { name: "Luminaires intérieur 室内灯具", st: "idle" },
-      { name: "Luminaires extérieur 户外灯具", st: "idle" },
-      { name: "Ampoules 灯泡", st: "idle" },
-      { name: "Éclairage de Noël 圣诞照明", st: "idle" },
-      { name: "Guirlandes lumineuses 灯串", st: "idle" },
-      { name: "Éclairage de salle de bain 浴室照明", st: "idle" },
-      { name: "Tubes lumineux 灯管", st: "idle" },
-    ]},
-  ]},
-  wild: { store: "野趣", groups: [
-    { name: "Jardin 花园", cats: [
-      { name: "Barbecue et repas en extérieur 烧烤与户外用餐", st: "idle" },
-      { name: "Chauffage extérieur et braséros 户外取暖与火盆", st: "idle" },
-      { name: "Décoration d'extérieur 户外装饰", st: "idle" },
-      { name: "Déneigement 除雪用品", st: "idle" },
-      { name: "Élevage et agriculture urbaine 饲养与城市农业", st: "idle" },
-      { name: "Jardinage 园艺", st: "idle" },
-      { name: "Mobilier de jardin 花园家具/户外家具", st: "idle" },
-      { name: "Oiseaux et animaux sauvages 鸟类与野生动物用品", st: "idle" },
-      { name: "Piscines, spas et accessoires 泳池、SPA 及配件", st: "idle" },
-      { name: "Plantes, graines et bulbes 植物、种子与球茎", st: "skip" },
-      { name: "Rangement et stockage extérieurs 户外收纳与储物", st: "idle" },
-      { name: "Terrasses en bois et clôtures 木质露台与围栏", st: "idle" },
-      { name: "Thermomètres et instruments météorologiques extérieur 户外温度计与气象仪器", st: "idle" },
-      { name: "Tondeuses et outillage de jardin motorisé 割草机与电动园艺工具", st: "idle" },
-    ]},
-    { name: "Sports et Loisirs 运动户外", cats: [
-      { name: "Accessoires de sports 运动配件", st: "idle" },
-      { name: "Boutique des Supporters 球迷用品商店", st: "idle" },
-      { name: "Chaussures de sport 运动鞋", st: "idle" },
-      { name: "Divers jeux 各类游戏", st: "idle" },
-      { name: "Électronique 运动电子设备", st: "idle" },
-      { name: "Fitness et musculation 健身与力量训练", st: "idle" },
-      { name: "Médécine du sport 运动医学", st: "idle" },
-      { name: "Sport de disque 飞盘类运动", st: "idle" },
-      { name: "Trophées 奖杯", st: "idle" },
-      { name: "Vêtements de sport 运动服饰", st: "idle" },
-      { name: "Activités de plein air 户外活动", st: "selling" },
-      { name: "Chasse et pêche 狩猎与钓鱼", st: "idle" },
-      { name: "Sports 体育运动", st: "selling" },
-    ]},
-  ]},
-  Vercoryx: { store: "乾数擎", groups: [
-    { name: "Auto et Moto 汽车与摩托", cats: [
-      { name: "Accessoires auto 汽车配件", st: "idle" },
-      { name: "Appareils GPS GPS 设备", st: "skip" },
-      { name: "Cadeaux et produits dérivés 礼品与周边产品", st: "idle" },
-      { name: "Électronique embarquée 车载电子设备", st: "idle" },
-      { name: "Entretien auto et moto 汽车与摩托车养护", st: "idle" },
-      { name: "Huiles et liquides 机油与液体", st: "skip" },
-      { name: "Motos, accessoires et pièces 摩托车、配件与零件", st: "idle" },
-      { name: "Outils et dépannage 工具与故障救援", st: "idle" },
-      { name: "Peinture 汽车漆", st: "skip" },
-      { name: "Pièces détachées auto 汽车零部件", st: "selling" },
-      { name: "Pièces et accessoires pour camping-car 房车零件与配件", st: "idle" },
-      { name: "Pièces et équipements pour véhicules agricoles 农用车辆零件与设备", st: "idle" },
-      { name: "Pneus et jantes 轮胎与轮毂", st: "idle" },
-      { name: "Sièges auto et accessoires 汽车座椅与配件", st: "idle" },
-      { name: "Transport et rangement 运输与收纳", st: "idle" },
-    ]},
-  ]},
-  woof: { store: "屿阔", fullName: "Woofinity", groups: [
-    { name: "Animalerie 宠物", cats: [
-      { name: "Chiens 狗", st: "ready" },
-      { name: "Chats 猫", st: "idle" },
-      { name: "Aquariophilie 水族/观赏鱼", st: "idle" },
-      { name: "Petits animaux 小动物", st: "idle" },
-      { name: "Reptiles et amphibiens 爬行动物和两栖动物", st: "idle" },
-      { name: "Oiseaux 鸟类", st: "idle" },
-      { name: "Animaux de Compagnie Alimentation 宠物食品/宠物营养", st: "skip" },
-    ]},
-    { name: "Jeux et Jouets 玩具（待录入）", cats: [] },
-  ]},
-  kinzon: { store: "乾霖", groups: [
-    { name: "High-Tech 电子/高科技", cats: [
-      { name: "Casques, écouteurs et accessoires 耳机、耳塞与配件", st: "idle" },
-      { name: "Cigarettes électroniques, chichas et accessoires 电子烟、水烟与配件", st: "skip" },
-      { name: "Électronique embarquée 车载电子设备", st: "idle" },
-      { name: "GPS et accessoires GPS 与配件", st: "idle" },
-      { name: "Liseuses et accessoires 电子书阅读器与配件", st: "skip" },
-      { name: "Photo et caméscopes 摄影与摄像机", st: "idle" },
-      { name: "Piles, chargeurs et testeurs 电池、充电器与测试仪", st: "idle" },
-      { name: "Radios et accessoires 收音机与配件", st: "idle" },
-      { name: "Technologie portable 可穿戴技术/智能穿戴", st: "idle" },
-      { name: "Téléphones fixes, VoIP et accessoires 固定电话、VoIP 电话与配件", st: "idle" },
-      { name: "Téléphones portables et accessoires 手机与配件", st: "idle" },
-      { name: "TV, vidéo et home cinéma 电视、视频与家庭影院", st: "idle" },
-      { name: "Univers Hi-Fi 高保真音响/Hi-Fi 音响", st: "skip" },
-      { name: "Audio et vidéo portable 便携式音频与视频", st: "idle" },
-      { name: "Alimentation et accessoires 电源与附件（待拆 6 细分）", st: "idle" },
-    ]},
-    { name: "Informatique 电脑与信息技术", cats: [
-      { name: "Accessoires 电脑配件", st: "idle" },
-      { name: "Composants et pièces de remplacement 组件与更换零件", st: "idle" },
-      { name: "Imprimantes et accessoires 打印机及配件", st: "idle" },
-      { name: "Mémoire 存储", st: "idle" },
-      { name: "Réseaux 网络设备", st: "idle" },
-      { name: "Scanners et accessoires 扫描仪及配件", st: "idle" },
-      { name: "Ordinateurs de bureau 台式电脑", st: "idle" },
-      { name: "Ordinateurs portables 笔记本电脑", st: "idle" },
-      { name: "PC Gaming 游戏电脑", st: "idle" },
-      { name: "Écrans PC 电脑显示器", st: "idle" },
-      { name: "Tablettes tactiles 平板电脑", st: "idle" },
-      { name: "Ardoises numériques et eWriters 电子手写板", st: "idle" },
-      { name: "Barebones 准系统", st: "idle" },
-      { name: "Serveurs 服务器", st: "idle" },
-    ]},
-    { name: "Fournitures de bureau 办公用品", cats: [
-      { name: "Calendriers, agendas et organiseurs 日历、日程本与计划用品", st: "idle" },
-      { name: "Écriture 书写用品", st: "idle" },
-      { name: "Enveloppes et fournitures d'expédition 信封与邮寄用品", st: "idle" },
-      { name: "Fournitures d'école 学校用品", st: "idle" },
-      { name: "Fournitures électroniques 办公电子用品", st: "idle" },
-      { name: "Mobilier et éclairage 家具与照明", st: "idle" },
-      { name: "Papeterie 纸品文具", st: "idle" },
-      { name: "Petites fournitures 小型办公用品", st: "idle" },
-    ]},
-    { name: "Commerce, Industrie et Science 商业、工业与科学", cats: [
-      { name: "Énergie solaire et éolienne 太阳能与风能", st: "idle" },
-      { name: "Équipement de transmission d'énergie 动力传动设备", st: "idle" },
-      { name: "Équipement dentaire 牙科设备", st: "idle" },
-      { name: "Équipement électrique industriel 工业电气设备", st: "idle" },
-      { name: "Équipement et fournitures agricoles 农业设备与用品", st: "idle" },
-      { name: "Équipement pour magasins et rayonnage 商店设备与货架", st: "idle" },
-      { name: "Équipements et fournitures de restauration 餐饮设备与用品", st: "idle" },
-      { name: "Filtrage 过滤设备", st: "idle" },
-      { name: "Fournitures de conditionnement et d'expédition 包装与运输用品", st: "idle" },
-      { name: "Fournitures de nettoyage et d'entretien 清洁与维护用品", st: "idle" },
-      { name: "Fournitures éducatives 教育用品", st: "idle" },
-      { name: "Fournitures médicales professionnelles 专业医疗用品", st: "idle" },
-      { name: "Hydraulique, pneumatique et plomberie 液压、气动与管道", st: "idle" },
-      { name: "Impression et numérisation 3D 3D 打印与扫描", st: "idle" },
-      { name: "Matières premières 原材料", st: "idle" },
-      { name: "Outils de coupe 切削工具", st: "idle" },
-      { name: "Outils manuels et électriques 手动与电动工具", st: "idle" },
-      { name: "Produits abrasifs et de finition 研磨与表面处理产品", st: "idle" },
-      { name: "Produits de manutention 物料搬运产品", st: "idle" },
-      { name: "Produits professionnels de sécurité et de santé 职业安全与健康产品", st: "idle" },
-      { name: "Produits scientifiques et de laboratoire 科学与实验室用品", st: "idle" },
-      { name: "Test et mesurage 测试与测量", st: "idle" },
-    ]},
-    { name: "Mode 时尚", cats: [
-      { name: "Porte-cigarettes 烟盒", st: "selling" },
-    ]},
-    { name: "Hygiène et Santé 卫生与健康 - 猪猪侠", cats: [
-      { name: "Pompes à pénis 增大泵", st: "selling" },
-    ]},
-    { name: "户外-光学", cats: [
-      { name: "Balles 弹丸", st: "skip" },
-      { name: "Batteries 电池", st: "idle" },
-      { name: "Billes BB 弹", st: "skip" },
-      { name: "Chargeurs 弹匣", st: "idle" },
-      { name: "Chargeurs batterie 电池充电器", st: "idle" },
-      { name: "Cibles 靶子", st: "idle" },
-      { name: "Fixations de lunettes de tir 瞄准镜固定件", st: "idle" },
-      { name: "Gilets tactiques 战术背心", st: "idle" },
-      { name: "Grenades 手雷", st: "skip" },
-      { name: "Gun Loaders 快速装弹器", st: "idle" },
-      { name: "Holsters 枪套", st: "idle" },
-      { name: "Lasers 激光瞄准", st: "idle" },
-      { name: "Lunettes de visée 瞄准镜", st: "idle" },
-      { name: "Mallettes et housses 枪箱与枪包", st: "idle" },
-      { name: "Outils 工具", st: "idle" },
-      { name: "Pistolets et fusils 手枪与步枪", st: "idle" },
-      { name: "Protections 防护装备", st: "idle" },
-      { name: "Rails 导轨", st: "idle" },
-      { name: "Sets 套装", st: "idle" },
-      { name: "Support pour arme à feu 枪械支架", st: "idle" },
-      { name: "Tenue de camouflage 迷彩服", st: "idle" },
-      { name: "Visières 面罩/护目镜", st: "idle" },
-    ]},
-  ]},
-  _未归属: { store: "无品牌归属", flat: true, groups: [
-    { name: "__flat__", cats: [
-      { name: "Beauté et Parfum 美妆与香水", st: "idle" },
-      { name: "Bébé et Puériculture 婴儿与育儿", st: "idle" },
-      { name: "Epicerie 食品杂货", st: "idle" },
-      { name: "Gros électroménager 大型家电", st: "idle" },
-      { name: "Instruments de musique et Sono 乐器与音响", st: "idle" },
-      { name: "Jeux vidéo 电子游戏", st: "idle" },
-      { name: "Produits Handmade 手工艺品", st: "idle" },
-    ]},
-  ]},
-};
+// 品牌货架数据 (由 fetchShelfData 从 Supabase 拉取后填充)
+let BRAND_SHELF = {};
+let CAT_DETAIL = {};
+
+// 从 Supabase 并行拉取 6 张表, 组装成 BRAND_SHELF / CAT_DETAIL
+// 形状与旧硬编码一致, 货架/跨站组件无需改动
+async function fetchShelfData() {
+  const [br, gr, ca, le, pr, su] = await Promise.all([
+    supabase.from("brands").select("*").order("sort_order"),
+    supabase.from("shelf_groups").select("*").order("sort_order"),
+    supabase.from("shelf_cats").select("*").order("sort_order"),
+    supabase.from("shelf_leaves").select("*").order("sort_order"),
+    supabase.from("products").select("*").order("sort_order"),
+    supabase.from("suppliers").select("*").order("sort_order"),
+  ]);
+  if (br.error) throw br.error;
+  const brands = br.data || [];
+  const groups = gr.data || [];
+  const cats = ca.data || [];
+  const leaves = le.data || [];
+  const products = pr.data || [];
+  const suppliers = su.data || [];
+
+  const groupsByBrand = {};
+  groups.forEach(g => { (groupsByBrand[g.brand_code] = groupsByBrand[g.brand_code] || []).push(g); });
+  const catsByGroup = {};
+  cats.forEach(c => { (catsByGroup[c.group_id] = catsByGroup[c.group_id] || []).push(c); });
+  const leavesByCat = {};
+  leaves.forEach(l => { (leavesByCat[l.cat_id] = leavesByCat[l.cat_id] || []).push(l); });
+  const productsByLeaf = {};
+  products.forEach(p => { (productsByLeaf[p.leaf_id] = productsByLeaf[p.leaf_id] || []).push(p); });
+  const suppliersByLeaf = {};
+  suppliers.forEach(s => { (suppliersByLeaf[s.leaf_id] = suppliersByLeaf[s.leaf_id] || []).push(s); });
+
+  const buildProducts = (leafId) => (productsByLeaf[leafId] || []).map(p => ({ id: p.id, name: p.name, st: p.st || "idle", asin: p.asin || null }));
+  const buildSuppliers = (leafId) => (suppliersByLeaf[leafId] || []).map(s => ({ id: s.id, factory: s.factory, contact: s.contact, products: s.main_products }));
+  const buildLeaves = (catId) => (leavesByCat[catId] || []).map(l => ({ id: l.id, leaf: l.leaf_name, path: l.path, st: l.st || "idle", chatName: l.chat_name || null, products: buildProducts(l.id), suppliers: buildSuppliers(l.id) }));
+
+  // CAT_DETAIL: 三重 key 兼容旧 catDetail(name, group) 查找
+  CAT_DETAIL = {};
+  cats.forEach(c => {
+    const g = groups.find(x => x.id === c.group_id);
+    const gName = g ? g.name : "";
+    const entry = { leaves: buildLeaves(c.id) };
+    CAT_DETAIL[gName + " || " + c.name] = entry;
+    CAT_DETAIL[c.id] = entry;
+    if (!CAT_DETAIL[c.name]) CAT_DETAIL[c.name] = entry;
+  });
+
+  // BRAND_SHELF: flat 品牌把所有组的类目拍平进一个 __flat__ 组
+  BRAND_SHELF = {};
+  brands.forEach(b => {
+    const bs = { store: b.store, fullName: b.full_name, flat: !!b.flat, groups: [] };
+    const myGroups = groupsByBrand[b.code] || [];
+    if (b.flat) {
+      const allCats = myGroups.flatMap(g => (catsByGroup[g.id] || []).map(c => ({ id: c.id, name: c.name, st: c.st || "idle", chatName: c.chat_name || null })));
+      bs.groups = [{ name: "__flat__", cats: allCats }];
+    } else {
+      bs.groups = myGroups.map(g => ({
+        name: g.name,
+        cats: (catsByGroup[g.id] || []).map(c => ({ id: c.id, name: c.name, st: c.st || "idle", chatName: c.chat_name || null })),
+      }));
+    }
+    BRAND_SHELF[b.code] = bs;
+  });
+}
 const SHELF_ST = {
-  selling: { label: "在售", color: "#4db6a4" },
-  ready:   { label: "已分析可做", color: "#d9a441" },
-  idle:    { label: "还没动", color: "#5b6670" },
-  skip:    { label: "暂不做", color: "#7a5b52" },
+  selling:         { label: "在售", color: "#4db6a4" },
+  idle:            { label: "还没动", color: "#5b6670" },
+  skip:            { label: "不做", color: "#7a5b52" },
+  researched_skip: { label: "已调研不做", color: "#7a5b52" },
 };
 
-// 类目详情: 点开类目后展开的 产品 / 供应商 两分支 (key = 类目名前缀匹配)
-// 供应商仍是独立维度, 这里展示与该类目相关的供应商
-const CAT_DETAIL = {
-  "Sports 体育运动": {
-    leaves: [
-      {
-        leaf: "Raquettes à neige 雪地鞋",
-        path: "Sports et Loisirs › Sports › Sports d'hiver › Raquettes à neige › Raquettes à neige",
-        products: [
-          { name: "雪地鞋01", st: "selling" },
-          { name: "雪地鞋02", st: "selling" },
-          { name: "雪地鞋03", st: "selling" },
-        ],
-        suppliers: [],
-      },
-    ],
-  },
-  "Accessoires auto 汽车配件": {
-    leaves: [
-      {
-        leaf: "Systèmes de surveillance de pression des pneus TPMS 胎压监测系统",
-        path: "Auto et Moto › Accessoires auto › Systèmes de surveillance de pression des pneus",
-        st: "researched_skip",
-        products: [],
-        suppliers: [],
-        chatName: "法国-TPMS胎压监测系统",
-      },
-    ],
-  },
-  "Sécurité 安全": {
-    leaves: [
-      {
-        leaf: "Sonnettes vidéo 可视门铃",
-        path: "Bricolage › Sécurité › Systèmes sécurité pour la maison › Sonnettes vidéo",
-        products: [{ name: "可视门铃01", st: "selling" }],
-        suppliers: [],
-        chatName: "产品矩阵-法国-建材diy-可视门铃",
-      },
-    ],
-  },
-  "Tondeuses et outillage de jardin motorisé 割草机与电动园艺工具": {
-    leaves: [
-      {
-        leaf: "Souffleurs et aspirateurs de feuilles 吹叶机/吸叶机",
-        path: "Jardin › Tondeuses et outillage de jardin motorisé › Souffleurs et aspirateurs de feuilles",
-        st: "idle",
-        products: [],
-        suppliers: [],
-        chatName: "吹叶机",
-      },
-    ],
-  },
-  "Activités de plein air 户外活动": {
-    leaves: [
-      {
-        leaf: "Gonfleurs et pompes électriques 户外电动充气泵",
-        path: "Sports et Loisirs › Activités de plein air › Camping et randonnée › Couchage › Gonfleurs et pompes › Gonfleurs et pompes électriques",
-        products: [{ name: "户外充气泵", st: "selling" }],
-        suppliers: [],
-      },
-    ],
-  },
-  "Outils et dépannage 工具与故障救援": {
-    leaves: [
-      {
-        leaf: "Caméras d'inspection 检测摄像头（内窥镜）",
-        path: "Auto et Moto › Outils et dépannage › Outils de diagnostics, tests et mesures › Caméras d'inspection",
-        st: "idle",
-        products: [],
-        suppliers: [],
-        chatName: "产品矩阵-法国-汽配-内窥镜",
-      },
-      {
-        leaf: "OBD & lecteurs de codes OBD-II 诊断仪",
-        path: "Auto et Moto › Outils et dépannage › Outils de diagnostics, tests et mesures › OBD & lecteurs de codes",
-        st: "idle",
-        products: [],
-        suppliers: [],
-        chatName: "法国-OBD-II诊断仪",
-      },
-    ],
-  },
-  "Pompes à pénis 增大泵": {
-    leaves: [
-      {
-        leaf: "Pompes à pénis 增大泵",
-        path: "Hygiène et Santé › Érotisme, sexe et sensualité › Lubrifiants, stimulants et hygiène › Pompes à pénis",
-        products: [
-          { name: "手动01", st: "selling" },
-          { name: "电动01", st: "selling" },
-          { name: "电动02", st: "selling" },
-        ],
-        suppliers: [],
-      },
-    ],
-  },
-  "Porte-cigarettes 烟盒": {
-    leaves: [
-      {
-        leaf: "Porte-cigarettes 烟盒（男士皮夹类）",
-        path: "Mode › Bagages, sacs de voyage et accessoires › Portefeuilles et porte-cartes › Homme › Porte-cigarettes",
-        products: [{ name: "烟盒01", st: "selling" }, { name: "烟盒02", st: "selling" }],
-        suppliers: [],
-      },
-    ],
-  },
-  "Pièces détachées auto 汽车零部件": {
-    leaves: [
-      {
-        leaf: "Feux arrière 后尾灯",
-        path: "Auto et Moto › Pièces détachées auto › Feux, ampoules et clignotants › Éclairages et composants › Feux arrière",
-        products: [{ name: "e11", st: "selling" }, { name: "e12", st: "selling" }],
-        suppliers: [],
-      },
-    ],
-  },
-  "Cuisine et Maison 厨房与家庭 || Rangement et organisation 收纳与整理": {
-    leaves: [
-      {
-        leaf: "Housses de rangement sous vide 真空压缩收纳袋",
-        path: "Cuisine et Maison › Rangement et organisation › Rangement pour vêtements et penderies › Housses de rangement sous vide",
-        products: [{ name: "衣服真空泵", st: "selling" }],
-        suppliers: [],
-      },
-    ],
-  },
-  "Outillage à main et électroportatif 手动及电动工具": {
-    leaves: [
-      {
-        leaf: "Compresseurs d'air 空气压缩机",
-        path: "Bricolage › Outillage à main et électroportatif › Outillage électroportatif › Compresseurs d'air",
-        products: [{ name: "汽车充气泵", st: "selling" }],
-        suppliers: [],
-      },
-    ],
-  },
-  "Petit électroménager 小型家电": {
-    leaves: [
-      {
-        leaf: "Appareils de mise sous vide 真空封口机",
-        path: "Cuisine et Maison › Petit électroménager › Appareils de mise sous vide",
-        products: [{ name: "封口机01", st: "selling" }, { name: "封口机02", st: "selling" }],
-        suppliers: [],
-      },
-    ],
-  },
-  "Chats 猫": {
-    leaves: [
-      {
-        leaf: "Distributeurs automatiques de nourriture 自动喂食器",
-        path: "Animalerie › Chats › Mangeoirs et abreuvoirs › Distributeurs automatiques de nourriture",
-        st: "idle",
-        products: [],
-        suppliers: [],
-      },
-      {
-        leaf: "Fontaines 饮水器",
-        path: "Animalerie › Chats › Mangeoirs et abreuvoirs › Fontaines",
-        st: "idle",
-        products: [],
-        suppliers: [],
-      },
-    ],
-  },
-  "Chiens 狗": {
-    leaves: [
-      {
-        leaf: "Colliers anti-aboiement 防吠项圈",
-        path: "Animalerie › Chiens › Colliers, harnais et laisses › Colliers › Colliers anti-aboiement",
-        products: [{ name: "宠物项圈01", st: "selling" }],
-        suppliers: [],
-      },
-      {
-        leaf: "Clôtures anti-fugue 防逃电子围栏",
-        path: "Animalerie › Chiens › Câbles et piquets d'attache › Clôtures anti-fugue",
-        products: [{ name: "电子围栏01", st: "selling" }],
-        suppliers: [],
-      },
-      {
-        leaf: "Rehausseurs et sièges autos 增高垫与汽车座椅",
-        path: "Animalerie › Chiens › Transport et voyages › Accessoires voiture › Rehausseurs et sièges autos",
-        products: [{ name: "车载宠物屋-大-黑", st: "selling" }],
-        suppliers: [],
-      },
-      {
-        leaf: "Tondeuses électriques 电动理毛器",
-        path: "Animalerie › Chiens › Toilettage › Tondeuses électriques et peignes › Tondeuses électriques",
-        st: "idle",
-        products: [],
-        suppliers: [],
-      },
-      {
-        leaf: "Douchettes et pulvérisateurs 花洒与喷头",
-        path: "Animalerie › Chiens › Toilettage › Articles de bain et de douche › Douchettes et pulvérisateurs",
-        st: "idle",
-        products: [],
-        suppliers: [],
-      },
-    ],
-  },
-  "Programmateurs d'arrosage": {
-    products: [
-      { name: "WiFi 智能灌溉控制器 SKU-1", st: "ready" },
-    ],
-    suppliers: [
-      { factory: "Hanci Electrical 汉慈电气", contact: "王经理 · wechat hanci_wang", products: "WiFi 灌溉控制器、智能水阀" },
-    ],
-  },
-  "Ventilateurs de plafond": {
-    products: [
-      { name: "带灯吸顶风扇 SKU-01", st: "selling" },
-    ],
-    suppliers: [
-      { factory: "示例工厂 · 吸顶风扇", contact: "李工 · 138-0000-0000", products: "吸顶风扇、灯具" },
-    ],
-  },
-};
+// CAT_DETAIL 由 fetchShelfData() 填充 (见上)
 function catDetail(name, groupName) {
   if (groupName) {
     const scoped = `${groupName} || ${name}`;
@@ -600,12 +232,25 @@ export default function App() {
   const [tab, setTab] = useState("overview");
   const [sel, setSel] = useState(null);
   const [selSku, setSelSku] = useState("s2");
+  const [shelfReady, setShelfReady] = useState(false);
+  const [shelfErr, setShelfErr] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_ev, s) => setSession(s));
     return () => subscription.unsubscribe();
   }, []);
+
+  // 登录后拉取货架数据 (拉到前显示加载态, 避免渲染空壳)
+  useEffect(() => {
+    if (!session) { setShelfReady(false); setShelfErr(null); return; }
+    let on = true;
+    setShelfErr(null);
+    fetchShelfData()
+      .then(() => { if (on) setShelfReady(true); })
+      .catch(e => { if (on) setShelfErr(e); });
+    return () => { on = false; };
+  }, [session]);
 
   // 加载中
   if (session === undefined) return (
@@ -616,6 +261,20 @@ export default function App() {
 
   // 未登录 → 登录页
   if (!session) return <Login />;
+
+  // 已登录但货架数据未就绪 → 加载/错误态
+  if (shelfErr) return (
+    <div style={{ background: C.bg, color: C.sub, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <div style={{ color: C.drop }}>货架数据加载失败：{String(shelfErr.message || shelfErr)}</div>
+      <button onClick={() => { setShelfErr(null); fetchShelfData().then(() => setShelfReady(true)).catch(e => setShelfErr(e)); }}
+        style={{ fontSize: 12, color: C.ink, background: C.panel2, border: `1px solid ${C.line}`, padding: "6px 16px", borderRadius: 8, cursor: "pointer" }}>重试</button>
+    </div>
+  );
+  if (!shelfReady) return (
+    <div style={{ background: C.bg, color: C.sub, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif" }}>
+      加载货架数据…
+    </div>
+  );
 
   return (
     <div style={{ background: C.bg, color: C.ink, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif" }}>
@@ -964,14 +623,14 @@ function Shelf() {
   const [projectFor, setProjectFor] = useState(null); // 跳转 Project 弹窗
 
   const countCats = (groups) => {
-    const n = { total: 0, selling: 0, ready: 0, idle: 0, skip: 0 };
-    groups.forEach(g => g.cats.forEach(c => { n.total++; n[c.st]++; }));
+    const n = { total: 0, selling: 0, idle: 0, skip: 0, researched_skip: 0 };
+    groups.forEach(g => g.cats.forEach(c => { n.total++; if (n[c.st] !== undefined) n[c.st]++; }));
     return n;
   };
 
   return (
     <div>
-      <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。标记已分析可做 / 在售 / 还没动 / 暂不做" />
+      <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
 
       {/* 图例 */}
       <div style={{ display: "flex", gap: 16, marginBottom: 18 }}>
@@ -1035,7 +694,7 @@ function Shelf() {
                             <div>
                               {g.cats.map((c, ci) => {
                                 const s = SHELF_ST[c.st];
-                                if (c.st === "skip") {
+                                if (c.st === "skip" || c.st === "researched_skip") {
                                   return (
                                     <div key={ci} style={{ display: "flex", alignItems: "center", padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
                                       <span style={{ fontSize: 13, color: C.faint }}>{c.name} - 不做</span>
