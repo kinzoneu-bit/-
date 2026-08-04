@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { supabase } from "./lib/supabase";
 
 // =============================================================
 // 选品全链路看板 · DEMO (假数据) —— 三视图: 总览 / 产品跨站 / SKU跟踪
@@ -554,10 +555,67 @@ const conclText = (c) => c === "recommend" ? "推荐" : c === "watch" ? "观望"
 const statusText = (s) => (FUNNEL.find(f => f.key === s) || {}).label || s;
 const execText = (s) => (EXEC.find(f => f.key === s) || {}).label || s;
 
+// ---- 登录页 ----
+function Login() {
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const go = async () => {
+    setBusy(true); setErr("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
+    if (error) setErr(error.message);
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ background: C.bg, color: C.ink, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 360, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 32 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>选品全链路看板</div>
+        <div style={{ fontSize: 12, color: C.sub, marginBottom: 28 }}>KinZon SAS · 登录</div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 5 }}>邮箱</div>
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com"
+            style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 5 }}>密码</div>
+          <input value={pw} onChange={e => setPw(e.target.value)} type="password" placeholder="••••••"
+            onKeyDown={e => e.key === "Enter" && go()}
+            style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+        </div>
+        {err && <div style={{ fontSize: 12, color: "#c05b52", marginBottom: 14 }}>{err}</div>}
+        <button onClick={go} disabled={busy}
+          style={{ width: "100%", padding: "10px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1 }}>
+          {busy ? "登录中…" : "登 录"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [session, setSession] = useState(undefined); // undefined=loading, null=not logged in
   const [tab, setTab] = useState("overview");
-  const [sel, setSel] = useState(null); // selected product for cross-site
+  const [sel, setSel] = useState(null);
   const [selSku, setSelSku] = useState("s2");
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_ev, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 加载中
+  if (session === undefined) return (
+    <div style={{ background: C.bg, color: C.sub, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',system-ui,sans-serif" }}>
+      加载中…
+    </div>
+  );
+
+  // 未登录 → 登录页
+  if (!session) return <Login />;
 
   return (
     <div style={{ background: C.bg, color: C.ink, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif" }}>
@@ -570,10 +628,16 @@ export default function App() {
       `}</style>
 
       {/* header */}
-      <div style={{ borderBottom: `1px solid ${C.line}`, padding: "18px 28px", display: "flex", alignItems: "baseline", gap: 16 }}>
+      <div style={{ borderBottom: `1px solid ${C.line}`, padding: "18px 28px", display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: ".01em" }}>选品全链路看板</div>
         <div style={{ fontSize: 12, color: C.sub }}>KinZon · FR / DE / UK</div>
-        <div style={{ marginLeft: "auto", fontSize: 11, color: C.faint, border: `1px solid ${C.line}`, padding: "3px 8px", borderRadius: 6 }}>DEMO · 假数据</div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 11, color: C.faint }}>{session.user.email}</span>
+          <button onClick={() => supabase.auth.signOut()}
+            style={{ fontSize: 11, color: C.sub, background: "transparent", border: `1px solid ${C.line}`, padding: "3px 10px", borderRadius: 6, cursor: "pointer" }}>
+            退出
+          </button>
+        </div>
       </div>
 
       {/* tabs */}
