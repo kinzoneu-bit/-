@@ -633,6 +633,10 @@ function Shelf() {
   const [addProd, setAddProd] = useState(null); // { leafId } 加产品弹窗
   const [prodName, setProdName] = useState("");
   const [prodAsin, setProdAsin] = useState("");
+  const [addSup, setAddSup] = useState(null);   // { leafId } 加供应商弹窗
+  const [supFactory, setSupFactory] = useState("");
+  const [supContact, setSupContact] = useState("");
+  const [supMain, setSupMain] = useState("");
   const [tick, setTick] = useState(0);
 
   const refreshShelf = async () => {
@@ -660,6 +664,20 @@ function Shelf() {
     });
     if (error) { alert("添加失败: " + error.message); return; }
     setAddProd(null); setProdName(""); setProdAsin("");
+    await refreshShelf();
+  };
+
+  const submitAddSupplier = async () => {
+    if (!addSup) return;
+    if (!supFactory.trim()) { alert("工厂名不能为空"); return; }
+    const { error } = await supabase.from("suppliers").insert({
+      leaf_id: addSup.leafId,
+      factory: supFactory.trim(),
+      contact: supContact.trim() || null,
+      main_products: supMain.trim() || null,
+    });
+    if (error) { alert("添加失败: " + error.message); return; }
+    setAddSup(null); setSupFactory(""); setSupContact(""); setSupMain("");
     await refreshShelf();
   };
 
@@ -848,6 +866,10 @@ function Shelf() {
                                                           <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
                                                         </div>
                                                       )) : <Empty t="暂无供应商" />}
+                                                      <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
+                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                        + 新增供应商
+                                                      </div>
                                                     </Branch>
                                                   </div>
                                                 )}
@@ -934,6 +956,32 @@ function Shelf() {
                 取消
               </button>
               <button onClick={submitAddProduct}
+                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增供应商表单 */}
+      {addSup && (
+        <div onClick={() => setAddSup(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 420 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>新增供应商</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 12 }}>工厂名必填 · 联系人/主要产品可留空</div>
+            <input value={supFactory} onChange={(e) => setSupFactory(e.target.value)} placeholder="工厂名（如 深圳XX电子）"
+              style={{ width: "100%", padding: "9px 12px", marginBottom: 10, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+            <input value={supContact} onChange={(e) => setSupContact(e.target.value)} placeholder="联系人（如 王经理）"
+              style={{ width: "100%", padding: "9px 12px", marginBottom: 10, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+            <input value={supMain} onChange={(e) => setSupMain(e.target.value)} placeholder="主要产品（如 封口机/真空泵）"
+              style={{ width: "100%", padding: "9px 12px", marginBottom: 16, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setAddSup(null)}
+                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+                取消
+              </button>
+              <button onClick={submitAddSupplier}
                 style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
                 保存
               </button>
