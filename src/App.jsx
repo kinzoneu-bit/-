@@ -683,6 +683,9 @@ function Shelf() {
   const [supFactory, setSupFactory] = useState("");
   const [supContact, setSupContact] = useState("");
   const [supMain, setSupMain] = useState("");
+  const [addLeaf, setAddLeaf] = useState(null); // { catId, catName } 加末端类目弹窗
+  const [leafName, setLeafName] = useState("");
+  const [leafPath, setLeafPath] = useState("");
   const [tick, setTick] = useState(0);
 
   const refreshShelf = async () => {
@@ -756,6 +759,21 @@ function Shelf() {
     });
     if (error) { alert("添加失败: " + error.message); return; }
     setAddSup(null); setSupFactory(""); setSupContact(""); setSupMain("");
+    await refreshShelf();
+  };
+
+  // 加末端类目 (leaf): leaf_name 必填, path 可空
+  const submitAddLeaf = async () => {
+    if (!addLeaf) return;
+    if (!leafName.trim()) { alert("末端类目名不能为空"); return; }
+    const { error } = await supabase.from("shelf_leaves").insert({
+      cat_id: addLeaf.catId,
+      leaf_name: leafName.trim(),
+      path: leafPath.trim() || null,
+      st: "idle",
+    });
+    if (error) { alert("添加失败: " + error.message); return; }
+    setAddLeaf(null); setLeafName(""); setLeafPath("");
     await refreshShelf();
   };
 
@@ -877,7 +895,8 @@ function Shelf() {
                                     {cOpen && (
                                       <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
                                         {detail && detail.leaves ? (
-                                          detail.leaves.filter(lf => {
+                                          <React.Fragment>
+                                          {detail.leaves.filter(lf => {
                                             const f = filterC[ckey];
                                             if (!f) return true;
                                             if (f === "selling") return lf.products.some(p => p.st === "selling");
@@ -970,7 +989,12 @@ function Shelf() {
                                                 )}
                                               </div>
                                             );
-                                          })
+                                          })}
+                                        <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: c.id, catName: c.name }); }}
+                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "8px 16px 10px 82px" }}>
+                                          + 新增末端类目
+                                        </div>
+                                          </React.Fragment>
                                         ) : (
                                           <div style={{ padding: "10px 16px 14px 82px" }}>
                                             <Branch title="产品">
@@ -1099,6 +1123,30 @@ function Shelf() {
                 取消
               </button>
               <button onClick={submitAddSupplier}
+                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增末端类目表单 */}
+      {addLeaf && (
+        <div onClick={() => setAddLeaf(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 440 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>新增末端类目</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 12 }}>所属二级类目：{addLeaf.catName}</div>
+            <input value={leafName} onChange={(e) => setLeafName(e.target.value)} placeholder="末端类目名（如 Housses de rangement sous vide）"
+              style={{ width: "100%", padding: "9px 12px", marginBottom: 10, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+            <input value={leafPath} onChange={(e) => setLeafPath(e.target.value)} placeholder="完整路径（可留空，如 Cuisine et Maison › ...）"
+              style={{ width: "100%", padding: "9px 12px", marginBottom: 16, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setAddLeaf(null)}
+                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+                取消
+              </button>
+              <button onClick={submitAddLeaf}
                 style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
                 保存
               </button>
