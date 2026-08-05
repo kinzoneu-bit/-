@@ -628,6 +628,47 @@ function Shelf() {
     return n;
   };
 
+  // —— 编辑功能 (P0) ——
+  const [edit, setEdit] = useState(null);       // { type, table, id, st, label } 改状态弹窗
+  const [addProd, setAddProd] = useState(null); // { leafId } 加产品弹窗
+  const [prodName, setProdName] = useState("");
+  const [prodAsin, setProdAsin] = useState("");
+  const [tick, setTick] = useState(0);
+
+  const refreshShelf = async () => {
+    await fetchShelfData();
+    setTick(t => t + 1);
+  };
+
+  const saveSt = async (newSt) => {
+    if (!edit) return;
+    const { error } = await supabase.from(edit.table).update({ st: newSt }).eq("id", edit.id);
+    if (error) { alert("保存失败: " + error.message); return; }
+    setEdit(null);
+    await refreshShelf();
+  };
+
+  const submitAddProduct = async () => {
+    if (!addProd) return;
+    if (!prodName.trim()) { alert("产品名不能为空"); return; }
+    const { error } = await supabase.from("products").insert({
+      leaf_id: addProd.leafId,
+      name: prodName.trim(),
+      asin: prodAsin.trim() || null,
+      st: "idle",
+      amazon_site: "FR",
+    });
+    if (error) { alert("添加失败: " + error.message); return; }
+    setAddProd(null); setProdName(""); setProdAsin("");
+    await refreshShelf();
+  };
+
+  const stDot = (s, onClick, extra) => (
+    <span onClick={onClick}
+      style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[s] ? SHELF_ST[s].color : C.faint, display: "inline-block", cursor: "pointer", ...(extra || {}) }}
+      title="点击修改状态" />
+  );
+
   return (
     <div>
       <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
@@ -663,10 +704,9 @@ function Shelf() {
               {isOpen && info.flat && (
                 <div style={{ borderTop: `1px solid ${C.line}` }}>
                   {info.groups[0].cats.map((c, ci) => {
-                    const s = SHELF_ST[c.st];
                     return (
                       <div key={ci} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", borderTop: ci ? `1px solid ${C.line}` : "none" }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, display: "inline-block" }} />
+                        {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
                         <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
                       </div>
                     );
@@ -693,7 +733,6 @@ function Shelf() {
                           g.cats.length ? (
                             <div>
                               {g.cats.map((c, ci) => {
-                                const s = SHELF_ST[c.st];
                                 if (c.st === "skip" || c.st === "researched_skip") {
                                   return (
                                     <div key={ci} style={{ display: "flex", alignItems: "center", padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
@@ -709,7 +748,7 @@ function Shelf() {
                                     <div onClick={() => setOpenC(st => ({ ...st, [ckey]: !st[ckey] }))}
                                       style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 58px", cursor: "pointer" }}>
                                       <Caret open={cOpen} small />
-                                      <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, display: "inline-block" }} />
+                                      {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
                                       <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
                                       <span onClick={(e) => {
                                           e.stopPropagation();
@@ -754,14 +793,13 @@ function Shelf() {
                                               : f === "idle" ? lf.products.filter(p => p.st === "idle") : lf.products;
                                             const lkey = `${ckey}|${li}`;
                                             const lOpen = !!openL[lkey];
-                                            const leafDot = lf.products.some(p => p.st === "selling") ? SHELF_ST.selling.color : (lf.st === "idle" || !lf.products.length ? C.sub : SHELF_ST.selling.color);
                                             return (
                                               <div key={li} style={{ borderTop: li ? `1px solid ${C.line}` : "none" }}>
                                                 {/* 末端类目行 */}
                                                 <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 82px" }}>
                                                   <span onClick={() => setOpenL(st => ({ ...st, [lkey]: !st[lkey] }))} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
                                                     <Caret open={lOpen} small />
-                                                    <span style={{ width: 8, height: 8, borderRadius: 2, background: leafDot }} />
+                                                    {stDot(lf.st, (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, label: lf.leaf }); })}
                                                   </span>
                                                   <span onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })} style={{ fontSize: 13, color: C.ink, fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted", textDecorationColor: C.faint, textUnderlineOffset: 3 }}>
                                                     {lf.leaf}
@@ -784,7 +822,9 @@ function Shelf() {
                                                     <Branch title="产品">
                                                       {shownProducts.length ? shownProducts.map((p, pi) => (
                                                         <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                          <span style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st].color }} />{p.name}
+                                                          <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
+                                                            style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
+                                                            title="点击修改状态" />{p.name}
                                                           <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
                                                           {p.asin && (
                                                             <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"
@@ -795,6 +835,10 @@ function Shelf() {
                                                           )}
                                                         </div>
                                                       )) : <Empty t="暂无产品" />}
+                                                      <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
+                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                        + 新增产品
+                                                      </div>
                                                     </Branch>
                                                     <Branch title="供应商">
                                                       {lf.suppliers.length ? lf.suppliers.map((sp, si) => (
@@ -815,7 +859,9 @@ function Shelf() {
                                             <Branch title="产品">
                                               {detail && detail.products.length ? detail.products.map((p, pi) => (
                                                 <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                  <span style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st].color }} />{p.name}
+                                                  <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
+                                                    style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
+                                                    title="点击修改状态" />{p.name}
                                                   <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
                                                 </div>
                                               )) : <Empty t="暂无产品" />}
@@ -850,6 +896,51 @@ function Shelf() {
           );
         })}
       </div>
+
+      {/* 改状态浮层 */}
+      {edit && (
+        <div onClick={() => setEdit(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 380 }}>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>修改状态</div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>{edit.label}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {Object.entries(SHELF_ST).map(([k, v]) => (
+                <div key={k} onClick={() => saveSt(k)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                    border: `1px solid ${edit.st === k ? v.color : C.line}`, background: edit.st === k ? `${v.color}22` : "transparent", color: C.ink, fontSize: 13 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
+                  {v.label}
+                  {edit.st === k && <span style={{ marginLeft: "auto", fontSize: 11, color: v.color }}>当前</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增产品表单 */}
+      {addProd && (
+        <div onClick={() => setAddProd(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 420 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>新增产品</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 12 }}>产品名必填 · ASIN 可留空（上架后填）</div>
+            <input value={prodName} onChange={(e) => setProdName(e.target.value)} placeholder="产品名（如 封口机01）"
+              style={{ width: "100%", padding: "9px 12px", marginBottom: 10, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+            <input value={prodAsin} onChange={(e) => setProdAsin(e.target.value)} placeholder="ASIN（如 B0GLWV84HC）"
+              style={{ width: "100%", padding: "9px 12px", marginBottom: 16, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setAddProd(null)}
+                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+                取消
+              </button>
+              <button onClick={submitAddProduct}
+                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 跳转持续分析(Project) 弹窗 */}
       {projectFor && (
