@@ -921,23 +921,18 @@ function Shelf() {
                                                     {lf.leaf}
                                                   </span>
                                                   {lf.st === "idle" && (!lf.products || !lf.products.length) && (
-                                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                                                      <span style={{ fontSize: 11, color: lf.phase ? (LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].color : C.faint) : C.faint }}>
-                                                        · {lf.phase && LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].label : "在调研"}
-                                                      </span>
-                                                      <select
-                                                        value={lf.phase || ""}
-                                                        onChange={(e) => {
-                                                          e.stopPropagation();
-                                                          const v = e.target.value;
-                                                          if (v) savePhaseFor(lf.id, v); else clearPhaseFor(lf.id);
-                                                        }}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        style={{ fontSize: 11, padding: "2px 6px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, cursor: "pointer", outline: "none" }}>
-                                                        <option value="">未细分</option>
-                                                        {Object.entries(LEAF_PHASE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                                      </select>
-                                                    </span>
+                                                    <select
+                                                      value={lf.phase || ""}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const v = e.target.value;
+                                                        if (v) savePhaseFor(lf.id, v); else clearPhaseFor(lf.id);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      style={{ fontSize: 11, padding: "2px 6px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, cursor: "pointer", outline: "none" }}>
+                                                      <option value="">未细分</option>
+                                                      {Object.entries(LEAF_PHASE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                                    </select>
                                                   )}
                                                   {lf.st === "researched_skip" && (
                                                     <span style={{ fontSize: 11, color: C.faint }}>· 已调研不做</span>
