@@ -77,6 +77,8 @@ const TRACKING = {
 // 品牌货架数据 (由 fetchShelfData 从 Supabase 拉取后填充)
 let BRAND_SHELF = {};
 let CAT_DETAIL = {};
+// id → { kind, name, path } 名称映射 (供总览/site_evals 解析目标名称)
+let ID_NAME = {};
 
 // 从 Supabase 并行拉取 6 张表, 组装成 BRAND_SHELF / CAT_DETAIL
 // 形状与旧硬编码一致, 货架/跨站组件无需改动
@@ -139,6 +141,12 @@ async function fetchShelfData() {
     }
     BRAND_SHELF[b.code] = bs;
   });
+
+  // ID_NAME: 全量 id → 名称映射
+  ID_NAME = {};
+  cats.forEach(c => { ID_NAME[c.id] = { kind: "cat", name: c.name, path: c.name }; });
+  leaves.forEach(l => { ID_NAME[l.id] = { kind: "leaf", name: l.leaf_name, path: l.path || l.leaf_name }; });
+  products.forEach(p => { ID_NAME[p.id] = { kind: "product", name: p.name, path: p.name }; });
 }
 const SHELF_ST = {
   selling:         { label: "在售", color: "#4db6a4" },
@@ -234,6 +242,7 @@ export default function App() {
   const [selSku, setSelSku] = useState("s2");
   const [shelfReady, setShelfReady] = useState(false);
   const [shelfErr, setShelfErr] = useState(null);
+  const [siteEvals, setSiteEvals] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
@@ -249,6 +258,16 @@ export default function App() {
     fetchShelfData()
       .then(() => { if (on) setShelfReady(true); })
       .catch(e => { if (on) setShelfErr(e); });
+    return () => { on = false; };
+  }, [session]);
+
+  // 登录后拉取跨站评估数据 (总览看板用)
+  useEffect(() => {
+    if (!session) return;
+    let on = true;
+    supabase.from("site_evals").select("*").order("site")
+      .then(({ data, error }) => { if (on && !error) setSiteEvals(data || []); })
+      .catch(() => {});
     return () => { on = false; };
   }, [session]);
 
@@ -310,7 +329,7 @@ export default function App() {
       </div>
 
       <div style={{ padding: "20px 24px 60px" }}>
-        {tab === "overview" && <Overview onPick={(p) => { setSel(p); setTab("cross"); }} />}
+        {tab === "overview" && <Overview siteEvals={siteEvals} onPick={(p) => { setSel(p); setTab("cross"); }} />}
         {tab === "shelf" && <Shelf />}
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
@@ -319,60 +338,78 @@ export default function App() {
   );
 }
 
-// ---------------- 总览: 站点 × 漏斗状态 矩阵 ----------------
-function Overview({ onPick }) {
+// ---------------- 总览: 站点 × 状态 矩阵 (基于 site_evals 真实数据) ----------------
+function Overview({ siteEvals, onPick }) {
   const matrix = useMemo(() => {
     const m = {};
-    SITES.forEach(s => { m[s] = {}; FUNNEL.forEach(f => m[s][f.key] = []); });
-    PRODUCTS.forEach(p => SITES.forEach(s => {
-      const e = p.eval[s]; if (e) m[s][e.status].push(p);
-    }));
+    SITES.forEach(s => { m[s] = {}; Object.keys(SHELF_ST).forEach(k => m[s][k] = []); });
+    (siteEvals || []).forEach(e => {
+      const site = e.site;
+      if (!m[site]) return;
+      const st = e.st || "idle";
+      if (!m[site][st]) return;
+      m[site][st].push(e);
+    });
     return m;
-  }, []);
+  }, [siteEvals]);
+
+  const resolve = (e) => {
+    const info = ID_NAME[e.target_id];
+    return info ? info.name : `${e.target_kind || ""}#${(e.target_id || "").slice(0, 8)}`;
+  };
 
   return (
     <div>
-      <SectionTitle t="漏斗总览" sub="每格 = 该站点处于该状态的类目数量，点击类目跳转跨站对比" />
-      <div style={{ display: "grid", gridTemplateColumns: `72px repeat(${FUNNEL.length},1fr)`, gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ background: C.panel }} />
-        {FUNNEL.map(f => (
-          <div key={f.key} style={{ background: C.panel, padding: "10px 12px", fontSize: 12, color: C.sub, fontWeight: 600 }}>{f.label}</div>
-        ))}
-        {SITES.map(s => (
-          <React.Fragment key={s}>
-            <div style={{ background: C.panel, padding: "12px", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: C[s.toLowerCase()] }}>{s}</div>
-            {FUNNEL.map(f => (
-              <div key={f.key} className="cell" style={{ background: C.panel, padding: "10px 12px", minHeight: 78 }}>
-                <div style={{ fontSize: 20, fontWeight: 700, color: matrix[s][f.key].length ? C.ink : C.faint }}>{matrix[s][f.key].length}</div>
-                <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {matrix[s][f.key].map(p => (
-                    <div key={p.id} onClick={() => onPick(p)} style={{ fontSize: 11, color: C.sub, cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 2 }}>{p.name}</div>
-                  ))}
+      <SectionTitle t="跨站评估总览" sub="每格 = 该站点处于该状态的目标数量（数据源：site_evals）" />
+      {!siteEvals || !siteEvals.length ? (
+        <div style={{ padding: 40, textAlign: "center", color: C.faint, fontSize: 13, border: `1px dashed ${C.line}`, borderRadius: 12 }}>
+          暂无跨站评估数据。<br />
+          在 site_evals 表录入后，这里会显示 FR / DE / UK 各状态的评估数量。
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: `72px repeat(${Object.keys(SHELF_ST).length},1fr)`, gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ background: C.panel }} />
+          {Object.entries(SHELF_ST).map(([k, v]) => (
+            <div key={k} style={{ background: C.panel, padding: "10px 12px", fontSize: 12, color: v.color, fontWeight: 600 }}>{v.label}</div>
+          ))}
+          {SITES.map(s => (
+            <React.Fragment key={s}>
+              <div style={{ background: C.panel, padding: "12px", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: C[s.toLowerCase()] }}>{s}</div>
+              {Object.keys(SHELF_ST).map(k => (
+                <div key={k} className="cell" style={{ background: C.panel, padding: "10px 12px", minHeight: 78 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: matrix[s][k].length ? C.ink : C.faint }}>{matrix[s][k].length}</div>
+                  <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {matrix[s][k].map((e, i) => (
+                      <div key={i} onClick={() => onPick(e)} style={{ fontSize: 11, color: C.sub, cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 2 }}>{resolve(e)}</div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </React.Fragment>
-        ))}
-      </div>
+              ))}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
 
       <div style={{ marginTop: 28 }}>
-        <SectionTitle t="全部产品" sub="按产品看它在各站点的评估结论" />
+        <SectionTitle t="全部评估条目" sub="site_evals 表所有跨站评估记录" />
         <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.6fr .7fr repeat(3,.8fr)", background: C.panel, fontSize: 11, color: C.sub, fontWeight: 600 }}>
-            {["产品", "品牌", "FR", "DE", "UK"].map((h, i) => <div key={i} style={{ padding: "10px 14px" }}>{h}</div>)}
+          <div style={{ display: "grid", gridTemplateColumns: "1.4fr .8fr .7fr 1fr", background: C.panel, fontSize: 11, color: C.sub, fontWeight: 600 }}>
+            {["目标", "类型", "站点", "状态"].map((h, i) => <div key={i} style={{ padding: "10px 14px" }}>{h}</div>)}
           </div>
-          {PRODUCTS.map(p => (
-            <div key={p.id} className="prow" onClick={() => onPick(p)} style={{ display: "grid", gridTemplateColumns: "1.6fr .7fr repeat(3,.8fr)", borderTop: `1px solid ${C.line}`, fontSize: 12, background: C.panel }}>
-              <div style={{ padding: "12px 14px" }}>{p.name}<div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>{p.code}</div></div>
-              <div style={{ padding: "12px 14px", color: C.sub }}>{p.brand}</div>
-              {SITES.map(s => {
-                const e = p.eval[s];
-                return <div key={s} style={{ padding: "12px 14px" }}>
-                  {e ? <Pill color={conclColor(e.concl)} text={e.concl ? conclText(e.concl) : statusText(e.status)} /> : <span style={{ color: C.faint }}>—</span>}
-                </div>;
-              })}
-            </div>
-          ))}
+          {siteEvals && siteEvals.length ? siteEvals.map((e, i) => {
+            const info = ID_NAME[e.target_id];
+            const sv = SHELF_ST[e.st] || SHELF_ST.idle;
+            return (
+              <div key={i} className="prow" onClick={() => onPick(e)} style={{ display: "grid", gridTemplateColumns: "1.4fr .8fr .7fr 1fr", borderTop: `1px solid ${C.line}`, fontSize: 12, background: C.panel }}>
+                <div style={{ padding: "12px 14px" }}>{info ? info.name : (e.target_id || "").slice(0, 8)}<div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>{info ? info.path : ""}</div></div>
+                <div style={{ padding: "12px 14px", color: C.sub }}>{e.target_kind}</div>
+                <div style={{ padding: "12px 14px", color: C.sub }}>{e.site}</div>
+                <div style={{ padding: "12px 14px", color: sv.color }}>{sv.label}</div>
+              </div>
+            );
+          }) : (
+            <div style={{ padding: "20px 14px", textAlign: "center", color: C.faint, fontSize: 12, background: C.panel, borderTop: `1px solid ${C.line}` }}>暂无记录</div>
+          )}
         </div>
       </div>
     </div>
