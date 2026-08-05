@@ -718,6 +718,18 @@ function Shelf() {
     await refreshShelf();
   };
 
+  // 行内下拉直接保存 (接受 leafId, 不依赖 edit state)
+  const savePhaseFor = async (leafId, phase) => {
+    const { error } = await supabase.from("shelf_leaves").update({ st: "idle", phase }).eq("id", leafId);
+    if (error) { alert("保存失败: " + error.message); return; }
+    await refreshShelf();
+  };
+  const clearPhaseFor = async (leafId) => {
+    const { error } = await supabase.from("shelf_leaves").update({ phase: null }).eq("id", leafId);
+    if (error) { alert("保存失败: " + error.message); return; }
+    await refreshShelf();
+  };
+
   const submitAddProduct = async () => {
     if (!addProd) return;
     if (!prodName.trim()) { alert("产品名不能为空"); return; }
@@ -890,8 +902,22 @@ function Shelf() {
                                                     {lf.leaf}
                                                   </span>
                                                   {lf.st === "idle" && (!lf.products || !lf.products.length) && (
-                                                    <span style={{ fontSize: 11, color: lf.phase ? (LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].color : C.faint) : C.faint }}>
-                                                      · {lf.phase && LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].label : "在调研"}
+                                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                                      <span style={{ fontSize: 11, color: lf.phase ? (LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].color : C.faint) : C.faint }}>
+                                                        · {lf.phase && LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].label : "在调研"}
+                                                      </span>
+                                                      <select
+                                                        value={lf.phase || ""}
+                                                        onChange={(e) => {
+                                                          e.stopPropagation();
+                                                          const v = e.target.value;
+                                                          if (v) savePhaseFor(lf.id, v); else clearPhaseFor(lf.id);
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        style={{ fontSize: 11, padding: "2px 6px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, cursor: "pointer", outline: "none" }}>
+                                                        <option value="">未细分</option>
+                                                        {Object.entries(LEAF_PHASE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                                      </select>
                                                     </span>
                                                   )}
                                                   {lf.st === "researched_skip" && (
