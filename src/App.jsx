@@ -79,6 +79,8 @@ let BRAND_SHELF = {};
 let CAT_DETAIL = {};
 // id → { kind, name, path } 名称映射 (供总览/site_evals 解析目标名称)
 let ID_NAME = {};
+// 调研中的 leaf 列表 (供总览看板"目前在调研的产品"栏目使用)
+let IDLE_LEAVES = [];
 
 // 从 Supabase 并行拉取 6 张表, 组装成 BRAND_SHELF / CAT_DETAIL
 // 形状与旧硬编码一致, 货架/跨站组件无需改动
@@ -145,8 +147,16 @@ async function fetchShelfData() {
   // ID_NAME: 全量 id → 名称映射
   ID_NAME = {};
   cats.forEach(c => { ID_NAME[c.id] = { kind: "cat", name: c.name, path: c.name }; });
-  leaves.forEach(l => { ID_NAME[l.id] = { kind: "leaf", name: l.leaf_name, path: l.path || l.leaf_name }; });
+  leaves.forEach(l => { ID_NAME[l.id] = { kind: "leaf", name: l.leaf_name, path: l.path || l.leaf_name, phase: l.phase || null, st: l.st || "idle" }; });
   products.forEach(p => { ID_NAME[p.id] = { kind: "product", name: p.name, path: p.name }; });
+
+  // IDLE_LEAVES: 调研中的 leaf (st=idle), 按 phase 分组
+  IDLE_LEAVES = leaves.filter(l => (l.st || "idle") === "idle").map(l => ({
+    id: l.id,
+    name: l.leaf_name,
+    phase: l.phase || null,
+    path: l.path || l.leaf_name,
+  }));
 }
 const SHELF_ST = {
   selling:         { label: "在售", color: "#4db6a4" },
@@ -398,6 +408,27 @@ function Overview({ siteEvals, onPick }) {
           ))}
         </div>
       )}
+
+      <div style={{ marginTop: 28 }}>
+          <SectionTitle t="目前在调研的产品" sub="按 4 个调研阶段分组（数据源：shelf_leaves 中 st=idle 的项）" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+            {Object.entries(LEAF_PHASE).map(([k, v]) => {
+              const items = (IDLE_LEAVES || []).filter(l => l.phase === k);
+              return (
+                <div key={k} style={{ background: C.panel, padding: "14px 12px", minHeight: 100 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
+                    <span style={{ fontSize: 12, color: C.ink, fontWeight: 600 }}>{v.label}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{items.length}</span>
+                  </div>
+                  {items.length ? items.map(l => (
+                    <div key={l.id} style={{ fontSize: 12, color: C.ink, padding: "4px 0", lineHeight: 1.5 }}>{l.name}</div>
+                  )) : <div style={{ fontSize: 11, color: C.faint }}>暂无</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
       <div style={{ marginTop: 28 }}>
         <SectionTitle t="全部评估条目" sub="site_evals 表所有跨站评估记录" />
