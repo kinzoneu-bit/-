@@ -878,15 +878,16 @@ function Shelf() {
                                         const researchLeaves = leaves.filter(l => l.st === "idle" && (!l.products || !l.products.length)).length;
                                         const doneSkipLeaves = leaves.filter(l => l.st === "researched_skip").length;
                                         const sell = prods.filter(p => p.st === "selling").length;
-                                        const research = researchLeaves + doneSkipLeaves + prods.filter(p => p.st === "idle").length;
-                                        if (!prods.length && !research) return null;
+                                        const res = prods.filter(p => p.st === "idle").length + researchLeaves;
+                                        if (!prods.length && !researchLeaves && !doneSkipLeaves) return null;
                                         const cur = filterC[ckey];
                                         const toggle = (v, e) => { e.stopPropagation(); setFilterC(st => ({ ...st, [ckey]: st[ckey] === v ? undefined : v })); if (!openC[ckey]) setOpenC(st => ({ ...st, [ckey]: true })); };
                                         const chip = (active, color) => ({ cursor: "pointer", padding: "1px 7px", borderRadius: 10, border: `1px solid ${active ? color : "transparent"}`, background: active ? `${color}22` : "transparent", color });
                                         return (
                                           <span style={{ marginLeft: "auto", fontSize: 11, display: "flex", gap: 4 }}>
                                             <span onClick={(e) => toggle("selling", e)} style={chip(cur === "selling", SHELF_ST.selling.color)}>在售 {sell}</span>
-                                            <span onClick={(e) => toggle("research", e)} style={chip(cur === "research", C.sub)}>调研 {research}</span>
+                                            <span onClick={(e) => toggle("idle", e)} style={chip(cur === "idle", C.sub)}>在调研 {res}</span>
+                                            <span onClick={(e) => toggle("researched_skip", e)} style={chip(cur === "researched_skip", C.faint)}>已调研不做 {doneSkipLeaves}</span>
                                           </span>
                                         );
                                       })()}
@@ -899,11 +900,12 @@ function Shelf() {
                                             const f = filterC[ckey];
                                             if (!f) return true;
                                             if (f === "selling") return lf.products.some(p => p.st === "selling");
-                                            if (f === "research") return lf.st === "idle" || lf.st === "researched_skip";
-                                            return true;
+                                            if (f === "researched_skip") return lf.st === "researched_skip";
+                                            return (lf.st === "idle" && (!lf.products || !lf.products.length)) || lf.products.some(p => p.st === "idle");
                                           }).map((lf, li) => {
                                             const f = filterC[ckey];
-                                            const shownProducts = f === "selling" ? lf.products.filter(p => p.st === "selling") : lf.products;
+                                            const shownProducts = f === "selling" ? lf.products.filter(p => p.st === "selling")
+                                              : f === "idle" ? lf.products.filter(p => p.st === "idle") : lf.products;
                                             const lkey = `${ckey}|${li}`;
                                             const lOpen = !!openL[lkey];
                                             return (
