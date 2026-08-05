@@ -112,7 +112,7 @@ async function fetchShelfData() {
 
   const buildProducts = (leafId) => (productsByLeaf[leafId] || []).map(p => ({ id: p.id, name: p.name, st: p.st || "idle", asin: p.asin || null }));
   const buildSuppliers = (leafId) => (suppliersByLeaf[leafId] || []).map(s => ({ id: s.id, factory: s.factory, contact: s.contact, products: s.main_products }));
-  const buildLeaves = (catId) => (leavesByCat[catId] || []).map(l => ({ id: l.id, leaf: l.leaf_name, path: l.path, st: l.st || "idle", chatName: l.chat_name || null, products: buildProducts(l.id), suppliers: buildSuppliers(l.id) }));
+  const buildLeaves = (catId) => (leavesByCat[catId] || []).map(l => ({ id: l.id, leaf: l.leaf_name, path: l.path, st: l.st || "idle", phase: l.phase || null, chatName: l.chat_name || null, products: buildProducts(l.id), suppliers: buildSuppliers(l.id) }));
 
   // CAT_DETAIL: 三重 key 兼容旧 catDetail(name, group) 查找
   CAT_DETAIL = {};
@@ -153,6 +153,15 @@ const SHELF_ST = {
   idle:            { label: "还没动", color: "#5b6670" },
   skip:            { label: "不做", color: "#7a5b52" },
   researched_skip: { label: "已调研不做", color: "#7a5b52" },
+};
+
+// 调研阶段 (leaf 的 idle 细分): 1 立项 → 2 前置调研 → 3 挖掘供应商 → 4 定款
+// 中文显示为 "在调研-立项" 等, 挂在 st=idle 的 leaf 上, phase 为空 = 笼统"在调研"
+const LEAF_PHASE = {
+  planning:    { label: "在调研-立项", color: "#d9a441" },
+  pre_research:{ label: "在调研-前置调研", color: "#d9a441" },
+  supplier:    { label: "在调研-挖掘供应商", color: "#d9a441" },
+  spec:        { label: "在调研-定款", color: "#d9a441" },
 };
 
 // CAT_DETAIL 由 fetchShelfData() 填充 (见上)
@@ -683,7 +692,27 @@ function Shelf() {
 
   const saveSt = async (newSt) => {
     if (!edit) return;
-    const { error } = await supabase.from(edit.table).update({ st: newSt }).eq("id", edit.id);
+    // leaf 离开 idle 状态时清掉 phase, 避免残留
+    const payload = edit.type === "leaf" && newSt !== "idle" ? { st: newSt, phase: null } : { st: newSt };
+    const { error } = await supabase.from(edit.table).update(payload).eq("id", edit.id);
+    if (error) { alert("保存失败: " + error.message); return; }
+    setEdit(null);
+    await refreshShelf();
+  };
+
+  // 保存调研阶段 (仅 leaf 的 idle 细分): 同时把 st 置为 idle, phase 写入
+  const savePhase = async (phase) => {
+    if (!edit) return;
+    const { error } = await supabase.from("shelf_leaves").update({ st: "idle", phase }).eq("id", edit.id);
+    if (error) { alert("保存失败: " + error.message); return; }
+    setEdit(null);
+    await refreshShelf();
+  };
+
+  // 清除调研阶段 (回到笼统"在调研")
+  const clearPhase = async () => {
+    if (!edit) return;
+    const { error } = await supabase.from("shelf_leaves").update({ phase: null }).eq("id", edit.id);
     if (error) { alert("保存失败: " + error.message); return; }
     setEdit(null);
     await refreshShelf();
@@ -854,13 +883,16 @@ function Shelf() {
                                                 <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 82px" }}>
                                                   <span onClick={() => setOpenL(st => ({ ...st, [lkey]: !st[lkey] }))} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
                                                     <Caret open={lOpen} small />
-                                                    {stDot(lf.st, (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, label: lf.leaf }); })}
+                                                    {stDot(lf.st === "idle" && lf.phase ? lf.phase : lf.st,
+                                                      (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, phase: lf.phase, label: lf.leaf }); })}
                                                   </span>
                                                   <span onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })} style={{ fontSize: 13, color: C.ink, fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted", textDecorationColor: C.faint, textUnderlineOffset: 3 }}>
                                                     {lf.leaf}
                                                   </span>
                                                   {lf.st === "idle" && (!lf.products || !lf.products.length) && (
-                                                    <span style={{ fontSize: 11, color: C.faint }}>· 在调研</span>
+                                                    <span style={{ fontSize: 11, color: lf.phase ? (LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].color : C.faint) : C.faint }}>
+                                                      · {lf.phase && LEAF_PHASE[lf.phase] ? LEAF_PHASE[lf.phase].label : "在调研"}
+                                                    </span>
                                                   )}
                                                   {lf.st === "researched_skip" && (
                                                     <span style={{ fontSize: 11, color: C.faint }}>· 已调研不做</span>
@@ -959,7 +991,7 @@ function Shelf() {
       {/* 改状态浮层 */}
       {edit && (
         <div onClick={() => setEdit(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 380 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 400, maxHeight: "80vh", overflow: "auto" }}>
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>修改状态</div>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>{edit.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -973,6 +1005,28 @@ function Shelf() {
                 </div>
               ))}
             </div>
+            {edit.type === "leaf" && edit.st === "idle" && (
+              <>
+                <div style={{ fontSize: 11, color: C.sub, margin: "14px 0 8px", fontWeight: 600 }}>在调研细分阶段</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {Object.entries(LEAF_PHASE).map(([k, v]) => (
+                    <div key={k} onClick={() => savePhase(k)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                        border: `1px solid ${edit.phase === k ? v.color : C.line}`, background: edit.phase === k ? `${v.color}22` : "transparent", color: C.ink, fontSize: 13 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
+                      {v.label}
+                      {edit.phase === k && <span style={{ marginLeft: "auto", fontSize: 11, color: v.color }}>当前</span>}
+                    </div>
+                  ))}
+                  {edit.phase && (
+                    <div onClick={clearPhase}
+                      style={{ padding: "8px 12px", borderRadius: 8, cursor: "pointer", border: `1px solid ${C.line}`, color: C.faint, fontSize: 12, textAlign: "center" }}>
+                      清除阶段（回到笼统"在调研"）
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
