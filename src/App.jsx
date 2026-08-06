@@ -121,7 +121,7 @@ const EMAIL_TO_ROLE = {
   // "TODO_CD_LINK@xxx":     "cd_link",      // 成都·链接 - 待补
 };
 const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
-const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (email ? "未授权" : "未登录");
+const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (role ? "未授权" : "未登录");
 
 // 是否能拖动指定框里的项
 const canDrag = (boxId, role) => {
