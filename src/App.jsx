@@ -451,8 +451,11 @@ function Overview({ siteEvals, onPick }) {
   const [handoffs, setHandoffs] = useState([]);
   const [dragId, setDragId] = useState(null);
   const [hoverBox, setHoverBox] = useState(null);
-  // 调研阶段折叠: 默认全部折叠, 点击大类才展开
   const [openPhases, setOpenPhases] = useState({});
+  // 调研阶段顺序 (拖拽流转: planning → pre_research → supplier → spec)
+  const PHASE_ORDER = ["planning", "pre_research", "supplier", "spec"];
+  // 调研阶段进度 (leaf_id+phase → start_at) - 显示进入时间 + 持续时长
+  const [progress, setProgress] = useState([]);
   // leaf → 一级类目 (group 名) - 用于聚合显示
   const [lToGroup, setLToGroup] = useState({});
 
@@ -523,13 +526,33 @@ function Overview({ siteEvals, onPick }) {
     await loadHandoffs();
   };
 
+  // 拖拽换调研阶段: 更新 shelf_leaves.phase + 记录 monitor_research_progress + 刷新
+  const movePhase = async (leafId, targetPhase) => {
+    if (!leafId || !targetPhase) return;
+    const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", leafId);
+    if (e1) { alert("保存失败: " + e1.message); return; }
+    const { error: e2 } = await supabase.from("monitor_research_progress")
+      .upsert({ leaf_id: leafId, phase: targetPhase, start_at: new Date().toISOString() }, { onConflict: "leaf_id, phase" });
+    if (e2) { alert("保存失败: " + e2.message); return; }
+    // 同步刷新 IDLE_LEAVES (供 phaseMap 用)
+    await fetchShelfData();
+  };
+
   const resolve = (e) => {
     const info = ID_NAME[e.target_id];
     return info ? info.name : `${e.target_kind || ""}#${(e.target_id || "").slice(0, 8)}`;
   };
 
   // 调研 4 阶段按 brand (一级类目) 聚合, 默认折叠
-  // 调研 4 阶段按 一级类目 (group 名) 聚合, 默认折叠
+  // 调研阶段进度: leaf_id+phase → start_at (供 phaseMap 显示持续时间)
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from("monitor_research_progress").select("*");
+      setProgress(data || []);
+    })();
+  }, []);
+
+  // 调研 4 阶段按 一级类目 (group) 聚合, 显示移动时间 + 持续时长
   const phaseMap = useMemo(() => {
     const m = {};
     Object.keys(LEAF_PHASE).forEach(k => { m[k] = { total: 0, byGroup: {} }; });
@@ -537,12 +560,16 @@ function Overview({ siteEvals, onPick }) {
       const k = l.phase || "未细分";
       if (!m[k]) m[k] = { total: 0, byGroup: {} };
       const group = lToGroup[l.id]?.group || "未分类";
+      const prog = (progress || []).find(p => p.leaf_id === l.id && p.phase === k);
+      const start = prog ? new Date(prog.start_at) : null;
+      const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
+      const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
       if (!m[k].byGroup[group]) m[k].byGroup[group] = [];
-      m[k].byGroup[group].push(l);
+      m[k].byGroup[group].push({ ...l, enterAt: prog ? prog.start_at : null, duration: durText });
       m[k].total++;
     });
     return m;
-  }, [lToGroup]);
+  }, [lToGroup, progress]);
 
   return (
     <div>
@@ -551,8 +578,13 @@ function Overview({ siteEvals, onPick }) {
         {Object.entries(LEAF_PHASE).map(([k, v]) => {
           const data = phaseMap[k] || { total: 0, byBrand: {} };
           const isOpen = !!openPhases[k];
+          const [phaseDrag, setPhaseDrag] = useState(false);
           return (
-            <div key={k} style={{ background: C.panel, padding: "14px 12px", minHeight: 60 }}>
+            <div key={k}
+              onDragOver={(e) => { e.preventDefault(); setPhaseDrag(true); }}
+              onDragLeave={() => setPhaseDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId, k); }}
+              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
@@ -569,9 +601,15 @@ function Overview({ siteEvals, onPick }) {
                       </summary>
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
                         {items.map(l => (
-                          <div key={l.id} style={{ padding: "3px 0", fontSize: 12 }}>
+                          <div key={l.id} draggable
+                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId(l.id); }}
+                            onDragEnd={() => setDragId(null)}
+                            style={{ padding: "3px 0", fontSize: 12, cursor: "grab" }}>
                             <div style={{ color: C.ink }}>{l.name}</div>
-                            <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
+                            <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
+                              <span>{l.enterAt ? "入: " + new Date(l.enterAt).toLocaleDateString("zh-CN") : "入: —"}</span>
+                              <span>· {l.duration}</span>
+                            </div>
                           </div>
                         ))}
                       </div>
