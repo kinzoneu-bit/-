@@ -82,6 +82,77 @@ let ID_NAME = {};
 // 调研中的 leaf 列表 (供总览看板"目前在调研的产品"栏目使用)
 let IDLE_LEAVES = [];
 
+// 链接日级跟进 demo 数据 (按运营体系 v1: 以末端类目为单位组织, 四档警报)
+// 真库版会从 monitor_categories / monitor_asins / monitor_daily 等表拉取
+const ALERT_LEVEL = {
+  critical: { label: "警戒", color: "#e74c3c", icon: "🔴" },
+  warning:  { label: "预警", color: "#f4b400", icon: "🟡" },
+  optimize: { label: "可优化", color: "#3498db", icon: "🔵" },
+  normal:   { label: "正常", color: "#2ecc71", icon: "🟢" },
+};
+const MONITOR_CATEGORIES = [
+  {
+    id: "mc1", name: "Cuisine et Maison › Rangement et organisation", site: "FR",
+    level: "warning", updated: "2026-08-06",
+    self: [{ asin: "B0HC9Z7KRY", title: "Housses de rangement sous vide", price: 19.99, bsr: 1240, rating: 4.4, reviews: 87, stock: "in_stock" }],
+    fixed: [
+      { asin: "B0RXCOMP01", title: "Lot de 10 housses sous vide", price: 14.99, bsr: 980, rating: 4.3, reviews: 215, stock: "in_stock" },
+      { asin: "B0RXCOMP02", title: "Housses sous vide XXL 60L", price: 22.50, bsr: 1530, rating: 4.5, reviews: 142, stock: "in_stock" },
+      { asin: "B0RXCOMP03", title: "Rangement sous vide premium", price: 28.90, bsr: 720, rating: 4.2, reviews: 304, stock: "in_stock" },
+    ],
+    dynamic: [
+      { asin: "B0RXDYN001", title: "Sacs sous vide épais", price: 16.49, bsr: 1110, rating: 4.4, reviews: 178, stock: "in_stock" },
+      { asin: "B0RXDYN002", title: "Housses rangement voyage", price: 12.99, bsr: 2200, rating: 4.1, reviews: 89, stock: "in_stock" },
+    ],
+    alerts: [{ rule: "BSR 日波动 +18%", level: "warning", detail: "排名较昨日下降超过阈值" }],
+  },
+  {
+    id: "mc2", name: "Auto et Moto › Outils de dépannage", site: "FR",
+    level: "optimize", updated: "2026-08-06",
+    self: [{ asin: "B0HC9Z7KRY", title: "Chargeurs de batterie 01", price: 49.99, bsr: 870, rating: 4.5, reviews: 104, stock: "in_stock" }],
+    fixed: [
+      { asin: "B0RXCOMP04", title: "Chargeur batterie intelligent", price: 45.99, bsr: 720, rating: 4.4, reviews: 256, stock: "in_stock" },
+      { asin: "B0RXCOMP05", title: "Chargeur batterie 12V pro", price: 62.50, bsr: 1100, rating: 4.6, reviews: 178, stock: "low_stock" },
+    ],
+    dynamic: [
+      { asin: "B0RXDYN003", title: "Chargeur batterie USB-C", price: 39.99, bsr: 1500, rating: 4.2, reviews: 67, stock: "in_stock" },
+      { asin: "B0RXDYN004", title: "Booster batterie portable", price: 79.00, bsr: 920, rating: 4.5, reviews: 412, stock: "in_stock" },
+    ],
+    alerts: [{ rule: "竞品评论激增 +24", level: "optimize", detail: "固定竞品单日新增 24 条评论" }],
+  },
+  {
+    id: "mc3", name: "Animalerie › Chiens › Colliers anti-aboiement", site: "FR",
+    level: "critical", updated: "2026-08-06",
+    self: [{ asin: "B0RXOWN01", title: "Collier anti-aboiement A", price: 39.99, bsr: 320, rating: 3.8, reviews: 256, stock: "out_of_stock" }],
+    fixed: [
+      { asin: "B0RXCOMP06", title: "Collier anti-aboiement B", price: 45.00, bsr: 180, rating: 4.4, reviews: 1024, stock: "in_stock" },
+      { asin: "B0RXCOMP07", title: "Collier dressage chien", price: 52.00, bsr: 240, rating: 4.3, reviews: 612, stock: "in_stock" },
+    ],
+    dynamic: [
+      { asin: "B0RXDYN005", title: "Collier anti-aboiement v2", price: 35.00, bsr: 410, rating: 4.2, reviews: 89, stock: "in_stock" },
+      { asin: "B0RXDYN006", title: "Harnais dressage", price: 28.50, bsr: 560, rating: 4.0, reviews: 134, stock: "in_stock" },
+    ],
+    alerts: [
+      { rule: "自有库存缺货", level: "critical", detail: "B0RXOWN01 当前显示缺货" },
+      { rule: "新增 1-3 星评论 × 2", level: "critical", detail: "近 24h 新增 2 条差评" },
+    ],
+  },
+  {
+    id: "mc4", name: "Bricolage DIY › Électricité", site: "FR",
+    level: "normal", updated: "2026-08-05",
+    self: [{ asin: "B0RXOWN02", title: "Prises connectées et intelligentes", price: 24.99, bsr: 1850, rating: 4.6, reviews: 312, stock: "in_stock" }],
+    fixed: [
+      { asin: "B0RXCOMP08", title: "Pack 4 prises WiFi", price: 32.00, bsr: 920, rating: 4.5, reviews: 845, stock: "in_stock" },
+      { asin: "B0RXCOMP09", title: "Prise connectée Alexa", price: 19.99, bsr: 1230, rating: 4.4, reviews: 567, stock: "in_stock" },
+    ],
+    dynamic: [
+      { asin: "B0RXDYN007", title: "Mini prise WiFi", price: 12.99, bsr: 2100, rating: 4.3, reviews: 234, stock: "in_stock" },
+      { asin: "B0RXDYN008", title: "Prise extérieure étanche", price: 28.00, bsr: 1450, rating: 4.5, reviews: 156, stock: "in_stock" },
+    ],
+    alerts: [],
+  },
+];
+
 // 从 Supabase 并行拉取 6 张表, 组装成 BRAND_SHELF / CAT_DETAIL
 // 形状与旧硬编码一致, 货架/跨站组件无需改动
 async function fetchShelfData() {
@@ -340,7 +411,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "总览看板"], ["shelf", "品牌货架"], ["cross", "产品跨站"], ["track", "SKU 跟踪"]].map(([k, l]) => (
+        {[["overview", "总览看板"], ["shelf", "品牌货架"], ["cross", "产品跨站"], ["track", "链接日级跟进"]].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -639,56 +710,156 @@ function CrossSite({ sel, setSel }) {
 
 // ---------------- SKU 跟踪 ----------------
 function Track({ selSku, setSelSku }) {
-  const liveSkus = PRODUCTS.flatMap(p => p.skus.filter(s => s.exec === "live").map(s => ({ ...s, pname: p.name })));
-  const data = TRACKING[selSku] || [];
-  const cur = liveSkus.find(s => s.id === selSku);
+  const [openId, setOpenId] = useState(null);
+  const [filterLevel, setFilterLevel] = useState("all"); // all | critical | warning | optimize | normal
+  const [alertFilter, setAlertFilter] = useState(false); // 只看有警报的类目
 
-  const maxBsr = Math.max(...data.map(d => d.bsr), 1);
-  const minBsr = Math.min(...data.map(d => d.bsr), 0);
-  const W = 640, H = 200, pad = 30;
-  const x = (i) => pad + (i * (W - 2 * pad)) / (data.length - 1);
-  const y = (v) => pad + ((v - minBsr) / (maxBsr - minBsr || 1)) * (H - 2 * pad); // BSR 越小越好, 高位=差
+  // 等级排序 + 过滤
+  const order = { critical: 0, warning: 1, optimize: 2, normal: 3 };
+  const visible = MONITOR_CATEGORIES
+    .filter(c => filterLevel === "all" || c.level === filterLevel)
+    .filter(c => !alertFilter || c.alerts.length > 0)
+    .sort((a, b) => order[a.level] - order[b.level]);
+
+  // 警报统计
+  const tally = MONITOR_CATEGORIES.reduce((acc, c) => { acc[c.level]++; return acc; }, { critical: 0, warning: 0, optimize: 0, normal: 0 });
+
+  // 表格配色 (仿截图 2)
+  const H_BG = "#1f3a68", H_FG = "#ffffff";
+  const ROW_A = "#f4f8fd", ROW_B = "#ffffff";
+  const CELL_NUM = "#eaf2fb", CELL_RATING = "#fff3d6", CELL_PRICE = "#fff7e0", CELL_REV = "#eaf6ec";
+
+  const AsinRow = ({ a, i, kind, self }) => {
+    const rowBg = i % 2 === 0 ? ROW_A : ROW_B;
+    const stockColor = a.stock === "out_of_stock" ? "#e74c3c" : a.stock === "low_stock" ? "#f4b400" : "#2ecc71";
+    const stockText = a.stock === "out_of_stock" ? "缺货" : a.stock === "low_stock" ? "低库存" : "在售";
+    return (
+      <div key={a.asin} style={{ display: "grid", gridTemplateColumns: "1.4fr .8fr 1fr 1fr 1fr 1fr 1fr 0.8fr",
+        background: rowBg, fontSize: 12, color: "#172033", borderTop: i ? `1px solid #d9e1ec` : "none" }}>
+        <div style={{ padding: "8px 12px" }}>
+          <a href={`https://amazon.fr/dp/${a.asin}`} target="_blank" rel="noreferrer"
+            style={{ color: "#0f5e9c", fontWeight: 600, textDecoration: "none" }}>
+            {a.asin}
+          </a>
+          <div style={{ fontSize: 10, color: "#5f6b7a", marginTop: 2 }}>{a.title}</div>
+        </div>
+        <div style={{ padding: "8px 12px", color: "#5f6b7a" }}>
+          <span style={{ padding: "1px 6px", borderRadius: 8, fontSize: 10,
+            background: self ? "#eaf6ec" : kind === "fixed" ? "#fff3d6" : "#eaf2fb",
+            color: self ? "#1a7a3a" : kind === "fixed" ? "#a06b00" : "#0f5e9c" }}>
+            {self ? "自有" : kind === "fixed" ? "固定竞品" : "动态"}
+          </span>
+        </div>
+        <div style={{ padding: "8px 12px", color: stockColor, fontWeight: 600 }}>{stockText}</div>
+        <div style={{ padding: "8px 12px", background: CELL_PRICE, fontWeight: 600 }}>€{a.price}</div>
+        <div style={{ padding: "8px 12px", background: CELL_NUM, fontWeight: 600 }}>#{a.bsr.toLocaleString()}</div>
+        <div style={{ padding: "8px 12px", background: CELL_RATING, fontWeight: 600 }}>{a.rating}</div>
+        <div style={{ padding: "8px 12px", background: CELL_REV, fontWeight: 600 }}>{a.reviews}</div>
+        <div style={{ padding: "8px 12px", color: "#5f6b7a", fontSize: 11 }}>{kind === "dynamic" ? "—" : "—"}</div>
+      </div>
+    );
+  };
 
   return (
     <div>
-      <SectionTitle t="SKU 跟踪" sub="已上架 SKU 的 BSR / 评分 / 评论趋势（BSR 越低越好）" />
-      <div style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-        {liveSkus.map(s => (
-          <div key={s.id} onClick={() => setSelSku(s.id)} style={{ padding: "7px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer", border: `1px solid ${s.id === selSku ? C.brand : C.line}`, background: s.id === selSku ? C.panel2 : "transparent", color: s.id === selSku ? C.ink : C.sub }}>{s.code} <span style={{ color: C.faint }}>· {s.site}</span></div>
+      <SectionTitle t="链接日级跟进" sub="按末端类目组织 · 四档警报等级 · 自有/固定竞品/动态竞品日级数据" />
+
+      {/* 警报统计 + 过滤 */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <div onClick={() => setFilterLevel("all")}
+          style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer",
+            border: `1px solid ${filterLevel === "all" ? "#0f5e9c" : "#d9e1ec"}`,
+            background: filterLevel === "all" ? "#0f5e9c" : "transparent", color: filterLevel === "all" ? "#fff" : "#172033" }}>
+          全部 {MONITOR_CATEGORIES.length}
+        </div>
+        {Object.entries(ALERT_LEVEL).map(([k, v]) => (
+          <div key={k} onClick={() => setFilterLevel(filterLevel === k ? "all" : k)}
+            style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer",
+              border: `1px solid ${filterLevel === k ? v.color : "#d9e1ec"}`,
+              background: filterLevel === k ? `${v.color}22` : "transparent", color: v.color, fontWeight: 600 }}>
+            {v.icon} {v.label} {tally[k]}
+          </div>
         ))}
+        <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#5f6b7a", cursor: "pointer" }}>
+          <input type="checkbox" checked={alertFilter} onChange={(e) => setAlertFilter(e.target.checked)} />
+          只看有警报
+        </label>
       </div>
 
-      {cur && (
-        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{cur.code}</div>
-              <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>{cur.pname} · {cur.site} · ASIN {cur.asin}</div>
-            </div>
-            <button style={btn(C)} onClick={() => alert("Demo：真库版会触发 BSR 抓取 skill，写入 sku_tracking")}>拉取最新 BSR</button>
-          </div>
-
-          {data.length ? (
-            <>
-              <div style={{ display: "flex", gap: 20, margin: "18px 0" }}>
-                <Stat label="最新 BSR" value={`#${data[data.length - 1].bsr}`} accent={C.brand} />
-                <Stat label="评分" value={data[data.length - 1].rating} />
-                <Stat label="评论数" value={data[data.length - 1].rev} />
-              </div>
-              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
-                <polyline fill="none" stroke={C.brand} strokeWidth="2"
-                  points={data.map((d, i) => `${x(i)},${y(d.bsr)}`).join(" ")} />
-                {data.map((d, i) => (
-                  <g key={i}>
-                    <circle cx={x(i)} cy={y(d.bsr)} r="3.5" fill={C.brand} />
-                    <text x={x(i)} y={H - 8} fontSize="10" fill={C.faint} textAnchor="middle">{d.d}</text>
-                  </g>
-                ))}
-              </svg>
-            </>
-          ) : <div style={{ fontSize: 12, color: C.faint, marginTop: 16 }}>暂无跟踪数据</div>}
+      {/* 类目卡片列表 */}
+      {visible.length === 0 ? (
+        <div style={{ padding: 40, textAlign: "center", color: "#5f6b7a", fontSize: 13, border: "1px dashed #d9e1ec", borderRadius: 12 }}>
+          当前筛选下没有监控类目
         </div>
-      )}
+      ) : visible.map(cat => {
+        const lvl = ALERT_LEVEL[cat.level];
+        const allAsins = [
+          ...cat.self.map(a => ({ ...a, kind: "self" })),
+          ...cat.fixed.map(a => ({ ...a, kind: "fixed" })),
+          ...cat.dynamic.map(a => ({ ...a, kind: "dynamic" })),
+        ];
+        const selfStock = cat.self[0];
+        const stockWarn = selfStock && selfStock.stock !== "in_stock";
+        const isOpen = openId === cat.id;
+        return (
+          <div key={cat.id} style={{ background: "#fff", border: "1px solid #d9e1ec", borderRadius: 12, marginBottom: 14, overflow: "hidden" }}>
+            {/* 卡片顶栏 */}
+            <div onClick={() => setOpenId(isOpen ? null : cat.id)}
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", cursor: "pointer" }}>
+              {/* 左侧等级色条 */}
+              <div style={{ width: 6, alignSelf: "stretch", background: lvl.color, borderRadius: 3 }} />
+              <div style={{ fontSize: 11, color: lvl.color, fontWeight: 700, minWidth: 60 }}>{lvl.icon} {lvl.label}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#172033" }}>{cat.name}</div>
+                <div style={{ fontSize: 11, color: "#5f6b7a", marginTop: 2 }}>
+                  {cat.site} · 自有 {cat.self.length} · 固定竞品 {cat.fixed.length} · 动态 {cat.dynamic.length}
+                  {cat.alerts.length > 0 && <span style={{ marginLeft: 8, color: lvl.color }}>· {cat.alerts.length} 项预警</span>}
+                </div>
+              </div>
+              {selfStock && (
+                <div style={{ fontSize: 11, color: stockWarn ? "#e74c3c" : "#5f6b7a" }}>
+                  自有: #{selfStock.bsr.toLocaleString()} · €{selfStock.price} · ★{selfStock.rating} · {selfStock.reviews}评论
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: "#5f6b7a" }}>更新 {cat.updated}</div>
+            </div>
+
+            {/* 预警条 */}
+            {cat.alerts.length > 0 && (
+              <div style={{ background: `${lvl.color}0d`, padding: "8px 18px", borderTop: "1px solid #d9e1ec", fontSize: 11 }}>
+                {cat.alerts.map((a, i) => (
+                  <div key={i} style={{ color: "#172033", marginBottom: 2 }}>
+                    <span style={{ color: ALERT_LEVEL[a.level].color, fontWeight: 600 }}>{ALERT_LEVEL[a.level].icon} {a.rule}</span>
+                    <span style={{ color: "#5f6b7a", marginLeft: 8 }}>· {a.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 展开区: 核心数据表 */}
+            {isOpen && (
+              <div style={{ borderTop: "1px solid #d9e1ec" }}>
+                <div style={{ background: H_BG, padding: "8px 16px", fontSize: 12, color: H_FG, fontWeight: 600 }}>
+                  核心数据 · {allAsins.length} 个 ASIN (含 {cat.self.length} 自有 + {cat.fixed.length} 固定竞品 + {cat.dynamic.length} 动态)
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1.4fr .8fr 1fr 1fr 1fr 1fr 1fr 0.8fr",
+                  background: H_BG, fontSize: 11, color: H_FG, fontWeight: 600 }}>
+                  {["ASIN / 标题", "角色", "库存", "价格", "BSR", "评分", "评论数", "较昨日"].map((h, i) => (
+                    <div key={i} style={{ padding: "9px 12px", borderRight: i < 7 ? `1px solid #2c4a82` : "none" }}>{h}</div>
+                  ))}
+                </div>
+                {allAsins.map((a, i) => <AsinRow key={a.asin} a={a} i={i} kind={a.kind} self={a.kind === "self"} />)}
+
+                {/* 操作日志 */}
+                <div style={{ background: "#f6f8fb", padding: "10px 16px", fontSize: 11, color: "#5f6b7a", borderTop: "1px solid #d9e1ec" }}>
+                  <div style={{ fontWeight: 600, color: "#172033", marginBottom: 4 }}>操作日志</div>
+                  <div>暂无处理记录 · 成都团队负责执行（选择动作 + 写备注）</div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
