@@ -86,7 +86,7 @@ let IDLE_LEAVES = [];
 // items 由 Overview 从 monitor_handoff + shelf_leaves 实时组装
 const HANDOFF_BOXES = [
   { id: "h1", title: "调研期间（调研到定款）", color: "#5b6670", sub: "调研阶段完成, 选定款式进入定款" },
-  { id: "h2", title: "定款 → 链接制作", color: "#d9a441", sub: "定款完成, 交给成都团队建 listing / 主图 / 五点描述" },
+  { id: "h2", title: "链接制作期间（定款到上架完成）", color: "#d9a441", sub: "定款完成, 交给成都团队建 listing / 主图 / 五点描述" },
   { id: "h3", title: "链接制作 → 链接制作完成", color: "#3498db", sub: "listing 上传完成, 进入备货与试运营阶段" },
   { id: "h4", title: "链接制作完成 → 备货运营推广", color: "#9b59b6", sub: "链接完成, 进入备货与正式推广" },
 ];
