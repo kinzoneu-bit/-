@@ -1033,13 +1033,21 @@ function Shelf() {
   const submitAddLeaf = async () => {
     if (!addLeaf) return;
     if (!leafName.trim()) { alert("末端类目名不能为空"); return; }
-    const { error } = await supabase.from("shelf_leaves").insert({
+    const { data, error } = await supabase.from("shelf_leaves").insert({
       cat_id: addLeaf.catId,
       leaf_name: leafName.trim(),
       path: leafPath.trim() || null,
       st: "idle",
-    });
+    }).select().single();
     if (error) { alert("添加失败: " + error.message); return; }
+    // 同步进第一个交接框 h1 (调研 → 定款): 自动 upsert, 重置 start_at
+    if (data && data.id) {
+      await supabase.from("monitor_handoff").upsert({
+        leaf_id: data.id,
+        box_key: "h1",
+        start_at: new Date().toISOString(),
+      }, { onConflict: "leaf_id" });
+    }
     setAddLeaf(null); setLeafName(""); setLeafPath("");
     await refreshShelf();
   };
