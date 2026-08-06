@@ -98,9 +98,9 @@ const HANDOFF_BOXES = [
   },
   {
     id: "h2",
-    title: "链接制作 → 链接完成",
+    title: "链接制作完成，进入备货推广状态",
     color: "#3498db",
-    sub: "listing 上传完成, 进入待上架或试运营阶段",
+    sub: "listing 上传完成, 进入备货与试运营阶段",
     items: [
       { name: "Pistolets graisseurs 黄油枪", handler: "法国团队", start: "2026-08-01", duration: "1 天 9 小时" },
       { name: "Chargeurs de batterie 电池充电器", handler: "法国团队", start: "2026-07-30", duration: "3 天 2 小时" },
