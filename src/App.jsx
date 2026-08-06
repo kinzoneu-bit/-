@@ -526,30 +526,54 @@ function Overview({ siteEvals, onPick }) {
     return info ? info.name : `${e.target_kind || ""}#${(e.target_id || "").slice(0, 8)}`;
   };
 
+  // 调研 4 阶段按 brand (一级类目) 聚合, 默认折叠
+  const phaseMap = useMemo(() => {
+    const m = {};
+    Object.keys(LEAF_PHASE).forEach(k => { m[k] = { total: 0, byBrand: {} }; });
+    (IDLE_LEAVES || []).forEach(l => {
+      const k = l.phase || "未细分";
+      if (!m[k]) m[k] = { total: 0, byBrand: {} };
+      const brand = lToBrand[l.id]?.brand || "未分类";
+      if (!m[k].byBrand[brand]) m[k].byBrand[brand] = [];
+      m[k].byBrand[brand].push(l);
+      m[k].total++;
+    });
+    return m;
+  }, [lToBrand]);
+
   return (
     <div>
-      <SectionTitle t="目前在调研的产品" sub="按 4 个调研阶段分组（数据源：shelf_leaves 中 st=idle 的项）" />
+      <SectionTitle t="目前在调研的产品" sub="按 4 个调研阶段分组 · 一级类目聚合 · 点开品牌查看具体 leaf" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
         {Object.entries(LEAF_PHASE).map(([k, v]) => {
-          const items = (IDLE_LEAVES || []).filter(l => l.phase === k);
+          const data = phaseMap[k] || { total: 0, byBrand: {} };
           const isOpen = !!openPhases[k];
           return (
             <div key={k} style={{ background: C.panel, padding: "14px 12px", minHeight: 60 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
-                <span style={{ fontSize: 11, color: C.sub, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
                 <span style={{ fontSize: 12, color: C.ink, fontWeight: 600 }}>{v.label}</span>
-                <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{items.length}</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{data.total}</span>
               </div>
               {isOpen && (
-                <div style={{ marginTop: 8, paddingLeft: 18, borderLeft: `2px solid ${v.color}` }}>
-                  {items.length ? items.map(l => (
-                    <div key={l.id} style={{ padding: "4px 0", lineHeight: 1.5 }}>
-                      <div style={{ fontSize: 12, color: C.ink }}>{l.name}</div>
-                      <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
-                    </div>
-                  )) : <div style={{ fontSize: 11, color: C.faint }}>暂无</div>}
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {Object.entries(data.byBrand).sort((a, b) => b[1].length - a[1].length).map(([brand, items]) => (
+                    <details key={brand} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 7px" }}>
+                      <summary style={{ fontSize: 11, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span>{brand}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length}</span>
+                      </summary>
+                      <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
+                        {items.map(l => (
+                          <div key={l.id} style={{ padding: "3px 0", fontSize: 12 }}>
+                            <div style={{ color: C.ink }}>{l.name}</div>
+                            <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ))}
                 </div>
               )}
             </div>
