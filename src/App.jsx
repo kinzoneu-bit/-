@@ -88,7 +88,7 @@ const HANDOFF_BOXES = [
   { id: "h1", title: "调研期间（调研到定款）", color: "#5b6670", sub: "调研阶段完成, 选定款式进入定款" },
   { id: "h2", title: "链接制作期间（定款到上架完成）", color: "#d9a441", sub: "定款完成, 交给成都团队建 listing / 主图 / 五点描述" },
   { id: "h3", title: "采购备货期间", color: "#3498db", sub: "listing 上传完成, 进入备货与试运营阶段" },
-  { id: "h4", title: "链接制作完成 → 备货运营推广", color: "#9b59b6", sub: "链接完成, 进入备货与正式推广" },
+  { id: "h4", title: "进入可售状态", color: "#9b59b6", sub: "链接完成, 进入备货与正式推广" },
 ];
 // 交接框 → 类目明细里显示的阶段标签 (覆盖原"在调研-XX")
 const HANDOFF_STEP_LABEL = {
