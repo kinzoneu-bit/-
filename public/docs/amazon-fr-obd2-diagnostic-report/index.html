@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Amazon.fr OBD-II 诊断仪选品决策报告</title>
+  <meta name="description" content="Codex 与 Claude 综合后的 Amazon.fr OBD-II 诊断仪选品决策报告。" />
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #5f6b7a;
+      --line: #d9e1ec;
+      --soft: #f6f8fb;
+      --accent: #0f5e9c;
+      --accent-2: #b3261e;
+      --code: #eef4fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+      line-height: 1.72;
+      font-size: 16px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+      padding: 40px 24px 26px;
+    }
+    header .inner, main {
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+    .eyebrow {
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: .02em;
+      margin-bottom: 10px;
+    }
+    h1 {
+      margin: 0 0 14px;
+      font-size: clamp(30px, 5vw, 48px);
+      line-height: 1.14;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 900px;
+      color: var(--muted);
+      font-size: 18px;
+      margin: 0;
+    }
+    main {
+      padding: 26px 24px 80px;
+    }
+    h2 {
+      margin-top: 42px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      font-size: 28px;
+      line-height: 1.25;
+      color: #0e3f6d;
+    }
+    h3 {
+      margin-top: 28px;
+      font-size: 22px;
+      line-height: 1.35;
+      color: #1b4b71;
+    }
+    h4 {
+      margin-top: 22px;
+      font-size: 18px;
+      color: #24364d;
+    }
+    p { margin: 12px 0; }
+    strong { color: var(--accent-2); }
+    code {
+      background: var(--code);
+      padding: 2px 6px;
+      border-radius: 5px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: .92em;
+    }
+    a { color: var(--accent); }
+    ul, ol { padding-left: 1.35rem; }
+    li { margin: 6px 0; }
+    .table-wrap {
+      overflow-x: auto;
+      margin: 16px 0 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+      font-size: 14.5px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #eaf2fb;
+      color: #12385c;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    tbody tr:nth-child(even) td { background: var(--soft); }
+    footer {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="inner">
+      <div class="eyebrow">KinZon SAS · Amazon.fr · OBD-II</div>
+      <h1>Amazon.fr OBD-II 诊断仪选品决策报告</h1>
+      <p class="subtitle">Codex 与 Claude 综合版，聚焦多月榜单演化、功能迭代、价格带主流产品和首发 SKU 决策。</p>
+    </div>
+  </header>
+  <main>
+    <h1 id="amazon-fr-obd-ii-诊断仪选品决策报告">Amazon.fr OBD-II 诊断仪选品决策报告</h1>
+<p>更新时间：2026-08-06 数据窗口：2025-09、2025-12、2026-04、2026-07 四期 Amazon.fr OBD-II Top100 明细 业务前提：中国供应链采购 → 法国公司 KinZon SAS 主体 → 全欧 FBA 销售</p>
+<h2 id="最终结论">最终结论</h2>
+<p><strong>首发主 SKU 确定为：蓝牙全系统入门诊断仪。建议标价 <code>€46.99</code>，首发用 coupon 把到手价打到 <code>€43.99-44.99</code>。</strong></p>
+<p>这个结论由 Codex 和 Claude 两份分析共同支持。Codex 证明 <code>€30-50</code> 仍是满足 <code>≥ €35</code> 客单价约束的最佳切入带；Claude 进一步证明该带已经完成一次关键换代：2025-09 的主流是基础码读器 Ancel AD310，2025-12 以后被 TOPDON Carpal-A 取代，后者以“全系统蓝牙 + 6项重置 + AutoVIN”在 2026-07 达到 <code>€46.93 / 677件</code>。</p>
+<p>第二个重要调整是：<strong>有屏 OBD 码读取器不再作为 P1 同步主推。</strong> Claude 在 400 条标题中没有发现独立屏幕/触屏形态作为核心卖点，说明 Amazon.fr 当前主流是蓝牙 + 手机 App，不是独立屏幕设备。有屏款可以保留为低优先级验证方向，但不应占用第一批核心资源。</p>
+<p>第三个调整是：<strong><code>€200+</code> 高端平板继续搁置。</strong> 该带收入占比高，但 2026-07 销量份额只有 <code>7.5%</code>，且头部频繁换血、价格下压、品牌壁垒强。LAUNCH 的高价铺货没有换来份额增长，是反面样本。</p>
+<h2 id="决策建议">决策建议</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>优先级</th><th>SKU方向</th><th>最终建议</th><th>定价</th><th>进入方式</th></tr></thead>
+<tbody>
+<tr><td>P0</td><td>蓝牙全系统入门诊断仪</td><td>立即做，作为首发主 SKU</td><td>标价 <code>€46.99</code>，coupon 到手 <code>€43.99-44.99</code></td><td>直接对标 TOPDON Carpal-A，但不硬拼品牌，用法系车兼容 + 法语服务 + 无订阅打差异</td></tr>
+<tr><td>P1</td><td>平价蓝牙适配器 + 法语服务</td><td>仅作为可选引流 SKU；若严格遵守 <code>≥ €35</code>，则不纳入机会 SKU</td><td><code>€27.99-29.99</code></td><td>复制 OBD2(fr) 的法语服务模型，但要接受低毛利和高退货风险</td></tr>
+<tr><td>P2</td><td>法系车专属蓝牙适配器</td><td>不做 <code>€39.99</code> 纯适配器；并入 P0 或下沉到平价带</td><td>并入 P0 或 <code>€27.99-29.99</code></td><td>“PSA/Renault/Dacia兼容”作为页面打法，不单独做夹心价位</td></tr>
+<tr><td>P3</td><td>中端全系统诊断仪</td><td>品牌建立后做第二梯队</td><td><code>€89.99-94.99</code></td><td>对标 KINGBOLEN Ediag Elite，强调无订阅、法语界面、15项左右重置</td></tr>
+<tr><td>P4</td><td>高端诊断平板</td><td>暂不做</td><td>不建议首批定价</td><td>等 P0/P3 有评价基础后再评估</td></tr>
+</tbody></table></div>
+<h2 id="codex-与-claude-的合并判断">Codex 与 Claude 的合并判断</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>议题</th><th>Codex 判断</th><th>Claude 判断</th><th>最终取舍</th></tr></thead>
+<tbody>
+<tr><td>P0 是否成立</td><td><code>€30-50</code> 是核心机会带，建议 <code>€44.99</code> 蓝牙全系统入门款</td><td>强验证；TOPDON Carpal-A 已站上 <code>€46.93 / 677件</code></td><td>P0 保留，并把标价上调到 <code>€46.99</code>，首发 coupon 拉回 <code>€44</code> 左右</td></tr>
+<tr><td>有屏读码器是否做 P1</td><td>可作为同步 SKU，打“无需手机/即插即用”</td><td>400 条标题中独立屏幕渗透率 0%，无高销量证据</td><td>降级为观察/验证款，不作为首批主推</td></tr>
+<tr><td>法系车专属适配器</td><td><code>€39.99</code> 可做 P2</td><td>纯适配器夹在 <code>€15-30</code> 和 <code>€30-50</code> 之间，定位尴尬</td><td>法系车兼容作为 P0 卖点；若单独做适配器，需下沉到 <code>€27.99-29.99</code></td></tr>
+<tr><td>中高端机会</td><td>P3 可做，P4 后期矩阵</td><td>P3 有效但带薄；P4 明显降级</td><td>P3 第二阶段，P4 暂停</td></tr>
+<tr><td>功能迭代</td><td>蓝牙/BLE、全系统、法语服务、重置服务是主线</td><td>真正硬件/协议迭代集中在 <code>€50+</code>；主流带硬件变化有限</td><td>主流带不要堆高端参数，聚焦蓝牙稳定、法语服务、6-8项够用重置</td></tr>
+</tbody></table></div>
+<h2 id="关键依据">关键依据</h2>
+<h3 id="1-类目大盘-不是单纯降价内卷-而是两端分化">1. 类目大盘：不是单纯降价内卷，而是两端分化</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>快照月</th><th>Top100销量</th><th>加权成交价</th><th>结构变化</th></tr></thead>
+<tbody>
+<tr><td>2025-09</td><td>11,088</td><td><code>€90.93</code></td><td><code>€30-50</code> 占 30.8% 销量，低价带占 35.9%</td></tr>
+<tr><td>2025-12</td><td>13,654</td><td><code>€96.77</code></td><td>年末需求峰值，蓝牙/BLE 标签覆盖上升</td></tr>
+<tr><td>2026-04</td><td>12,439</td><td><code>€98.02</code></td><td><code>€0-30</code> 继续放量，<code>€200+</code> 收入占比仍高</td></tr>
+<tr><td>2026-07</td><td>11,250</td><td><code>€71.81</code></td><td><code>€0-30</code> 放量拉低成交价，<code>€200+</code> 销量塌缩</td></tr>
+</tbody></table></div>
+<p>Claude 进一步拆分后，2026-07 的结构更清晰：<code>€15-30</code> 贡献 32.8% 销量，<code>€30-50</code> 贡献 26.5% 销量，两者合计接近 60%。这说明中国供应链最该聚焦的是 <code>€15-50</code> 走量腹地，而不是高价平板长尾。</p>
+<h3 id="2-2026-07-价格带全景">2. 2026-07 价格带全景</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>价格带</th><th>产品数</th><th>销量</th><th>销量占比</th><th>均价</th><th>主流产品</th></tr></thead>
+<tbody>
+<tr><td><code>€0-15</code></td><td>11</td><td>1,583</td><td>14.1%</td><td><code>€13.09</code></td><td>SmartOBD B0FFHDQLYP，<code>€13.99 / 632件</code></td></tr>
+<tr><td><code>€15-30</code></td><td>19</td><td>3,693</td><td>32.8%</td><td><code>€24.88</code></td><td>OBD2(fr) B08RJHFF2T，<code>€25.99 / 1,598件</code>；Vgate iCar Pro，<code>€29.87 / 598件</code></td></tr>
+<tr><td><code>€30-50</code></td><td>27</td><td>2,985</td><td>26.5%</td><td><code>€41.00</code></td><td>TOPDON Carpal-A B0DCZ6GFKR，<code>€46.93 / 677件</code></td></tr>
+<tr><td><code>€50-100</code></td><td>10</td><td>887</td><td>7.9%</td><td><code>€71.54</code></td><td>KINGBOLEN Ediag Elite，<code>€84.64 / 233件</code></td></tr>
+<tr><td><code>€100-200</code></td><td>13</td><td>1,119</td><td>10.0%</td><td><code>€149.99</code></td><td>OBDeleven 3，<code>€109.75 / 193件</code></td></tr>
+<tr><td><code>€200+</code></td><td>19</td><td>843</td><td>7.5%</td><td><code>€400.39</code></td><td>KINGBOLEN K7，<code>€398.07 / 123件</code></td></tr>
+</tbody></table></div>
+<h3 id="3-功能迭代-主流带不卷硬件-卷-可信度">3. 功能迭代：主流带不卷硬件，卷“可信度”</h3>
+<p>按标题关键词看，真正有增长的硬功能是 <code>CAN-FD</code>、<code>DoIP</code>、<code>ECU 编码</code> 和重置服务项数，但这些主要集中在 <code>€50+</code>。Claude 提取到的趋势是：</p>
+<div class="table-wrap"><table>
+<thead><tr><th>功能</th><th>2025-09</th><th>2026-07</th><th>解释</th></tr></thead>
+<tbody>
+<tr><td>CAN-FD</td><td>7%</td><td>10%</td><td>中高端开始覆盖新车协议</td></tr>
+<tr><td>DoIP</td><td>4%</td><td>8%</td><td>以太网诊断协议下沉，但销量还未跟上</td></tr>
+<tr><td>ECU 编码</td><td>9%</td><td>16%</td><td>专业功能向中端渗透</td></tr>
+<tr><td>重置服务平均项数</td><td>18.5</td><td>22.1</td><td><code>€50+</code> 军备竞赛，上限从 45 到 50</td></tr>
+<tr><td>独立屏幕/触屏</td><td>0%</td><td>0%</td><td>在本类目标题里不是主流卖点</td></tr>
+</tbody></table></div>
+<p>销量加权口径更重要：蓝牙/App 形态持续增强，法语服务和“2026”新鲜度也能驱动销量。对 P0 来说，最优配置不是堆 20+ 重置、ECU 编码和高端协议，而是做到“蓝牙稳定 + 全系统真实 + 6-8项够用复位 + 法语服务 + 法系车兼容清单”。</p>
+<h3 id="4-价格带迭代关键事件">4. 价格带迭代关键事件</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>价格带</th><th>关键变化</th><th>对 KinZon 的含义</th></tr></thead>
+<tbody>
+<tr><td><code>€0-15</code></td><td>SmartOBD 用 <code>2026 / 2分钟诊断</code> 话术冲到 632件</td><td>低价爆款靠话术和极简需求，但不满足默认客单价约束</td></tr>
+<tr><td><code>€15-30</code></td><td>OBD2(fr) B08RJHFF2T 以法语客服长期稳居单品王</td><td>法语服务是真实护城河，可迁移到 P0</td></tr>
+<tr><td><code>€30-50</code></td><td>Ancel AD310 被 TOPDON Carpal-A 替代，完成“基础码读器 → 全系统蓝牙”升级</td><td>P0 是最强验证方向</td></tr>
+<tr><td><code>€50-100</code></td><td>KINGBOLEN Ediag Elite 稳定，但销量带薄</td><td>可做第二梯队，不抢首发资源</td></tr>
+<tr><td><code>€100+</code></td><td>频繁换血，价格下压，高端品牌壁垒强</td><td>不适合冷启动铺货</td></tr>
+</tbody></table></div>
+<h2 id="竞争格局">竞争格局</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>竞争者</th><th>当前位置</th><th>对策</th></tr></thead>
+<tbody>
+<tr><td>OBD2(fr) / 白牌集群</td><td>平价带基本盘，靠法语客服和低价走量</td><td>不在 <code>€15-30</code> 正面打价格；复制“法国卖家/法语客服”信任表达</td></tr>
+<tr><td>Vgate</td><td>最大赢家之一，份额从 6.0% 升至 15.7%，主打 <code>€25-40</code> 蓝牙适配器</td><td>P0 页面要强调“全系统 + 6项复位”，避免被看成普通适配器</td></tr>
+<tr><td>TOPDON</td><td><code>€30-50</code> 和中高端标杆，Carpal-A 是 P0 直接对标</td><td>不硬拼品牌，用法国主体、法系车兼容、无订阅和服务体验打差异</td></tr>
+<tr><td>KINGBOLEN</td><td><code>€50-100</code> 稳定，推新速度快</td><td>P3 阶段参考其配置，但不要首发硬撞</td></tr>
+<tr><td>LAUNCH</td><td>高价铺货多但份额不增</td><td>避免“多铺高价平板”的错误路径</td></tr>
+</tbody></table></div>
+<h2 id="首发产品定义">首发产品定义</h2>
+<h3 id="p0-kinzon-蓝牙全系统入门诊断仪">P0：KinZon 蓝牙全系统入门诊断仪</h3>
+<p>建议页面价格：<code>€46.99</code> 首发到手价：<code>€43.99-44.99</code> 核心定位：比低价 ELM327 更可信，比 TOPDON Carpal-A 更本土化、更适合法国车主。</p>
+<p>必须配置：</p>
+<ul>
+<li>蓝牙 5.1 BLE，iOS / Android 双平台。</li>
+<li>全系统诊断真实可用：发动机、变速箱、ABS、SRS、空调、车身控制。</li>
+<li>OBD-II 基础功能：读码、清码、实时数据、冻结帧、I/M 就绪、O2、EVAP、VIN、电压、DTC 库。</li>
+<li>6-8 项保养复位：机油、EPB、SAS、节气门、DPF、BMS，最多扩展到 TPMS/ABS 排气。</li>
+<li>AutoVIN。</li>
+<li>法语 App / 法语 DTC 解释 / 法语快速教程。</li>
+<li>车型兼容清单重点覆盖 Peugeot、Citroen、Renault、Dacia、VW、BMW。</li>
+<li>基础功能无订阅，OTA 更新规则清楚。</li>
+<li>RED / EMC / GPSR / WEEE 文件完整。</li>
+</ul>
+<p>不要做的事：</p>
+<ul>
+<li>不要把 <code>20+重置</code> 当首发核心卖点。那是 <code>€50+</code> 的军备竞赛，不是主流带的成交关键。</li>
+<li>不要把 <code>ECU编码 / DoIP / 拓扑图</code> 写成核心承诺，除非供应商能真实交付。</li>
+<li>不要把 P0 做成普通 ELM327 适配器，否则会被 Vgate 和白牌夹击。</li>
+</ul>
+<h3 id="可选引流-sku-平价蓝牙适配器-法语服务">可选引流 SKU：平价蓝牙适配器 + 法语服务</h3>
+<p>如果团队愿意突破 <code>≥ €35</code> 的默认客单价约束，可以考虑 <code>€27.99-29.99</code> 的平价蓝牙适配器，目标不是利润，而是评价冷启动和品牌入口。</p>
+<p>但这个 SKU 必须单独评估库存和退货，不应稀释 P0 资源。若坚持 <code>≥ €35</code>，则跳过它。</p>
+<h3 id="p3-中端全系统诊断仪">P3：中端全系统诊断仪</h3>
+<p>建议作为第二阶段，不做首发。定价 <code>€89.99-94.99</code>，配置围绕 15项左右复位、Active Test、无订阅、法语界面。等 P0 累积评价和客服经验后再上。</p>
+<h2 id="执行步骤">执行步骤</h2>
+<h3 id="第一步-供应商验证">第一步：供应商验证</h3>
+<ol>
+<li>1. 找 3-5 家成熟 OBD 方案商，不找只会贴牌的外壳厂。</li>
+<li>2. 要求提供 App 后台、车型数据库、固件更新记录、法语包、RED/EMC 文件。</li>
+<li>3. 样机测试必须覆盖 iOS / Android、Peugeot、Citroen、Renault、Dacia、VW、BMW。</li>
+<li>4. 用真实车辆验证“全系统”和 6-8 项复位，不接受只在标题里出现。</li>
+</ol>
+<h3 id="第二步-上市页设计">第二步：上市页设计</h3>
+<p>标题主线：</p>
+<p><code>Valise Diagnostic Auto OBD2 Bluetooth, Tous Systèmes, 6 Services, AutoVIN, Français, Compatible Peugeot Citroen Renault Dacia</code></p>
+<p>页面必须解决三个问题：</p>
+<ul>
+<li>我这辆车能不能用。</li>
+<li>蓝牙和 App 会不会连不上。</li>
+<li>CT 前怎么快速读码、清码、看 I/M 就绪。</li>
+</ul>
+<h3 id="第三步-首发控制">第三步：首发控制</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>指标</th><th>Go/No-Go 标准</th></tr></thead>
+<tbody>
+<tr><td>蓝牙连接</td><td>iOS / Android 首次连接成功率稳定，客服能用视频教程解决常见问题</td></tr>
+<tr><td>车型覆盖</td><td>法系车重点样本能读到关键系统，不只读发动机</td></tr>
+<tr><td>功能真实性</td><td>全系统、6项复位、AutoVIN 至少在样车上可验证</td></tr>
+<tr><td>认证资料</td><td>RED、EMC、GPSR、WEEE、DoC 文件完整</td></tr>
+<tr><td>售后风险</td><td>Listing 明确兼容边界，FAQ 覆盖“不支持车型/系统”的情况</td></tr>
+</tbody></table></div>
+<h2 id="反对意见和风险">反对意见和风险</h2>
+<ol>
+<li>1. <strong>标题关键词不等于真实功能。</strong> Claude 的功能迭代基于标题抽取，反映卖家主打口径，不等于供应商真实能力。必须用样机和车型测试验证。</li>
+<li>2. <strong>2026-07 数据可能偏软。</strong> 最新月可能存在数据未走完或夏季淡季效应，因此结构占比比绝对销量更可靠。</li>
+<li>3. <strong>退货率是结构性风险。</strong> 既有报告显示类目退货率约 10.6%，蓝牙连接、车型兼容、用户预期不清是主要风险。</li>
+<li>4. <strong>法系车专属可能只是 listing 表达。</strong> 若供应商没有增强 PID/系统覆盖能力，只写 Peugeot/Citroen/Renault 会增加差评。</li>
+<li>5. <strong>低价引流 SKU 会破坏客单价纪律。</strong> 除非明确作为引流和评论策略，否则不建议进入第一批。</li>
+</ol>
+<h2 id="最终建议">最终建议</h2>
+<p>第一批只做一个主 SKU：<code>€46.99</code> 标价的蓝牙全系统入门诊断仪，coupon 到手价控制在 <code>€44</code> 左右。把资源集中在真实功能验证、法语服务、车型兼容和低退货体验上。</p>
+<p>有屏读码器、纯法系车专属适配器和高端平板都不进入首发主线。它们分别降级为观察款、P0 页面打法、后期矩阵。</p>
+<h2 id="数据来源与口径">数据来源与口径</h2>
+<ul>
+<li>SellerSprite 导出的 Amazon.fr OBD-II Top100 产品历史明细，覆盖 2025-09、2025-12、2026-04、2026-07。</li>
+<li>Codex 第一版产品调研报告，生成于 2026-08-05。</li>
+<li>Claude 多月度类目演化报告，生成于 2026-08-05。</li>
+<li>Fortune Business Insights: <a href="https://www.fortunebusinessinsights.com/industry-reports/automotive-diagnostic-scan-tools-market-101914" target="_blank" rel="noopener noreferrer">Automotive Diagnostic Scan Tools Market</a></li>
+<li>SDES: <a href="https://www.statistiques.developpement-durable.gouv.fr/40-millions-de-voitures-en-circulation-en-france-au-1er-janvier-2026" target="_blank" rel="noopener noreferrer">40 millions de voitures en circulation en France au 1er janvier 2026</a></li>
+<li>Service-Public.fr: <a href="https://www.service-public.gouv.fr/particuliers/vosdroits/F2878" target="_blank" rel="noopener noreferrer">Contrôle technique d&#x27;une voiture particulière</a></li>
+<li>EUR-Lex: <a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32023R0988" target="_blank" rel="noopener noreferrer">Regulation (EU) 2023/988 General Product Safety Regulation</a></li>
+<li>European Commission: <a href="https://single-market-economy.ec.europa.eu/sectors/electrical-and-electronic-engineering-industries-eei/radio-equipment-directive-red_en" target="_blank" rel="noopener noreferrer">Radio Equipment Directive</a></li>
+<li>EUR-Lex: <a href="https://eur-lex.europa.eu/eli/dir/2012/19/oj" target="_blank" rel="noopener noreferrer">WEEE Directive 2012/19/EU</a></li>
+</ul>
+<h2 id="可沉淀到长期记忆的内容">可沉淀到长期记忆的内容</h2>
+<ul>
+<li><code>€30-50</code> 是 OBD-II 法国站最优切入带：既满足客单价约束，又有真实功能升级证据。</li>
+<li>低价带的核心不是硬件，而是法语服务、年份新鲜度、极简使用承诺。</li>
+<li>有屏设备不能凭直觉判断为“更适合小白”，必须先看平台标题和销量证据；本次证据显示其不是主流。</li>
+<li>高价专业平板容易出现“产品数多、成交少、品牌强、售后复杂”的长尾陷阱。</li>
+<li>对电子诊断类产品，供应商验货优先级高于 listing 文案：车型数据库、App、固件和认证文件必须先过关。</li>
+</ul>
+  </main>
+  <footer>
+    生成时间：2026-08-06。用于选品决策与团队阅读，发布前请确认公开范围。
+  </footer>
+</body>
+</html>
