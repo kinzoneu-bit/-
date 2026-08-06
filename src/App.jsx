@@ -451,6 +451,13 @@ function Overview({ siteEvals, onPick }) {
   const [handoffs, setHandoffs] = useState([]);
   const [dragId, setDragId] = useState(null);
   const [hoverBox, setHoverBox] = useState(null);
+  // 当前用户 + admin 角色判断 (阶段转化分析仅 KK/法国可见)
+  const [currentEmail, setCurrentEmail] = useState("");
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { if (data && data.user) setCurrentEmail(data.user.email || ""); });
+  }, []);
+  const ADMIN_EMAILS = ["kinzon.eu@gmail.com", "qianlin20222@163.com"];
+  const isAdmin = ADMIN_EMAILS.includes(currentEmail);
   const [openPhases, setOpenPhases] = useState({});
   // 调研阶段顺序 (拖拽流转: planning → pre_research → supplier → spec)
   const PHASE_ORDER = ["planning", "pre_research", "supplier", "spec"];
@@ -713,8 +720,10 @@ function Overview({ siteEvals, onPick }) {
         })}
       </div>
 
-      {/* 阶段转化分析: 任意时间段内 状态转换统计 */}
-      <SectionTitle t="阶段转化分析" sub="统计任意时间段内进入某阶段, 并最终到达后续阶段的类目数量" />
+      {isAdmin && (
+        <>
+          {/* 阶段转化分析: 任意时间段内 状态转换统计 (仅 admin 可见) */}
+          <SectionTitle t="阶段转化分析" sub="统计任意时间段内进入某阶段, 并最终到达后续阶段的类目数量（仅 KK/法国可见）" />
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
           <span style={{ fontSize: 12, color: C.sub }}>从</span>
@@ -753,6 +762,8 @@ function Overview({ siteEvals, onPick }) {
           例: 选中 2026-07-01 ~ 2026-07-31, 「立项」行 + 「定款」列 = 7月进入立项且最终到达定款的类目数
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }
