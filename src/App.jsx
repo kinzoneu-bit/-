@@ -90,6 +90,13 @@ const HANDOFF_BOXES = [
   { id: "h3", title: "链接制作 → 链接制作完成", color: "#3498db", sub: "listing 上传完成, 进入备货与试运营阶段" },
   { id: "h4", title: "链接制作完成 → 备货运营推广", color: "#9b59b6", sub: "链接完成, 进入备货与正式推广" },
 ];
+// 交接框 → 类目明细里显示的阶段标签 (覆盖原"在调研-XX")
+const HANDOFF_STEP_LABEL = {
+  h1: "定款中",
+  h2: "链接制作中",
+  h3: "链接制作完成",
+  h4: "备货运营推广",
+};
 
 // 链接日级跟进 demo 数据 (按运营体系 v1: 以末端类目为单位组织, 四档警报)
 // 真库版会从 monitor_categories / monitor_asins / monitor_daily 等表拉取
@@ -891,6 +898,18 @@ function Shelf() {
   const [filterC, setFilterC] = useState({});  // 每个类目的筛选: undefined|'selling'|'idle'
   const [openL, setOpenL] = useState({});      // 展开的末端类目, key = ckey|leafIdx
   const [projectFor, setProjectFor] = useState(null); // 跳转 Project 弹窗
+  // 交接状态: leaf_id → box_key (供 leaf 行显示阶段标签, 与开发进度拖拽同步)
+  const [handoffMap, setHandoffMap] = useState({});
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase.from("monitor_handoff").select("leaf_id, box_key");
+      if (!error) {
+        const m = {};
+        (data || []).forEach(h => { m[h.leaf_id] = h.box_key; });
+        setHandoffMap(m);
+      }
+    })();
+  }, []);
 
   const countCats = (groups) => {
     const n = { total: 0, selling: 0, idle: 0, skip: 0, researched_skip: 0 };
@@ -1190,7 +1209,19 @@ function Shelf() {
                                                   <span onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })} style={{ fontSize: 13, color: C.ink, fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted", textDecorationColor: C.faint, textUnderlineOffset: 3 }}>
                                                     {lf.leaf}
                                                   </span>
-                                                  {lf.st === "idle" && (!lf.products || !lf.products.length) && (
+                                                  {(() => {
+                                                    const hbox = handoffMap[lf.id];
+                                                    if (hbox && HANDOFF_STEP_LABEL[hbox]) {
+                                                      const hc = HANDOFF_BOXES.find(b => b.id === hbox);
+                                                      return (
+                                                        <span style={{ fontSize: 11, color: hc ? hc.color : C.brand, fontWeight: 600 }}>
+                                                          · {HANDOFF_STEP_LABEL[hbox]}
+                                                        </span>
+                                                      );
+                                                    }
+                                                    return null;
+                                                  })()}
+                                                  {lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
                                                     <select
                                                       value={lf.phase || ""}
                                                       onChange={(e) => {
