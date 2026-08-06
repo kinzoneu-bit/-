@@ -466,7 +466,7 @@ function Overview({ siteEvals, onPick }) {
         supabase.from("shelf_leaves").select("id, leaf_name, cat_id"),
         supabase.from("shelf_cats").select("id, name, group_id"),
         supabase.from("shelf_groups").select("id, name, brand_code"),
-        supabase.from("brands").select("code, full_name, short_name"),
+        supabase.from("brands").select("code, full_name"),
       ]);
       const gById = {}; (gs || []).forEach(g => gById[g.id] = g);
       const cById = {}; (cs || []).forEach(c => cById[c.id] = c);
