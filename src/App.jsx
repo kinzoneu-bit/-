@@ -98,6 +98,64 @@ const HANDOFF_STEP_LABEL = {
   h4: "备货运营推广",
 };
 
+// ---- 权限模型 ----
+// 角色 → 拖拽规则
+//   fromAny/toAny: true = 该方向不受限
+//   否则按 from/to 数组匹配
+// admin / fr 都给全权限 (KK 确认: admin + 法国成员都全权限)
+const ROLE_PERMISSIONS = {
+  admin:        { fromAny: true, toAny: true, label: "管理员" },
+  fr:           { fromAny: true, toAny: true, label: "法国成员" },
+  cd_supplier:  { from: ["h1"], to: ["h2"], label: "成都·供应链" },
+  cd_link:      { from: ["h2"], to: ["h3"], label: "成都·链接" },
+  cd_promotion: { from: [], to: [], label: "成都·推广" },
+};
+// 邮箱 → 角色
+// TODO: 成都·供应链 / 成都·链接 / 法国 的真邮箱明天由 KK 确认后替换
+const EMAIL_TO_ROLE = {
+  "kinzon.eu@gmail.com":  "admin",
+  "qianlin20222@163.com": "admin",
+  "503279601@qq.com":     "cd_promotion",  // 已确认
+  "915126059@qq.com":     "fr",            // 暂按之前的"法国团队"映射, 待确认
+  // "TODO_CD_SUPPLIER@xxx": "cd_supplier",  // 成都·供应链 - 待补
+  // "TODO_CD_LINK@xxx":     "cd_link",      // 成都·链接 - 待补
+};
+const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
+const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (email ? "未授权" : "未登录");
+
+// 是否能拖动指定框里的项
+const canDrag = (boxId, role) => {
+  if (!role) return false;
+  const p = ROLE_PERMISSIONS[role];
+  if (!p) return false;
+  if (p.fromAny) return true;
+  return (p.from || []).includes(boxId);
+};
+// 是否能从 fromBox 拖到 toBox
+const canDrop = (fromBox, toBox, role) => {
+  if (!role) return false;
+  const p = ROLE_PERMISSIONS[role];
+  if (!p) return false;
+  // admin / fr: 双向全开
+  if (p.fromAny && p.toAny) return true;
+  // 仅 fromAny: 任意框可拖出, 但只能放进 to 列表里的框
+  if (p.fromAny) return (p.to || []).includes(toBox);
+  // 仅 toAny: 任意框可放进, 但只能从 from 列表里的框拖出
+  if (p.toAny) return (p.from || []).includes(fromBox);
+  // 严格双向: from/to 都必须命中
+  return (p.from || []).includes(fromBox) && (p.to || []).includes(toBox);
+};
+
+// 时间统计的空盒
+const emptyBoxStat = () => ({
+  total: 0, current: 0, historical: 0,
+  avg: 0, median: 0, max: 0, min: 0,
+  dist: { lt3: 0, d3_7: 0, d7_14: 0, gte14: 0 },
+  byGroup: {},
+});
+// 友好时长 (天)
+const fmtDays = (d) => d == null ? "—" : (d < 1 ? `${Math.max(1, Math.round(d * 24))} 小时` : `${d.toFixed(1)} 天`);
+
 // 链接日级跟进 demo 数据 (按运营体系 v1: 以末端类目为单位组织, 四档警报)
 // 真库版会从 monitor_categories / monitor_asins / monitor_daily 等表拉取
 const ALERT_LEVEL = {
@@ -449,15 +507,20 @@ export default function App() {
 function Overview({ siteEvals, onPick }) {
   // 作业交接: monitor_handoff 数据 (leaf_id → {box_key, start_at})
   const [handoffs, setHandoffs] = useState([]);
+  // 交接历史 log (时间统计用)
+  const [handoffLog, setHandoffLog] = useState([]);
   const [dragId, setDragId] = useState(null);
   const [hoverBox, setHoverBox] = useState(null);
-  // 当前用户 + admin 角色判断 (阶段转化分析仅 KK/法国可见)
+  // 当前用户 + 角色 (从 EMAIL_TO_ROLE 解析)
   const [currentEmail, setCurrentEmail] = useState("");
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => { if (data && data.user) setCurrentEmail(data.user.email || ""); });
   }, []);
-  const ADMIN_EMAILS = ["kinzon.eu@gmail.com", "qianlin20222@163.com"];
-  const isAdmin = ADMIN_EMAILS.includes(currentEmail);
+  const userRole = getUserRole(currentEmail);
+  const roleLabel = getRoleLabel(userRole);
+  // admin / 法国成员 → 阶段转化分析可见
+  const isAdmin = userRole === "admin";
+  const isFullAccess = userRole === "admin" || userRole === "fr";
   const [openPhases, setOpenPhases] = useState({});
   // 调研阶段顺序 (拖拽流转: planning → pre_research → supplier → spec)
   const PHASE_ORDER = ["planning", "pre_research", "supplier", "spec"];
@@ -502,6 +565,18 @@ function Overview({ siteEvals, onPick }) {
   }, []);
   useEffect(() => { loadHandoffs(); }, []);
 
+  // 拉取交接历史 log (用于 h2/h3 时间统计, 需要 KK 先建表 monitor_handoff_log)
+  const loadHandoffLog = async () => {
+    try {
+      const { data, error } = await supabase.from("monitor_handoff_log").select("*").order("moved_at");
+      if (error) { setHandoffLog([]); return; }
+      setHandoffLog(data || []);
+    } catch (e) {
+      setHandoffLog([]);
+    }
+  };
+  useEffect(() => { loadHandoffLog(); }, []);
+
   // 组装: 每个框按 brand 聚合 (一级类目), 数量为 leaf 总数
   const boxMap = useMemo(() => {
     const m = {};
@@ -528,13 +603,52 @@ function Overview({ siteEvals, onPick }) {
     return m;
   }, [handoffs, lToGroup]);
 
-  // 拖拽换框: 目标框 + 重置计时
+  // 拖拽换框: 权限检查 + 写历史 log + 重置计时
+  // 规则:
+  //   h1 → h2: 仅 成都供应链 + admin
+  //   h2 → h3: 仅 成都链接 + admin
+  //   admin: 任意方向; 拖出 h1 → 其他框 (非 h2) 自动标 researched_skip
+  //   其他角色: 按 ROLE_PERMISSIONS 检查
   const moveTo = async (leafId, targetBox) => {
     if (!leafId || !targetBox) return;
+    // 找当前 box
+    const cur = (handoffs || []).find(h => h.leaf_id === leafId);
+    const fromBox = cur ? cur.box_key : null;
+    // 权限检查
+    if (!canDrop(fromBox, targetBox, userRole)) {
+      const fromTitle = fromBox ? (HANDOFF_BOXES.find(b => b.id === fromBox) || {}).title : "(无)";
+      const toTitle = (HANDOFF_BOXES.find(b => b.id === targetBox) || {}).title || targetBox;
+      alert(`无权操作：${roleLabel} 不能把类目从「${fromTitle}」拖到「${toTitle}」`);
+      return;
+    }
+    // admin 拖出 h1 (到非 h2 框) → 自动标 researched_skip
+    if (userRole === "admin" && fromBox === "h1" && targetBox !== "h2") {
+      const info = ID_NAME[leafId];
+      const ok = confirm(`管理员放弃：将 "${info ? info.name : leafId}" 标记为「已调研不做」？\n（shelf_leaves.st → researched_skip）`);
+      if (!ok) return;
+      const { error: e1 } = await supabase.from("shelf_leaves").update({ st: "researched_skip", phase: null }).eq("id", leafId);
+      if (e1) { alert("标记失败: " + e1.message); return; }
+    }
+    const now = new Date().toISOString();
+    // 写主表
     const { error } = await supabase.from("monitor_handoff")
-      .upsert({ leaf_id: leafId, box_key: targetBox, start_at: new Date().toISOString() }, { onConflict: "leaf_id" });
+      .upsert({ leaf_id: leafId, box_key: targetBox, start_at: now }, { onConflict: "leaf_id" });
     if (error) { alert("保存失败: " + error.message); return; }
-    await loadHandoffs();
+    // 写历史 log (KK 需先建表 monitor_handoff_log; 建表前静默失败)
+    try {
+      await supabase.from("monitor_handoff_log").insert({
+        leaf_id: leafId,
+        from_box: fromBox,
+        to_box: targetBox,
+        moved_at: now,
+        moved_by_email: currentEmail,
+      });
+    } catch (e) { /* 表可能未建, 不影响主流程 */ }
+    await Promise.all([loadHandoffs(), loadHandoffLog()]);
+    // 拖出 h1 后, shelf_leaves 状态变了, 刷新全局
+    if (userRole === "admin" && fromBox === "h1" && targetBox !== "h2") {
+      try { await fetchShelfData(); } catch (e) {}
+    }
   };
 
   // 拖拽换调研阶段: 更新 shelf_leaves.phase + 记录 monitor_research_progress + 刷新
@@ -570,6 +684,80 @@ function Overview({ siteEvals, onPick }) {
       setProgress(data || []);
     })();
   }, []);
+
+  // 拖动源 box (用于视觉提示哪些目标框可放置)
+  const dragFromBox = useMemo(() => {
+    if (!dragId) return null;
+    const h = (handoffs || []).find(x => x.leaf_id === dragId);
+    return h ? h.box_key : null;
+  }, [dragId, handoffs]);
+
+  // 交接时间统计: h2 / h3 各自的时长分析
+  //   - historical: 从 monitor_handoff_log 计算"曾在该框停留过"的时长
+  //   - current: 当前在框中的项 + 累计时长
+  //   - dist: 时长分布 (<3 / 3-7 / 7-14 / >=14 天)
+  //   - byGroup: 按一级类目聚合 (平均时长)
+  const handoffStats = useMemo(() => {
+    const result = { h2: emptyBoxStat(), h3: emptyBoxStat() };
+    // 按 leaf_id 排序的 log
+    const logsByLeaf = {};
+    (handoffLog || []).forEach(l => {
+      if (!logsByLeaf[l.leaf_id]) logsByLeaf[l.leaf_id] = [];
+      logsByLeaf[l.leaf_id].push(l);
+    });
+    // 从 log 算历史停留时长
+    const histDurs = { h2: [], h3: [] }; // { leafId, dur, group }[]
+    Object.entries(logsByLeaf).forEach(([leafId, logs]) => {
+      for (let i = 1; i < logs.length; i++) {
+        const cur = logs[i];
+        const prev = logs[i - 1];
+        const box = cur.from_box;
+        if (!box || (box !== "h2" && box !== "h3")) continue;
+        const dur = (new Date(cur.moved_at) - new Date(prev.moved_at)) / 86400000;
+        if (dur < 0 || dur > 365) continue; // 异常数据
+        const group = (lToGroup[leafId] || {}).group || "未分类";
+        histDurs[box].push({ leafId, dur, group, source: "historical" });
+      }
+    });
+    // 当前 in-box 累计 (从主表 start_at 到 now)
+    const curDurs = { h2: [], h3: [] };
+    (handoffs || []).forEach(h => {
+      if (!h.start_at) return;
+      if (h.box_key !== "h2" && h.box_key !== "h3") return;
+      const dur = (Date.now() - new Date(h.start_at).getTime()) / 86400000;
+      const group = (lToGroup[h.leaf_id] || {}).group || "未分类";
+      curDurs[h.box_key].push({ leafId: h.leaf_id, dur, group, source: "current" });
+    });
+    // 聚合
+    ["h2", "h3"].forEach(boxId => {
+      const all = [...histDurs[boxId], ...curDurs[boxId]];
+      const byGroup = {};
+      all.forEach(a => {
+        if (!byGroup[a.group]) byGroup[a.group] = { count: 0, durs: [] };
+        byGroup[a.group].count++;
+        byGroup[a.group].durs.push(a.dur);
+      });
+      const durs = all.map(a => a.dur).sort((a, b) => a - b);
+      const sum = durs.reduce((s, x) => s + x, 0);
+      result[boxId] = {
+        total: all.length,
+        current: curDurs[boxId].length,
+        historical: histDurs[boxId].length,
+        avg: durs.length ? sum / durs.length : 0,
+        median: durs.length ? durs[Math.floor(durs.length / 2)] : 0,
+        max: durs.length ? durs[durs.length - 1] : 0,
+        min: durs.length ? durs[0] : 0,
+        dist: {
+          lt3: all.filter(a => a.dur < 3).length,
+          d3_7: all.filter(a => a.dur >= 3 && a.dur < 7).length,
+          d7_14: all.filter(a => a.dur >= 7 && a.dur < 14).length,
+          gte14: all.filter(a => a.dur >= 14).length,
+        },
+        byGroup,
+      };
+    });
+    return result;
+  }, [handoffs, handoffLog, lToGroup]);
 
   // 调研 4 阶段按 一级类目 (group) 聚合, 显示移动时间 + 持续时长
   const phaseMap = useMemo(() => {
@@ -672,23 +860,61 @@ function Overview({ siteEvals, onPick }) {
       </div>
 
       {/* 作业交接框: 5 个阶段 4 个交接点, 按品牌聚合 + 下拉查看具体 leaf */}
-      <SectionTitle t="作业交接" sub="5 个阶段 · 4 个交接节点 · 拖拽类目到目标框即交接并重新计时 · 一级类目聚合显示" />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>作业交接</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>5 个阶段 · 4 个交接节点 · 拖拽类目到目标框即交接并重新计时 · 一级类目聚合显示</div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: C.faint }}>当前角色</span>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6,
+            background: (userRole === "admin" || userRole === "fr") ? `${C.brand}22` : (userRole ? `${C.line}` : "#3a3030"),
+            border: `1px solid ${(userRole === "admin" || userRole === "fr") ? C.brand : (userRole ? C.line : "#5a3030")}` }}>
+            {roleLabel}
+          </span>
+          {userRole && !isFullAccess && (
+            <span style={{ fontSize: 10, color: C.faint }}>
+              {userRole === "cd_supplier" && "(调研期间 → 链接制作)"}
+              {userRole === "cd_link" && "(链接制作期间 → 采购备货)"}
+              {userRole === "cd_promotion" && "(暂无交接权限)"}
+            </span>
+          )}
+          {isFullAccess && <span style={{ fontSize: 10, color: C.faint }}>(全权限 · 拖出 h1 非 h2 自动标记为「已调研不做」)</span>}
+        </div>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
         {HANDOFF_BOXES.map(box => {
           const data = boxMap[box.id] || { total: 0, byGroup: {} };
           const groupList = Object.entries(data.byGroup).sort((a, b) => b[1].length - a[1].length);
+          // 权限计算
+          const canDragFrom = canDrag(box.id, userRole);
+          const isDragging = !!dragId;
+          // 拖动时, 该框对当前用户来说是否是合法放置目标
+          const dropAllowed = isDragging && dragFromBox !== box.id ? canDrop(dragFromBox, box.id, userRole) : true;
+          const dropDenied = isDragging && dragFromBox !== box.id && !dropAllowed;
+          // 边框 / 背景
+          const borderColor = dropDenied ? "#c05b52"
+            : hoverBox === box.id ? box.color
+            : (isDragging && !canDragFrom) ? "#3a3030"  // 当前用户不能从这框拖, 整体置灰
+            : C.line;
           return (
             <div key={box.id}
-              onDragOver={(e) => { e.preventDefault(); setHoverBox(box.id); }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!dragFromBox || dragFromBox === box.id) { setHoverBox(box.id); return; }
+                if (canDrop(dragFromBox, box.id, userRole)) setHoverBox(box.id);
+                else setHoverBox("__denied__");
+              }}
               onDragLeave={() => setHoverBox(null)}
               onDrop={(e) => { e.preventDefault(); setHoverBox(null); if (dragId) moveTo(dragId, box.id); }}
-              style={{ background: C.panel, border: `1px solid ${hoverBox === box.id ? box.color : C.line}`, borderRadius: 12, padding: "16px 18px", minHeight: 180, transition: "border .15s" }}>
+              style={{ background: C.panel, border: `1px solid ${borderColor}`, borderRadius: 12, padding: "16px 18px", minHeight: 180, transition: "border .15s", opacity: (isDragging && !canDragFrom && !dropAllowed) ? 0.55 : 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
                 <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{box.title}</span>
                 <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{data.total} 项</span>
               </div>
               {box.sub && <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{box.sub}</div>}
+              {dropDenied && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 8 }}>⚠ {roleLabel} 无权放入此框</div>}
               {data.total ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {groupList.map(([group, items]) => (
@@ -699,11 +925,14 @@ function Overview({ siteEvals, onPick }) {
                       </summary>
                       <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
                         {items.map((it, i) => (
-                          <div key={it.leafId} draggable
-                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", it.leafId); setDragId(it.leafId); }}
+                          <div key={it.leafId} draggable={canDragFrom}
+                            onDragStart={(e) => {
+                              if (!canDragFrom) { e.preventDefault(); return; }
+                              e.dataTransfer.setData("text/plain", it.leafId); setDragId(it.leafId);
+                            }}
                             onDragEnd={() => setDragId(null)}
-                            style={{ padding: "5px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: "grab" }}>
-                            <div style={{ color: C.ink, fontWeight: 600 }}>{it.name}</div>
+                            style={{ padding: "5px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: canDragFrom ? "grab" : "not-allowed" }}>
+                            <div style={{ color: canDragFrom ? C.ink : C.faint, fontWeight: 600 }}>{it.name}{!canDragFrom && <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>🔒</span>}</div>
                             <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
                               <span>起: {it.start}</span>
                               <span>· 时长: {it.duration}</span>
@@ -718,6 +947,93 @@ function Overview({ siteEvals, onPick }) {
             </div>
           );
         })}
+      </div>
+
+      {/* 交接时间统计: h2 / h3 各自时长分析 (历史 + 当前) */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>交接时间统计</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            h2 / h3 框的时长分布 · 数据来自 monitor_handoff_log (历史) + monitor_handoff (当前) · KK 需先建 log 表
+          </div>
+        </div>
+        {handoffLog.length === 0 && (
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 18px", fontSize: 12, color: C.faint, marginBottom: 12 }}>
+            提示：monitor_handoff_log 表未建或暂无历史数据. 请在 Supabase SQL Editor 跑 <code style={{ background: C.panel2, padding: "1px 5px", borderRadius: 3, color: C.brand }}>sql/monitor_handoff_log.sql</code> 创建表, 之后所有交接移动会自动写 log.
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          {["h2", "h3"].map(boxId => {
+            const box = HANDOFF_BOXES.find(b => b.id === boxId);
+            const s = handoffStats[boxId];
+            const hasData = s.total > 0;
+            const distPct = (n) => s.total ? Math.round((n / s.total) * 100) : 0;
+            const grpList = Object.entries(s.byGroup).sort((a, b) => b[1].count - a[1].count);
+            return (
+              <div key={boxId} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px" }}>
+                {/* 标题 */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{box.title}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>共 {s.total} 项 (当前 {s.current} / 历史 {s.historical})</span>
+                </div>
+
+                {/* 概览: 平均/中位/最长 */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.sub }}>平均</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: hasData ? C.ink : C.faint, marginTop: 2 }}>{hasData ? fmtDays(s.avg) : "—"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.sub }}>中位</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: hasData ? C.ink : C.faint, marginTop: 2 }}>{hasData ? fmtDays(s.median) : "—"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.sub }}>最长 / 最短</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: hasData ? C.ink : C.faint, marginTop: 4 }}>{hasData ? `${fmtDays(s.max)} / ${fmtDays(s.min)}` : "—"}</div>
+                  </div>
+                </div>
+
+                {/* 时长分布 */}
+                <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 6 }}>时长分布</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginBottom: 14 }}>
+                  {[
+                    { k: "lt3", label: "< 3 天", c: "#2ecc71" },
+                    { k: "d3_7", label: "3-7 天", c: "#3498db" },
+                    { k: "d7_14", label: "7-14 天", c: "#d9a441" },
+                    { k: "gte14", label: "≥ 14 天", c: "#c05b52" },
+                  ].map(b => {
+                    const n = s.dist[b.k];
+                    return (
+                      <div key={b.k} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "8px 10px" }}>
+                        <div style={{ fontSize: 10, color: b.c, fontWeight: 600 }}>{b.label}</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: n ? C.ink : C.faint, marginTop: 2 }}>{n}</div>
+                        <div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>{distPct(n)}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 按一级类目 */}
+                <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 6 }}>按一级类目 (项数 · 平均时长)</div>
+                {grpList.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {grpList.map(([g, info]) => {
+                      const avg = info.durs.reduce((s, x) => s + x, 0) / info.durs.length;
+                      return (
+                        <div key={g} style={{ display: "flex", alignItems: "center", fontSize: 12, padding: "4px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 4 }}>
+                          <span style={{ color: C.ink, fontWeight: 600 }}>{g}</span>
+                          <span style={{ marginLeft: 10, color: C.faint }}>{info.count} 项</span>
+                          <span style={{ marginLeft: "auto", color: C.ink, fontWeight: 600 }}>{fmtDays(avg)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : <div style={{ fontSize: 11, color: C.faint, padding: "6px 0" }}>暂无数据</div>}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {isAdmin && (
