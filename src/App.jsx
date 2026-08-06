@@ -451,6 +451,8 @@ function Overview({ siteEvals, onPick }) {
   const [handoffs, setHandoffs] = useState([]);
   const [dragId, setDragId] = useState(null);
   const [hoverBox, setHoverBox] = useState(null);
+  // 调研阶段折叠: 默认全部折叠, 点击大类才展开
+  const [openPhases, setOpenPhases] = useState({});
 
   const loadHandoffs = async () => {
     const { data, error } = await supabase.from("monitor_handoff").select("*");
@@ -500,19 +502,26 @@ function Overview({ siteEvals, onPick }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
         {Object.entries(LEAF_PHASE).map(([k, v]) => {
           const items = (IDLE_LEAVES || []).filter(l => l.phase === k);
+          const isOpen = !!openPhases[k];
           return (
-            <div key={k} style={{ background: C.panel, padding: "14px 12px", minHeight: 100 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <div key={k} style={{ background: C.panel, padding: "14px 12px", minHeight: 60 }}>
+              <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
+                style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+                <span style={{ fontSize: 11, color: C.sub, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
                 <span style={{ fontSize: 12, color: C.ink, fontWeight: 600 }}>{v.label}</span>
                 <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{items.length}</span>
               </div>
-              {items.length ? items.map(l => (
-                <div key={l.id} style={{ padding: "4px 0", lineHeight: 1.5 }}>
-                  <div style={{ fontSize: 12, color: C.ink }}>{l.name}</div>
-                  <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
+              {isOpen && (
+                <div style={{ marginTop: 8, paddingLeft: 18, borderLeft: `2px solid ${v.color}` }}>
+                  {items.length ? items.map(l => (
+                    <div key={l.id} style={{ padding: "4px 0", lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 12, color: C.ink }}>{l.name}</div>
+                      <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
+                    </div>
+                  )) : <div style={{ fontSize: 11, color: C.faint }}>暂无</div>}
                 </div>
-              )) : <div style={{ fontSize: 11, color: C.faint }}>暂无</div>}
+              )}
             </div>
           );
         })}
