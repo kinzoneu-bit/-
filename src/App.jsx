@@ -740,11 +740,11 @@ function Overview({ siteEvals, onPick }) {
                   {LEAF_PHASE[fromP] ? LEAF_PHASE[fromP].label.replace("在调研-", "") : fromP}
                 </div>
                 {PHASE_ORDER.map(toP => (
-                  <div key={toP} style={{ padding: "9px 12px", textAlign: "center", color: row.dist[toP] ? "#172033" : C.faint, fontWeight: row.dist[toP] ? 600 : 400 }}>
-                    {row.dist[toP] || 0}
+                  <div key={toP} style={{ padding: "9px 12px", textAlign: "center", color: C.ink, fontWeight: row.dist[toP] ? 700 : 500, background: row.dist[toP] ? "#eaf2fb" : "transparent" }}>
+                    {row.dist[toP] || "—"}
                   </div>
                 ))}
-                <div style={{ padding: "9px 12px", textAlign: "center", color: "#0f5e9c", fontWeight: 700 }}>{row.total}</div>
+                <div style={{ padding: "9px 12px", textAlign: "center", color: "#0f5e9c", fontWeight: 700, background: "#eaf2fb" }}>{row.total || "—"}</div>
               </div>
             );
           })}
