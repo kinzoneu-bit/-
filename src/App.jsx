@@ -451,81 +451,26 @@ function Overview({ siteEvals, onPick }) {
 
   return (
     <div>
-      <SectionTitle t="跨站评估总览" sub="每格 = 该站点处于该状态的目标数量（数据源：site_evals）" />
-      {!siteEvals || !siteEvals.length ? (
-        <div style={{ padding: 40, textAlign: "center", color: C.faint, fontSize: 13, border: `1px dashed ${C.line}`, borderRadius: 12 }}>
-          暂无跨站评估数据。<br />
-          在 site_evals 表录入后，这里会显示 FR / DE / UK 各状态的评估数量。
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: `72px repeat(${Object.keys(SHELF_ST).length},1fr)`, gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ background: C.panel }} />
-          {Object.entries(SHELF_ST).map(([k, v]) => (
-            <div key={k} style={{ background: C.panel, padding: "10px 12px", fontSize: 12, color: v.color, fontWeight: 600 }}>{v.label}</div>
-          ))}
-          {SITES.map(s => (
-            <React.Fragment key={s}>
-              <div style={{ background: C.panel, padding: "12px", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: C[s.toLowerCase()] }}>{s}</div>
-              {Object.keys(SHELF_ST).map(k => (
-                <div key={k} className="cell" style={{ background: C.panel, padding: "10px 12px", minHeight: 78 }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: matrix[s][k].length ? C.ink : C.faint }}>{matrix[s][k].length}</div>
-                  <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
-                    {matrix[s][k].map((e, i) => (
-                      <div key={i} onClick={() => onPick(e)} style={{ fontSize: 11, color: C.sub, cursor: "pointer", textDecoration: "underline dotted", textUnderlineOffset: 2 }}>{resolve(e)}</div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </React.Fragment>
-          ))}
-        </div>
-      )}
-
-      <div style={{ marginTop: 28 }}>
-          <SectionTitle t="目前在调研的产品" sub="按 4 个调研阶段分组（数据源：shelf_leaves 中 st=idle 的项）" />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
-            {Object.entries(LEAF_PHASE).map(([k, v]) => {
-              const items = (IDLE_LEAVES || []).filter(l => l.phase === k);
-              return (
-                <div key={k} style={{ background: C.panel, padding: "14px 12px", minHeight: 100 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
-                    <span style={{ fontSize: 12, color: C.ink, fontWeight: 600 }}>{v.label}</span>
-                    <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{items.length}</span>
-                  </div>
-                  {items.length ? items.map(l => (
-                    <div key={l.id} style={{ padding: "4px 0", lineHeight: 1.5 }}>
-                      <div style={{ fontSize: 12, color: C.ink }}>{l.name}</div>
-                      <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
-                    </div>
-                  )) : <div style={{ fontSize: 11, color: C.faint }}>暂无</div>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-      <div style={{ marginTop: 28 }}>
-        <SectionTitle t="全部评估条目" sub="site_evals 表所有跨站评估记录" />
-        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr .8fr .7fr 1fr", background: C.panel, fontSize: 11, color: C.sub, fontWeight: 600 }}>
-            {["目标", "类型", "站点", "状态"].map((h, i) => <div key={i} style={{ padding: "10px 14px" }}>{h}</div>)}
-          </div>
-          {siteEvals && siteEvals.length ? siteEvals.map((e, i) => {
-            const info = ID_NAME[e.target_id];
-            const sv = SHELF_ST[e.st] || SHELF_ST.idle;
-            return (
-              <div key={i} className="prow" onClick={() => onPick(e)} style={{ display: "grid", gridTemplateColumns: "1.4fr .8fr .7fr 1fr", borderTop: `1px solid ${C.line}`, fontSize: 12, background: C.panel }}>
-                <div style={{ padding: "12px 14px" }}>{info ? info.name : (e.target_id || "").slice(0, 8)}<div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>{info ? info.path : ""}</div></div>
-                <div style={{ padding: "12px 14px", color: C.sub }}>{e.target_kind}</div>
-                <div style={{ padding: "12px 14px", color: C.sub }}>{e.site}</div>
-                <div style={{ padding: "12px 14px", color: sv.color }}>{sv.label}</div>
+      <SectionTitle t="目前在调研的产品" sub="按 4 个调研阶段分组（数据源：shelf_leaves 中 st=idle 的项）" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+        {Object.entries(LEAF_PHASE).map(([k, v]) => {
+          const items = (IDLE_LEAVES || []).filter(l => l.phase === k);
+          return (
+            <div key={k} style={{ background: C.panel, padding: "14px 12px", minHeight: 100 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
+                <span style={{ fontSize: 12, color: C.ink, fontWeight: 600 }}>{v.label}</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{items.length}</span>
               </div>
-            );
-          }) : (
-            <div style={{ padding: "20px 14px", textAlign: "center", color: C.faint, fontSize: 12, background: C.panel, borderTop: `1px solid ${C.line}` }}>暂无记录</div>
-          )}
-        </div>
+              {items.length ? items.map(l => (
+                <div key={l.id} style={{ padding: "4px 0", lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 12, color: C.ink }}>{l.name}</div>
+                  <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
+                </div>
+              )) : <div style={{ fontSize: 11, color: C.faint }}>暂无</div>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
