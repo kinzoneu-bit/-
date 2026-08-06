@@ -411,7 +411,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "总览看板"], ["shelf", "品牌货架"], ["cross", "产品跨站"], ["track", "链接日级跟进"]].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "品牌货架"], ["cross", "产品跨站"], ["track", "链接日级跟进"]].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
