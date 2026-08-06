@@ -457,6 +457,9 @@ function Overview({ siteEvals, onPick }) {
   // 调研阶段进度 (leaf_id+phase → start_at) - 显示进入时间 + 持续时长
   const [progress, setProgress] = useState([]);
   const [tick2, setTick2] = useState(0); // 拖拽换 phase 后强制刷新
+  // 阶段转化分析: 起止日期 + 转化统计
+  const [fromDate, setFromDate] = useState("2026-07-01");
+  const [toDate, setToDate] = useState("2026-08-07");
   // leaf → 一级类目 (group 名) - 用于聚合显示
   const [lToGroup, setLToGroup] = useState({});
 
@@ -580,6 +583,36 @@ function Overview({ siteEvals, onPick }) {
     return m;
   }, [lToGroup, progress, tick2]);
 
+  // 阶段转化统计: 时间段内进入某 phase 的 leaf, 按最终 phase 分布
+  const phaseTrans = useMemo(() => {
+    const res = {};
+    PHASE_ORDER.forEach(p => res[p] = { total: 0, dist: {} });
+    if (!fromDate || !toDate) return res;
+    const from = new Date(fromDate + "T00:00:00");
+    const to = new Date(toDate + "T23:59:59");
+    // leaf_id → 所有 phase 记录
+    const byLeaf = {};
+    (progress || []).forEach(p => {
+      const st = new Date(p.start_at);
+      if (st < from || st > to) return;
+      if (!byLeaf[p.leaf_id]) byLeaf[p.leaf_id] = [];
+      byLeaf[p.leaf_id].push(p.phase);
+    });
+    // 每个起点 phase: 时间段内进入该 phase 的 leaf, 最终 phase = 其所有记录中顺序最大的
+    PHASE_ORDER.forEach(fromP => {
+      Object.entries(byLeaf).forEach(([leafId, phases]) => {
+        if (phases.includes(fromP)) {
+          res[fromP].total++;
+          const idxs = PHASE_ORDER.map((p, i) => phases.includes(p) ? i : -1).filter(i => i >= 0);
+          const finalIdx = Math.max(...idxs);
+          const finalP = PHASE_ORDER[finalIdx];
+          res[fromP].dist[finalP] = (res[fromP].dist[finalP] || 0) + 1;
+        }
+      });
+    });
+    return res;
+  }, [progress, fromDate, toDate]);
+
   return (
     <div>
       <SectionTitle t="目前在调研的产品" sub="按 4 个调研阶段分组 · 一级类目聚合 · 点开品牌查看具体 leaf" />
@@ -678,6 +711,47 @@ function Overview({ siteEvals, onPick }) {
             </div>
           );
         })}
+      </div>
+
+      {/* 阶段转化分析: 任意时间段内 状态转换统计 */}
+      <SectionTitle t="阶段转化分析" sub="统计任意时间段内进入某阶段, 并最终到达后续阶段的类目数量" />
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
+          <span style={{ fontSize: 12, color: C.sub }}>从</span>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+            style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+          <span style={{ fontSize: 12, color: C.sub }}>到</span>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+            style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+        </div>
+
+        {/* 转化表: 行=起点阶段, 列=最终阶段 */}
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: `1.2fr repeat(${PHASE_ORDER.length + 1},1fr)`, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600 }}>
+            <div style={{ padding: "9px 12px" }}>起点阶段 (时间段内进入)</div>
+            {PHASE_ORDER.map(p => <div key={p} style={{ padding: "9px 12px", textAlign: "center" }}>{LEAF_PHASE[p] ? LEAF_PHASE[p].label.replace("在调研-", "") : p}</div>)}
+            <div style={{ padding: "9px 12px", textAlign: "center" }}>合计</div>
+          </div>
+          {PHASE_ORDER.map(fromP => {
+            const row = phaseTrans[fromP] || { total: 0, dist: {} };
+            return (
+              <div key={fromP} style={{ display: "grid", gridTemplateColumns: `1.2fr repeat(${PHASE_ORDER.length + 1},1fr)`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: C.panel }}>
+                <div style={{ padding: "9px 12px", color: C.ink, fontWeight: 600 }}>
+                  {LEAF_PHASE[fromP] ? LEAF_PHASE[fromP].label.replace("在调研-", "") : fromP}
+                </div>
+                {PHASE_ORDER.map(toP => (
+                  <div key={toP} style={{ padding: "9px 12px", textAlign: "center", color: row.dist[toP] ? "#172033" : C.faint, fontWeight: row.dist[toP] ? 600 : 400 }}>
+                    {row.dist[toP] || 0}
+                  </div>
+                ))}
+                <div style={{ padding: "9px 12px", textAlign: "center", color: "#0f5e9c", fontWeight: 700 }}>{row.total}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
+          例: 选中 2026-07-01 ~ 2026-07-31, 「立项」行 + 「定款」列 = 7月进入立项且最终到达定款的类目数
+        </div>
       </div>
     </div>
   );
