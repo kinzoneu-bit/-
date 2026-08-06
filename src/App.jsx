@@ -82,49 +82,37 @@ let ID_NAME = {};
 // 调研中的 leaf 列表 (供总览看板"目前在调研的产品"栏目使用)
 let IDLE_LEAVES = [];
 
-// 作业交接框 demo 数据 (5 个阶段 · 4 个交接节点 · 核算每个阶段时间)
+// 作业交接框 (5 个阶段 · 4 个交接节点 · 核算每个阶段时间)
 // 真库版需要 schema: monitor_handoff (handoff_id, from_step, to_step, leaf_id, handler, start_at, end_at, duration_hours)
+// 真实数据从 monitor_handoff 表拉取; demo items 留空, 让 KK 录入实际进度
 const HANDOFF_BOXES = [
   {
     id: "h1",
     title: "调研 → 定款",
     color: "#5b6670",
     sub: "调研阶段完成, 选定款式进入定款",
-    items: [
-      { name: "Prises connectées et intelligentes 插座", start: "2026-07-20", duration: "5 天" },
-      { name: "Kits de nettoyage 清洁套件", start: "2026-07-25", duration: "4 天" },
-      { name: "Attelages pour remorque 拖车挂钩", start: "2026-07-28", duration: "3 天" },
-    ],
+    items: [],
   },
   {
     id: "h2",
     title: "定款 → 链接制作",
     color: "#d9a441",
     sub: "定款完成, 交给成都团队建 listing / 主图 / 五点描述",
-    items: [
-      { name: "Polisseuses 抛光机", start: "2026-08-04", duration: "2 天 6 小时" },
-      { name: "Aspirateurs 吸尘机", start: "2026-08-03", duration: "3 天 1 小时" },
-      { name: "Démarreurs 汽车应急启动电源", start: "2026-08-02", duration: "4 天 4 小时" },
-    ],
+    items: [],
   },
   {
     id: "h3",
     title: "链接制作 → 链接制作完成",
     color: "#3498db",
     sub: "listing 上传完成, 进入备货与试运营阶段",
-    items: [
-      { name: "Pistolets graisseurs 黄油枪", start: "2026-08-01", duration: "1 天 9 小时" },
-      { name: "Chargeurs de batterie 电池充电器", start: "2026-07-30", duration: "3 天 2 小时" },
-    ],
+    items: [],
   },
   {
     id: "h4",
     title: "链接制作完成 → 备货运营推广",
     color: "#9b59b6",
     sub: "链接完成, 进入备货与正式推广",
-    items: [
-      { name: "OBD & lecteurs de codes OBD-II 诊断仪", start: "2026-07-25", duration: "5 天 3 小时" },
-    ],
+    items: [],
   },
 ];
 
