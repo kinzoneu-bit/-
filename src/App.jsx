@@ -114,7 +114,7 @@ async function fetchShelfData() {
 
   const buildProducts = (leafId) => (productsByLeaf[leafId] || []).map(p => ({ id: p.id, name: p.name, st: p.st || "idle", asin: p.asin || null }));
   const buildSuppliers = (leafId) => (suppliersByLeaf[leafId] || []).map(s => ({ id: s.id, factory: s.factory, contact: s.contact, products: s.main_products }));
-  const buildLeaves = (catId) => (leavesByCat[catId] || []).map(l => ({ id: l.id, leaf: l.leaf_name, path: l.path, st: l.st || "idle", phase: l.phase || null, chatName: l.chat_name || null, products: buildProducts(l.id), suppliers: buildSuppliers(l.id) }));
+  const buildLeaves = (catId) => (leavesByCat[catId] || []).map(l => ({ id: l.id, leaf: l.leaf_name, path: l.path, st: l.st || "idle", phase: l.phase || null, chatName: l.chat_name || null, chatUrl: l.chat_url || null, products: buildProducts(l.id), suppliers: buildSuppliers(l.id) }));
 
   // CAT_DETAIL: 三重 key 兼容旧 catDetail(name, group) 查找
   CAT_DETAIL = {};
@@ -969,7 +969,10 @@ function Shelf() {
                                                     <span style={{ fontSize: 11, color: C.faint }}>· 已调研不做</span>
                                                   )}
                                                   <span style={{ marginLeft: "auto", fontSize: 11, color: C.brand, cursor: "pointer" }}
-                                                    onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })}>
+                                                    onClick={() => {
+                                                      if (lf.chatUrl) { window.open(lf.chatUrl, "_blank", "noopener,noreferrer"); return; }
+                                                      setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName });
+                                                    }}>
                                                     进入分析 →
                                                   </span>
                                                 </div>
