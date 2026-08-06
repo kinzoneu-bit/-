@@ -453,8 +453,8 @@ function Overview({ siteEvals, onPick }) {
   const [hoverBox, setHoverBox] = useState(null);
   // 调研阶段折叠: 默认全部折叠, 点击大类才展开
   const [openPhases, setOpenPhases] = useState({});
-  // leaf → brand (一级类目聚合用)
-  const [lToBrand, setLToBrand] = useState({});
+  // leaf → 一级类目 (group 名) - 用于聚合显示
+  const [lToGroup, setLToGroup] = useState({});
 
   const loadHandoffs = async () => {
     const { data, error } = await supabase.from("monitor_handoff").select("*");
@@ -477,13 +477,13 @@ function Overview({ siteEvals, onPick }) {
         const g = c && gById[c.group_id];
         const b = g && bByCode[g.brand_code];
         m[l.id] = {
-          brand: b ? (b.full_name || b.code) : "未分类",
-          brandCode: b ? b.code : null,
           group: g ? g.name : null,
+          groupId: g ? g.id : null,
+          brand: b ? (b.full_name || b.code) : null,
           cat: c ? c.name : null,
         };
       });
-      setLToBrand(m);
+      setLToGroup(m);
     })();
   }, []);
   useEffect(() => { loadHandoffs(); }, []);
@@ -491,17 +491,17 @@ function Overview({ siteEvals, onPick }) {
   // 组装: 每个框按 brand 聚合 (一级类目), 数量为 leaf 总数
   const boxMap = useMemo(() => {
     const m = {};
-    HANDOFF_BOXES.forEach(b => { m[b.id] = { total: 0, byBrand: {} }; });
+    HANDOFF_BOXES.forEach(b => { m[b.id] = { total: 0, byGroup: {} }; });
     (handoffs || []).forEach(h => {
       const info = ID_NAME[h.leaf_id];
       if (!info || info.kind !== "leaf") return;
       const start = h.start_at ? new Date(h.start_at) : null;
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
-      const lb = lToBrand[h.leaf_id] || {};
-      const brand = lb.brand || "未分类";
-      if (!m[h.box_key].byBrand[brand]) m[h.box_key].byBrand[brand] = [];
-      m[h.box_key].byBrand[brand].push({
+      const lg = lToGroup[h.leaf_id] || {};
+      const group = lg.group || "未分类";
+      if (!m[h.box_key].byGroup[group]) m[h.box_key].byGroup[group] = [];
+      m[h.box_key].byGroup[group].push({
         leafId: h.leaf_id,
         name: info.name,
         start: start ? start.toLocaleDateString("zh-CN") : "—",
@@ -510,7 +510,7 @@ function Overview({ siteEvals, onPick }) {
       m[h.box_key].total++;
     });
     return m;
-  }, [handoffs, lToBrand]);
+  }, [handoffs, lToGroup]);
 
   // 拖拽换框: 目标框 + 重置计时
   const moveTo = async (leafId, targetBox) => {
@@ -527,19 +527,20 @@ function Overview({ siteEvals, onPick }) {
   };
 
   // 调研 4 阶段按 brand (一级类目) 聚合, 默认折叠
+  // 调研 4 阶段按 一级类目 (group 名) 聚合, 默认折叠
   const phaseMap = useMemo(() => {
     const m = {};
-    Object.keys(LEAF_PHASE).forEach(k => { m[k] = { total: 0, byBrand: {} }; });
+    Object.keys(LEAF_PHASE).forEach(k => { m[k] = { total: 0, byGroup: {} }; });
     (IDLE_LEAVES || []).forEach(l => {
       const k = l.phase || "未细分";
-      if (!m[k]) m[k] = { total: 0, byBrand: {} };
-      const brand = lToBrand[l.id]?.brand || "未分类";
-      if (!m[k].byBrand[brand]) m[k].byBrand[brand] = [];
-      m[k].byBrand[brand].push(l);
+      if (!m[k]) m[k] = { total: 0, byGroup: {} };
+      const group = lToGroup[l.id]?.group || "未分类";
+      if (!m[k].byGroup[group]) m[k].byGroup[group] = [];
+      m[k].byGroup[group].push(l);
       m[k].total++;
     });
     return m;
-  }, [lToBrand]);
+  }, [lToGroup]);
 
   return (
     <div>
@@ -558,10 +559,10 @@ function Overview({ siteEvals, onPick }) {
               </div>
               {isOpen && (
                 <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {Object.entries(data.byBrand).sort((a, b) => b[1].length - a[1].length).map(([brand, items]) => (
-                    <details key={brand} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 7px" }}>
+                  {Object.entries(data.byGroup).sort((a, b) => b[1].length - a[1].length).map(([group, items]) => (
+                    <details key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 7px" }}>
                       <summary style={{ fontSize: 11, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                        <span>{brand}</span>
+                        <span>{group}</span>
                         <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length}</span>
                       </summary>
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
@@ -585,8 +586,8 @@ function Overview({ siteEvals, onPick }) {
       <SectionTitle t="作业交接" sub="5 个阶段 · 4 个交接节点 · 拖拽类目到目标框即交接并重新计时 · 一级类目聚合显示" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
         {HANDOFF_BOXES.map(box => {
-          const data = boxMap[box.id] || { total: 0, byBrand: {} };
-          const brandList = Object.entries(data.byBrand).sort((a, b) => b[1].length - a[1].length);
+          const data = boxMap[box.id] || { total: 0, byGroup: {} };
+          const groupList = Object.entries(data.byGroup).sort((a, b) => b[1].length - a[1].length);
           return (
             <div key={box.id}
               onDragOver={(e) => { e.preventDefault(); setHoverBox(box.id); }}
@@ -601,10 +602,10 @@ function Overview({ siteEvals, onPick }) {
               <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{box.sub}</div>
               {data.total ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {brandList.map(([brand, items]) => (
-                    <details key={brand} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px" }}>
+                  {groupList.map(([group, items]) => (
+                    <details key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px" }}>
                       <summary style={{ fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-                        <span>{brand}</span>
+                        <span>{group}</span>
                         <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length} 项</span>
                       </summary>
                       <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
