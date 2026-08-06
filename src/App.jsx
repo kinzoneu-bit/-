@@ -156,6 +156,7 @@ async function fetchShelfData() {
     name: l.leaf_name,
     phase: l.phase || null,
     path: l.path || l.leaf_name,
+    updatedAt: l.updated_at || null,
   }));
 }
 const SHELF_ST = {
@@ -422,7 +423,10 @@ function Overview({ siteEvals, onPick }) {
                     <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{items.length}</span>
                   </div>
                   {items.length ? items.map(l => (
-                    <div key={l.id} style={{ fontSize: 12, color: C.ink, padding: "4px 0", lineHeight: 1.5 }}>{l.name}</div>
+                    <div key={l.id} style={{ padding: "4px 0", lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 12, color: C.ink }}>{l.name}</div>
+                      <div style={{ fontSize: 10, color: C.faint }}>更新 {l.updatedAt ? new Date(l.updatedAt).toLocaleDateString("zh-CN") : "—"}</div>
+                    </div>
                   )) : <div style={{ fontSize: 11, color: C.faint }}>暂无</div>}
                 </div>
               );
