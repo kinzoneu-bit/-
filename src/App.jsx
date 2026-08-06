@@ -456,6 +456,7 @@ function Overview({ siteEvals, onPick }) {
   const PHASE_ORDER = ["planning", "pre_research", "supplier", "spec"];
   // 调研阶段进度 (leaf_id+phase → start_at) - 显示进入时间 + 持续时长
   const [progress, setProgress] = useState([]);
+  const [tick2, setTick2] = useState(0); // 拖拽换 phase 后强制刷新
   // leaf → 一级类目 (group 名) - 用于聚合显示
   const [lToGroup, setLToGroup] = useState({});
 
@@ -531,11 +532,19 @@ function Overview({ siteEvals, onPick }) {
     if (!leafId || !targetPhase) return;
     const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", leafId);
     if (e1) { alert("保存失败: " + e1.message); return; }
-    const { error: e2 } = await supabase.from("monitor_research_progress")
-      .upsert({ leaf_id: leafId, phase: targetPhase, start_at: new Date().toISOString() }, { onConflict: "leaf_id, phase" });
-    if (e2) { alert("保存失败: " + e2.message); return; }
-    // 同步刷新 IDLE_LEAVES (供 phaseMap 用)
+    try {
+      const { error: e2 } = await supabase.from("monitor_research_progress")
+        .upsert({ leaf_id: leafId, phase: targetPhase, start_at: new Date().toISOString() }, { onConflict: "leaf_id, phase" });
+      if (e2) alert("进度记录失败(请确认已建表 monitor_research_progress): " + e2.message);
+    } catch (err) {
+      alert("进度记录失败(请确认已建表 monitor_research_progress): " + err.message);
+    }
+    // 刷新: 重新拉 progress + shelf 数据 + handoff, 触发界面重渲染
+    const { data: p } = await supabase.from("monitor_research_progress").select("*");
+    if (p) setProgress(p);
+    await loadHandoffs();
     await fetchShelfData();
+    setTick2(t => t + 1);
   };
 
   const resolve = (e) => {
@@ -569,7 +578,7 @@ function Overview({ siteEvals, onPick }) {
       m[k].total++;
     });
     return m;
-  }, [lToGroup, progress]);
+  }, [lToGroup, progress, tick2]);
 
   return (
     <div>
