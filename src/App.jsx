@@ -453,34 +453,64 @@ function Overview({ siteEvals, onPick }) {
   const [hoverBox, setHoverBox] = useState(null);
   // 调研阶段折叠: 默认全部折叠, 点击大类才展开
   const [openPhases, setOpenPhases] = useState({});
+  // leaf → brand (一级类目聚合用)
+  const [lToBrand, setLToBrand] = useState({});
 
   const loadHandoffs = async () => {
     const { data, error } = await supabase.from("monitor_handoff").select("*");
     if (!error) setHandoffs(data || []);
   };
+  useEffect(() => {
+    (async () => {
+      const [{ data: ls }, { data: cs }, { data: gs }, { data: bs }] = await Promise.all([
+        supabase.from("shelf_leaves").select("id, leaf_name, cat_id"),
+        supabase.from("shelf_cats").select("id, name, group_id"),
+        supabase.from("shelf_groups").select("id, name, brand_code"),
+        supabase.from("brands").select("code, full_name, short_name"),
+      ]);
+      const gById = {}; (gs || []).forEach(g => gById[g.id] = g);
+      const cById = {}; (cs || []).forEach(c => cById[c.id] = c);
+      const bByCode = {}; (bs || []).forEach(b => bByCode[b.code] = b);
+      const m = {};
+      (ls || []).forEach(l => {
+        const c = cById[l.cat_id];
+        const g = c && gById[c.group_id];
+        const b = g && bByCode[g.brand_code];
+        m[l.id] = {
+          brand: b ? (b.full_name || b.code) : "未分类",
+          brandCode: b ? b.code : null,
+          group: g ? g.name : null,
+          cat: c ? c.name : null,
+        };
+      });
+      setLToBrand(m);
+    })();
+  }, []);
   useEffect(() => { loadHandoffs(); }, []);
 
-  // 组装: 每个框的 items (从 shelf_leaves + monitor_handoff 关联)
+  // 组装: 每个框按 brand 聚合 (一级类目), 数量为 leaf 总数
   const boxMap = useMemo(() => {
     const m = {};
-    HANDOFF_BOXES.forEach(b => m[b.id] = []);
+    HANDOFF_BOXES.forEach(b => { m[b.id] = { total: 0, byBrand: {} }; });
     (handoffs || []).forEach(h => {
       const info = ID_NAME[h.leaf_id];
       if (!info || info.kind !== "leaf") return;
       const start = h.start_at ? new Date(h.start_at) : null;
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
-      if (m[h.box_key]) m[h.box_key].push({
+      const lb = lToBrand[h.leaf_id] || {};
+      const brand = lb.brand || "未分类";
+      if (!m[h.box_key].byBrand[brand]) m[h.box_key].byBrand[brand] = [];
+      m[h.box_key].byBrand[brand].push({
         leafId: h.leaf_id,
         name: info.name,
         start: start ? start.toLocaleDateString("zh-CN") : "—",
         duration: durText,
-        handler: h.handler_email || null,
-        status: h.status || "pending",
       });
+      m[h.box_key].total++;
     });
     return m;
-  }, [handoffs]);
+  }, [handoffs, lToBrand]);
 
   // 拖拽换框: 目标框 + 重置计时
   const moveTo = async (leafId, targetBox) => {
@@ -527,11 +557,12 @@ function Overview({ siteEvals, onPick }) {
         })}
       </div>
 
-      {/* 作业交接框: 5 个阶段 4 个交接点, 可拖拽移动 */}
-      <SectionTitle t="作业交接" sub="5 个阶段 · 4 个交接节点 · 拖拽类目到目标框即交接并重新计时" />
+      {/* 作业交接框: 5 个阶段 4 个交接点, 按品牌聚合 + 下拉查看具体 leaf */}
+      <SectionTitle t="作业交接" sub="5 个阶段 · 4 个交接节点 · 拖拽类目到目标框即交接并重新计时 · 一级类目聚合显示" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
         {HANDOFF_BOXES.map(box => {
-          const items = boxMap[box.id] || [];
+          const data = boxMap[box.id] || { total: 0, byBrand: {} };
+          const brandList = Object.entries(data.byBrand).sort((a, b) => b[1].length - a[1].length);
           return (
             <div key={box.id}
               onDragOver={(e) => { e.preventDefault(); setHoverBox(box.id); }}
@@ -541,22 +572,35 @@ function Overview({ siteEvals, onPick }) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
                 <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{box.title}</span>
-                <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{items.length} 项</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{data.total} 项</span>
               </div>
               <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{box.sub}</div>
-              {items.length ? items.map((it, i) => (
-                <div key={it.leafId} draggable
-                  onDragStart={(e) => { e.dataTransfer.setData("text/plain", it.leafId); setDragId(it.leafId); }}
-                  onDragEnd={() => setDragId(null)}
-                  style={{ padding: "8px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: "grab" }}>
-                  <div style={{ color: C.ink, fontWeight: 600 }}>{it.name}</div>
-                  <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
-                    <span>起: {it.start}</span>
-                    <span>· 时长: {it.duration}</span>
-                    {it.handler && <span style={{ color: "#0f5e9c" }}>· {it.handler}</span>}
-                  </div>
+              {data.total ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {brandList.map(([brand, items]) => (
+                    <details key={brand} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px" }}>
+                      <summary style={{ fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                        <span>{brand}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length} 项</span>
+                      </summary>
+                      <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
+                        {items.map((it, i) => (
+                          <div key={it.leafId} draggable
+                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", it.leafId); setDragId(it.leafId); }}
+                            onDragEnd={() => setDragId(null)}
+                            style={{ padding: "5px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: "grab" }}>
+                            <div style={{ color: C.ink, fontWeight: 600 }}>{it.name}</div>
+                            <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
+                              <span>起: {it.start}</span>
+                              <span>· 时长: {it.duration}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ))}
                 </div>
-              )) : <div style={{ fontSize: 11, color: C.faint }}>暂无交接中</div>}
+              ) : <div style={{ fontSize: 11, color: C.faint }}>暂无交接中</div>}
             </div>
           );
         })}
