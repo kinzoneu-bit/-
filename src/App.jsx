@@ -82,6 +82,32 @@ let ID_NAME = {};
 // 调研中的 leaf 列表 (供总览看板"目前在调研的产品"栏目使用)
 let IDLE_LEAVES = [];
 
+// 作业交接框 demo 数据 (3 个环节 · 2 个交接节点 · 跟踪时长)
+// 真库版需要 schema: monitor_handoff (handoff_id, prev_step, next_step, handler, start_at, end_at, duration_hours)
+const HANDOFF_BOXES = [
+  {
+    id: "h1",
+    title: "定款 → 链接制作",
+    color: "#d9a441",
+    sub: "调研完成, 交给链接制作组开始建 listing / 主图 / 五点描述",
+    items: [
+      { name: "Polisseuses 抛光机", handler: "成都团队", start: "2026-08-04", duration: "2 天 6 小时" },
+      { name: "Aspirateurs 吸尘机", handler: "成都团队", start: "2026-08-03", duration: "3 天 1 小时" },
+      { name: "Démarreurs 汽车应急启动电源", handler: "成都团队", start: "2026-08-02", duration: "4 天 4 小时" },
+    ],
+  },
+  {
+    id: "h2",
+    title: "链接制作 → 链接完成",
+    color: "#3498db",
+    sub: "listing 上传完成, 进入待上架或试运营阶段",
+    items: [
+      { name: "Pistolets graisseurs 黄油枪", handler: "法国团队", start: "2026-08-01", duration: "1 天 9 小时" },
+      { name: "Chargeurs de batterie 电池充电器", handler: "法国团队", start: "2026-07-30", duration: "3 天 2 小时" },
+    ],
+  },
+];
+
 // 链接日级跟进 demo 数据 (按运营体系 v1: 以末端类目为单位组织, 四档警报)
 // 真库版会从 monitor_categories / monitor_asins / monitor_daily 等表拉取
 const ALERT_LEVEL = {
@@ -471,6 +497,31 @@ function Overview({ siteEvals, onPick }) {
             </div>
           );
         })}
+      </div>
+
+      {/* 作业交接框: 3 个环节的交接 (定款 → 链接制作 → 链接完成) */}
+      <SectionTitle t="作业交接" sub="3 个环节 · 不同人员交接 · 统计作业时长" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
+        {HANDOFF_BOXES.map(box => (
+          <div key={box.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", minHeight: 180 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{box.title}</span>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{box.items.length} 项</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{box.sub}</div>
+            {box.items.length ? box.items.map((it, i) => (
+              <div key={i} style={{ padding: "8px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12 }}>
+                <div style={{ color: C.ink, fontWeight: 600 }}>{it.name}</div>
+                <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
+                  <span>交给: {it.handler}</span>
+                  <span>· 起: {it.start}</span>
+                  <span>· 时长: {it.duration}</span>
+                </div>
+              </div>
+            )) : <div style={{ fontSize: 11, color: C.faint }}>暂无交接中</div>}
+          </div>
+        ))}
       </div>
     </div>
   );
