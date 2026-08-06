@@ -880,6 +880,30 @@ function Shelf() {
     return n;
   };
 
+  // 聚合某 cat 数组的在售 + 在调研数 (基于 CAT_DETAIL 查 leaves/products 的 st)
+  const tallyScope = (catsArr) => {
+    const n = { sell: 0, idle: 0 };
+    for (const c of catsArr) {
+      const d = CAT_DETAIL[c.name] || CAT_DETAIL[c.name + " || " + c.name];
+      if (!d) continue;
+      if (d.leaves) {
+        for (const l of d.leaves) {
+          if (l.st === "idle" && (!l.products || !l.products.length)) n.idle++;
+          for (const p of (l.products || [])) {
+            if (p.st === "selling") n.sell++;
+            else if (p.st === "idle") n.idle++;
+          }
+        }
+      } else if (d.products) {
+        for (const p of d.products) {
+          if (p.st === "selling") n.sell++;
+          else if (p.st === "idle") n.idle++;
+        }
+      }
+    }
+    return n;
+  };
+
   // —— 编辑功能 (P0) ——
   const [edit, setEdit] = useState(null);       // { type, table, id, st, label } 改状态弹窗
   const [addProd, setAddProd] = useState(null); // { leafId } 加产品弹窗
@@ -1015,8 +1039,19 @@ function Shelf() {
                 <Caret open={isOpen} />
                 <span style={{ fontSize: 15, fontWeight: 700 }}>{info.fullName || b}</span>
                 <span style={{ fontSize: 11, color: C.faint }}>{info.store}</span>
-                <span style={{ marginLeft: "auto", fontSize: 12, color: C.sub }}>
-                  {info.flat ? `${n.total} 类目` : `${info.groups.length} 大类 · ${n.total} 二级类目`}
+                <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                  <span style={{ color: C.sub }}>
+                    {info.flat ? `${n.total} 类目` : `${info.groups.length} 大类 · ${n.total} 二级类目`}
+                  </span>
+                  {(() => {
+                    const t = tallyScope(info.flat ? info.groups[0].cats : info.groups.flatMap(g => g.cats));
+                    return (
+                      <>
+                        <span style={{ color: SHELF_ST.selling.color, fontWeight: 600 }}>在售 {t.sell}</span>
+                        <span style={{ color: C.sub }}>在调研 {t.idle}</span>
+                      </>
+                    );
+                  })()}
                 </span>
               </div>
 
@@ -1046,7 +1081,18 @@ function Shelf() {
                           style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer", background: C.panel2 }}>
                           <Caret open={gOpen} small />
                           <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
-                          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{g.cats.length} 项</span>
+                          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                            <span style={{ color: C.faint }}>{g.cats.length} 项</span>
+                            {(() => {
+                              const t = tallyScope(g.cats);
+                              return (
+                                <>
+                                  <span style={{ color: SHELF_ST.selling.color, fontWeight: 600 }}>在售 {t.sell}</span>
+                                  <span style={{ color: C.sub }}>在调研 {t.idle}</span>
+                                </>
+                              );
+                            })()}
+                          </span>
                         </div>
                         {/* 类目层 (竖向单列, 可点开看 产品/供应商) */}
                         {gOpen && (
