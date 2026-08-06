@@ -495,6 +495,8 @@ function Overview({ siteEvals, onPick }) {
     (handoffs || []).forEach(h => {
       const info = ID_NAME[h.leaf_id];
       if (!info || info.kind !== "leaf") return;
+      // h1 框只显示 phase=planning (立项期间语义); 其他框接收任意 phase
+      if (h.box_key === "h1" && info.phase !== "planning") return;
       const start = h.start_at ? new Date(h.start_at) : null;
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
@@ -1118,8 +1120,8 @@ function Shelf() {
       st: "idle",
     }).select().single();
     if (error) { alert("添加失败: " + error.message); return; }
-    // 同步进第一个交接框 h1 (调研 → 定款): 自动 upsert, 重置 start_at
-    if (data && data.id) {
+    // 仅 phase=planning 的 leaf 才同步进 h1 框 (立项期间)
+    if (data && data.id && data.phase === "planning") {
       await supabase.from("monitor_handoff").upsert({
         leaf_id: data.id,
         box_key: "h1",
