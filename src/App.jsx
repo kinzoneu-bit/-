@@ -82,38 +82,13 @@ let ID_NAME = {};
 // 调研中的 leaf 列表 (供总览看板"目前在调研的产品"栏目使用)
 let IDLE_LEAVES = [];
 
-// 作业交接框 (5 个阶段 · 4 个交接节点 · 核算每个阶段时间)
-// 真库版需要 schema: monitor_handoff (handoff_id, from_step, to_step, leaf_id, handler, start_at, end_at, duration_hours)
-// 真实数据从 monitor_handoff 表拉取; demo items 留空, 让 KK 录入实际进度
+// 作业交接框模板 (5 个阶段 · 4 个交接节点 · 核算每个阶段时间)
+// items 由 Overview 从 monitor_handoff + shelf_leaves 实时组装
 const HANDOFF_BOXES = [
-  {
-    id: "h1",
-    title: "调研 → 定款",
-    color: "#5b6670",
-    sub: "调研阶段完成, 选定款式进入定款",
-    items: [],
-  },
-  {
-    id: "h2",
-    title: "定款 → 链接制作",
-    color: "#d9a441",
-    sub: "定款完成, 交给成都团队建 listing / 主图 / 五点描述",
-    items: [],
-  },
-  {
-    id: "h3",
-    title: "链接制作 → 链接制作完成",
-    color: "#3498db",
-    sub: "listing 上传完成, 进入备货与试运营阶段",
-    items: [],
-  },
-  {
-    id: "h4",
-    title: "链接制作完成 → 备货运营推广",
-    color: "#9b59b6",
-    sub: "链接完成, 进入备货与正式推广",
-    items: [],
-  },
+  { id: "h1", title: "调研 → 定款", color: "#5b6670", sub: "调研阶段完成, 选定款式进入定款" },
+  { id: "h2", title: "定款 → 链接制作", color: "#d9a441", sub: "定款完成, 交给成都团队建 listing / 主图 / 五点描述" },
+  { id: "h3", title: "链接制作 → 链接制作完成", color: "#3498db", sub: "listing 上传完成, 进入备货与试运营阶段" },
+  { id: "h4", title: "链接制作完成 → 备货运营推广", color: "#9b59b6", sub: "链接完成, 进入备货与正式推广" },
 ];
 
 // 链接日级跟进 demo 数据 (按运营体系 v1: 以末端类目为单位组织, 四档警报)
@@ -463,20 +438,49 @@ export default function App() {
   );
 }
 
-// ---------------- 总览: 站点 × 状态 矩阵 (基于 site_evals 真实数据) ----------------
+// ---------------- 开发进度: 调研阶段 + 作业交接 (可拖拽) ----------------
 function Overview({ siteEvals, onPick }) {
-  const matrix = useMemo(() => {
+  // 作业交接: monitor_handoff 数据 (leaf_id → {box_key, start_at})
+  const [handoffs, setHandoffs] = useState([]);
+  const [dragId, setDragId] = useState(null);
+  const [hoverBox, setHoverBox] = useState(null);
+
+  const loadHandoffs = async () => {
+    const { data, error } = await supabase.from("monitor_handoff").select("*");
+    if (!error) setHandoffs(data || []);
+  };
+  useEffect(() => { loadHandoffs(); }, []);
+
+  // 组装: 每个框的 items (从 shelf_leaves + monitor_handoff 关联)
+  const boxMap = useMemo(() => {
     const m = {};
-    SITES.forEach(s => { m[s] = {}; Object.keys(SHELF_ST).forEach(k => m[s][k] = []); });
-    (siteEvals || []).forEach(e => {
-      const site = e.site;
-      if (!m[site]) return;
-      const st = e.st || "idle";
-      if (!m[site][st]) return;
-      m[site][st].push(e);
+    HANDOFF_BOXES.forEach(b => m[b.id] = []);
+    (handoffs || []).forEach(h => {
+      const info = ID_NAME[h.leaf_id];
+      if (!info || info.kind !== "leaf") return;
+      const start = h.start_at ? new Date(h.start_at) : null;
+      const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
+      const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
+      if (m[h.box_key]) m[h.box_key].push({
+        leafId: h.leaf_id,
+        name: info.name,
+        start: start ? start.toLocaleDateString("zh-CN") : "—",
+        duration: durText,
+        handler: h.handler_email || null,
+        status: h.status || "pending",
+      });
     });
     return m;
-  }, [siteEvals]);
+  }, [handoffs]);
+
+  // 拖拽换框: 目标框 + 重置计时
+  const moveTo = async (leafId, targetBox) => {
+    if (!leafId || !targetBox) return;
+    const { error } = await supabase.from("monitor_handoff")
+      .upsert({ leaf_id: leafId, box_key: targetBox, start_at: new Date().toISOString() }, { onConflict: "leaf_id" });
+    if (error) { alert("保存失败: " + error.message); return; }
+    await loadHandoffs();
+  };
 
   const resolve = (e) => {
     const info = ID_NAME[e.target_id];
@@ -507,28 +511,39 @@ function Overview({ siteEvals, onPick }) {
         })}
       </div>
 
-      {/* 作业交接框: 5 个阶段 4 个交接点 (调研 → 定款 → 链接制作 → 链接制作完成 → 备货运营推广) */}
-      <SectionTitle t="作业交接" sub="5 个阶段 · 4 个交接节点 · 详细核算每个阶段时长" />
+      {/* 作业交接框: 5 个阶段 4 个交接点, 可拖拽移动 */}
+      <SectionTitle t="作业交接" sub="5 个阶段 · 4 个交接节点 · 拖拽类目到目标框即交接并重新计时" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
-        {HANDOFF_BOXES.map(box => (
-          <div key={box.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", minHeight: 180 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{box.title}</span>
-              <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{box.items.length} 项</span>
-            </div>
-            <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{box.sub}</div>
-            {box.items.length ? box.items.map((it, i) => (
-              <div key={i} style={{ padding: "8px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12 }}>
-                <div style={{ color: C.ink, fontWeight: 600 }}>{it.name}</div>
-                <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
-                  <span>起: {it.start}</span>
-                  <span>· 时长: {it.duration}</span>
-                </div>
+        {HANDOFF_BOXES.map(box => {
+          const items = boxMap[box.id] || [];
+          return (
+            <div key={box.id}
+              onDragOver={(e) => { e.preventDefault(); setHoverBox(box.id); }}
+              onDragLeave={() => setHoverBox(null)}
+              onDrop={(e) => { e.preventDefault(); setHoverBox(null); if (dragId) moveTo(dragId, box.id); }}
+              style={{ background: C.panel, border: `1px solid ${hoverBox === box.id ? box.color : C.line}`, borderRadius: 12, padding: "16px 18px", minHeight: 180, transition: "border .15s" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{box.title}</span>
+                <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{items.length} 项</span>
               </div>
-            )) : <div style={{ fontSize: 11, color: C.faint }}>暂无交接中</div>}
-          </div>
-        ))}
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{box.sub}</div>
+              {items.length ? items.map((it, i) => (
+                <div key={it.leafId} draggable
+                  onDragStart={(e) => { e.dataTransfer.setData("text/plain", it.leafId); setDragId(it.leafId); }}
+                  onDragEnd={() => setDragId(null)}
+                  style={{ padding: "8px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: "grab" }}>
+                  <div style={{ color: C.ink, fontWeight: 600 }}>{it.name}</div>
+                  <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
+                    <span>起: {it.start}</span>
+                    <span>· 时长: {it.duration}</span>
+                    {it.handler && <span style={{ color: "#0f5e9c" }}>· {it.handler}</span>}
+                  </div>
+                </div>
+              )) : <div style={{ fontSize: 11, color: C.faint }}>暂无交接中</div>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
