@@ -514,8 +514,7 @@ function Overview({ siteEvals, onPick }) {
               <div key={i} style={{ padding: "8px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12 }}>
                 <div style={{ color: C.ink, fontWeight: 600 }}>{it.name}</div>
                 <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
-                  <span>交给: {it.handler}</span>
-                  <span>· 起: {it.start}</span>
+                  <span>起: {it.start}</span>
                   <span>· 时长: {it.duration}</span>
                 </div>
               </div>
