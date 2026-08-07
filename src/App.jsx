@@ -1489,7 +1489,7 @@ function Shipments() {
   const load = async () => {
     let q = supabase.from("shipments").select("*");
     if (filterStore) q = q.eq("store", filterStore);
-    const { data, error } = await q.order("ship_date", { ascending: false }).limit(2000);
+    const { data, error } = await q.order("ship_date", { ascending: true }).limit(2000);
     if (error) { alert("读取失败(请先建表 shipments): " + error.message); return; }
     setRows(data || []);
     if (!loaded) {
@@ -1525,6 +1525,25 @@ function Shipments() {
       byStore[r.store].cost += Number(r.landed_cost || 0) * Number(r.qty || 0);
     });
     return byStore;
+  }, [rows]);
+
+  // 65 天未补字段警告: 发货>65天 且 (上架日期/上架数量/损耗/赔付/亏损 任一未填) → 标记
+  const REQUIRED_FIELDS = ["listed_date", "listed_qty", "loss_qty", "compensation_eur", "loss_amount"];
+  const overdue = useMemo(() => {
+    const today = Date.now();
+    const list = [];
+    rows.forEach(r => {
+      if (!r.ship_date) return;
+      const days = (today - new Date(r.ship_date).getTime()) / 86400000;
+      if (days <= 65) return;
+      const missing = REQUIRED_FIELDS.filter(f => {
+        if (f === "listed_date") return !r[f];
+        if (f === "listed_qty") return r[f] == null || Number(r[f]) === 0;
+        return r[f] == null || Number(r[f]) === 0;
+      });
+      if (missing.length) list.push({ row: r, days: Math.floor(days), missing });
+    });
+    return list;
   }, [rows]);
 
   if (shipRole === null) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
@@ -1571,6 +1590,13 @@ function Shipments() {
         </div>
       ) : null}
 
+      {/* 65 天未补字段警告条 */}
+      {overdue.length > 0 && (
+        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#c05b52" }}>
+          ⚠️ <b>{overdue.length} 条</b>发货记录已超过 65 天, 缺少必填字段 (上架日期/上架数量/损耗/赔付/亏损), 需成都推广/管理员尽快补全
+        </div>
+      )}
+
       {/* 表格: 26 列太宽, 横向滚动 */}
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
@@ -1582,9 +1608,13 @@ function Shipments() {
             </div>
             {rows.map((r, i) => {
               const bColor = batchColorOf[r.id];
+              const isOverdue = overdue.find(o => o.row.id === r.id);
               return (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bColor ? `${bColor}1f` : (i % 2 ? C.bg : "transparent"), color: C.ink, borderLeft: bColor ? `3px solid ${bColor}` : "3px solid transparent" }}>
-                <div style={{ padding: "6px" }}>{r.ship_date}</div>
+              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: isOverdue ? "#c05b5222" : (bColor ? `${bColor}1f` : (i % 2 ? C.bg : "transparent")), color: C.ink, borderLeft: isOverdue ? "3px solid #c05b52" : (bColor ? `3px solid ${bColor}` : "3px solid transparent") }}>
+                <div style={{ padding: "6px", position: "relative" }}>
+                  {r.ship_date}
+                  {isOverdue && <span title={`已过 ${isOverdue.days} 天, 待填: ${isOverdue.missing.join(", ")}`} style={{ marginLeft: 4, color: "#c05b52", fontWeight: 700, cursor: "help" }}>⚠</span>}
+                </div>
                 <div style={{ padding: "6px" }}>{r.ship_warehouse || "—"}</div>
                 <div style={{ padding: "6px", color: C.sub, fontSize: 10 }}>{r.ship_batch || "—"}</div>
                 <div style={{ padding: "6px", fontWeight: 600 }}>{r.product_name}</div>
