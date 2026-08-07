@@ -728,13 +728,13 @@ function Overview({ siteEvals, onPick }) {
     return h ? h.box_key : null;
   }, [dragId, handoffs]);
 
-  // 交接时间统计: h2 / h3 各自的时长分析
+  // 交接时间统计: h1 / h2 / h3 各自的时长分析
   //   - historical: 从 monitor_handoff_log 计算"曾在该框停留过"的时长
   //   - current: 当前在框中的项 + 累计时长
   //   - dist: 时长分布 (<3 / 3-7 / 7-14 / >=14 天)
   //   - byGroup: 按一级类目聚合 (平均时长)
   const handoffStats = useMemo(() => {
-    const result = { h2: emptyBoxStat(), h3: emptyBoxStat() };
+    const result = { h1: emptyBoxStat(), h2: emptyBoxStat(), h3: emptyBoxStat() };
     // 按 leaf_id 排序的 log
     const logsByLeaf = {};
     (handoffLog || []).forEach(l => {
@@ -742,13 +742,13 @@ function Overview({ siteEvals, onPick }) {
       logsByLeaf[l.leaf_id].push(l);
     });
     // 从 log 算历史停留时长
-    const histDurs = { h2: [], h3: [] }; // { leafId, dur, group }[]
+    const histDurs = { h1: [], h2: [], h3: [] };
     Object.entries(logsByLeaf).forEach(([leafId, logs]) => {
       for (let i = 1; i < logs.length; i++) {
         const cur = logs[i];
         const prev = logs[i - 1];
         const box = cur.from_box;
-        if (!box || (box !== "h2" && box !== "h3")) continue;
+        if (!box || (box !== "h1" && box !== "h2" && box !== "h3")) continue;
         const dur = (new Date(cur.moved_at) - new Date(prev.moved_at)) / 86400000;
         if (dur < 0 || dur > 365) continue; // 异常数据
         const group = (lToGroup[leafId] || {}).group || "未分类";
@@ -756,16 +756,16 @@ function Overview({ siteEvals, onPick }) {
       }
     });
     // 当前 in-box 累计 (从主表 start_at 到 now)
-    const curDurs = { h2: [], h3: [] };
+    const curDurs = { h1: [], h2: [], h3: [] };
     (handoffs || []).forEach(h => {
       if (!h.start_at) return;
-      if (h.box_key !== "h2" && h.box_key !== "h3") return;
+      if (h.box_key !== "h1" && h.box_key !== "h2" && h.box_key !== "h3") return;
       const dur = (Date.now() - new Date(h.start_at).getTime()) / 86400000;
       const group = (lToGroup[h.leaf_id] || {}).group || "未分类";
       curDurs[h.box_key].push({ leafId: h.leaf_id, dur, group, source: "current" });
     });
     // 聚合
-    ["h2", "h3"].forEach(boxId => {
+    ["h1", "h2", "h3"].forEach(boxId => {
       const all = [...histDurs[boxId], ...curDurs[boxId]];
       const byGroup = {};
       all.forEach(a => {
@@ -990,12 +990,12 @@ function Overview({ siteEvals, onPick }) {
         })}
       </div>
 
-      {/* 交接时间统计: h2 / h3 各自时长分析 (历史 + 当前) */}
+      {/* 交接时间统计: h1 / h2 / h3 各自时长分析 (历史 + 当前) */}
       <div style={{ marginTop: 28 }}>
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>交接时间统计</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            h2 / h3 框的时长分布 · 数据来自 monitor_handoff_log (历史) + monitor_handoff (当前) · KK 需先建 log 表
+            h1 / h2 / h3 框的时长分布 · 数据来自 monitor_handoff_log (历史) + monitor_handoff (当前) · KK 需先建 log 表
           </div>
         </div>
         {handoffLog.length === 0 && (
@@ -1003,8 +1003,8 @@ function Overview({ siteEvals, onPick }) {
             提示：monitor_handoff_log 表未建或暂无历史数据. 请在 Supabase SQL Editor 跑 <code style={{ background: C.panel2, padding: "1px 5px", borderRadius: 3, color: C.brand }}>sql/monitor_handoff_log.sql</code> 创建表, 之后所有交接移动会自动写 log.
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          {["h2", "h3"].map(boxId => {
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+          {["h1", "h2", "h3"].map(boxId => {
             const box = HANDOFF_BOXES.find(b => b.id === boxId);
             const s = handoffStats[boxId];
             const hasData = s.total > 0;
