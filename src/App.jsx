@@ -1502,14 +1502,14 @@ function Shipments() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (isAdmin && loaded) load(); }, [filterStore]);
 
-  // 汇总: 各店铺发货数 + 总重量 + 总到仓成本
+  // 汇总: 各店铺发货数 + 数量合计 + 到仓成本
   const summary = useMemo(() => {
     const byStore = {};
     rows.forEach(r => {
-      if (!byStore[r.store]) byStore[r.store] = { count: 0, weight: 0, cost: 0 };
+      if (!byStore[r.store]) byStore[r.store] = { count: 0, qty: 0, cost: 0 };
       byStore[r.store].count++;
-      byStore[r.store].weight += Number(r.total_weight_kg || 0);
-      byStore[r.store].cost += Number(r.landed_cost_eur || 0);
+      byStore[r.store].qty += Number(r.qty || 0);
+      byStore[r.store].cost += Number(r.landed_cost || 0) * Number(r.qty || 0);
     });
     return byStore;
   }, [rows]);
@@ -1526,7 +1526,7 @@ function Shipments() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>发货记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺筛选 · 表格 21 列: 发货日期 / 仓库 / 批次 / 名称 / 数量 / 用途 / 重量 / 长宽高 / 关联 / 体积费 / 分摊费 / 到仓价 / 物流商 / 渠道 / 上架日期 / 上架数量 / 热销 / 单价 / 预估毛利 · 仅管理员可见
+            按店铺筛选 · 26 列(按 Excel): 日期/仓库/批次/名称/ASIN/数量/采购价/货值/总值/头程/杂费/关税/保险费/分摊费/到仓价/物流商/渠道/单价/尾程单号/上架日期/上架数量/损耗/赔付/亏损/保险单号/投保金额 · 仅管理员可见
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1554,44 +1554,50 @@ function Shipments() {
           {Object.entries(summary).map(([s, v]) => (
             <div key={s} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" }}>
               <div style={{ fontSize: 11, color: C.sub }}>{s}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, marginTop: 2 }}>{v.count} 条</div>
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>重量 {v.weight.toFixed(1)} kg · 到仓 €{v.cost.toFixed(2)}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, marginTop: 2 }}>{v.count} 条 · {v.qty} 件</div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>到仓成本 €{v.cost.toFixed(2)}</div>
             </div>
           ))}
         </div>
       ) : null}
 
-      {/* 表格: 21 列太宽, 横向滚动 */}
+      {/* 表格: 26 列太宽, 横向滚动 */}
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
-          <div style={{ minWidth: 1500 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "90px 90px 80px 130px 60px 60px 70px 60px 60px 60px 110px 80px 80px 80px 90px 70px 90px 70px 80px 70px 80px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
-              {["发货日期", "发货仓库", "发货批次", "名称", "数量", "用途", "总重量kg", "长cm", "宽cm", "高cm", "关联", "体积费€", "到仓价€", "物流商", "渠道", "上架日期", "上架数量", "热销/天", "规格单价€", "预估毛利€", "备注"].map(h => (
+          <div style={{ minWidth: 2000 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "备注"].map(h => (
                 <div key={h} style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>{h}</div>
               ))}
             </div>
             {rows.map((r, i) => (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "90px 90px 80px 130px 60px 60px 70px 60px 60px 60px 110px 80px 80px 80px 90px 70px 90px 70px 80px 70px 80px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
+              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
                 <div style={{ padding: "6px" }}>{r.ship_date}</div>
                 <div style={{ padding: "6px" }}>{r.ship_warehouse || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.ship_batch || "—"}</div>
+                <div style={{ padding: "6px", color: C.sub, fontSize: 10 }}>{r.ship_batch || "—"}</div>
                 <div style={{ padding: "6px", fontWeight: 600 }}>{r.product_name}</div>
-                <div style={{ padding: "6px" }}>{r.qty_purchased}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.purpose || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.total_weight_kg ? Number(r.total_weight_kg).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px" }}>{r.length_cm || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.width_cm || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.height_cm || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.related_to || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.volume_fee_eur ? "€" + Number(r.volume_fee_eur).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.brand, fontWeight: 600 }}>{r.landed_cost_eur ? "€" + Number(r.landed_cost_eur).toFixed(2) : "—"}</div>
+                <div style={{ padding: "6px", color: C.sub }}>{r.asin || "—"}</div>
+                <div style={{ padding: "6px", fontWeight: 600 }}>{r.qty}</div>
+                <div style={{ padding: "6px" }}>{r.purchase_price ? "€" + Number(r.purchase_price).toFixed(2) : "—"}</div>
+                <div style={{ padding: "6px" }}>{r.goods_value || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.total_value || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.freight || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.misc_fee || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.duty || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.insurance_fee || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.share_fee || "—"}</div>
+                <div style={{ padding: "6px", color: C.brand, fontWeight: 600 }}>{r.landed_cost ? "€" + Number(r.landed_cost).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px" }}>{r.logistics_provider || "—"}</div>
                 <div style={{ padding: "6px", color: C.sub }}>{r.channel || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.unit_price || "—"}</div>
+                <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.last_mile_no || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.listed_date || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.listed_qty || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.hot_sales || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.unit_cost_eur ? "€" + Number(r.unit_cost_eur).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.brand, fontWeight: 600 }}>{r.est_margin_eur ? "€" + Number(r.est_margin_eur).toFixed(2) : "—"}</div>
+                <div style={{ padding: "6px", color: C.drop }}>{r.loss_qty || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.compensation_eur || "—"}</div>
+                <div style={{ padding: "6px", color: C.drop }}>{r.loss_amount || "—"}</div>
+                <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.insured_amount || "—"}</div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
               </div>
             ))}
@@ -1599,7 +1605,7 @@ function Shipments() {
         </div>
       ) : (
         <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>
-          暂无发货记录 · 待 KK 提供数据源（导出/录入/Excel 导入）
+          暂无发货记录 · Excel 导入: node scripts/import-shipments.mjs {"<文件>"} --store=店铺名
         </div>
       )}
     </div>
