@@ -1694,23 +1694,209 @@ function InventoryStats() {
   );
 }
 
-// ---------------- 链接评分 (空骨架, 待 KK 提供评分维度和数据源) ----------------
+// ---------------- 链接评分 ----------------
+// 界面 v1 (2026-08-07 设计): 在售 ASIN 按品牌统计 → ASIN 卡片(评论数+星级) → 点开看全部评论
+// 评论数据当前为演示 (mock), 后续接亚马逊评论 API 每日同步 (review_count/avg_rating/reviews明细)
+// 未来: AI 评论分析区
 function LinkScore() {
+  // 数据: 在售 ASIN (products.st=selling 且有 asin) + 品牌关联
+  const [items, setItems] = useState([]);   // { asin, name, brand, reviewCount, avgRating, stars, comments: [] }
+  const [brandFilter, setBrandFilter] = useState("全部");
+  const [asinKw, setAsinKw] = useState("");
+  const [starFilter, setStarFilter] = useState("");
+  const [selAsin, setSelAsin] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: prods }, { data: leaves }, { data: cats }, { data: groups }, { data: brands }] = await Promise.all([
+        supabase.from("products").select("id, name, asin, st, leaf_id"),
+        supabase.from("shelf_leaves").select("id, cat_id, leaf_name"),
+        supabase.from("shelf_cats").select("id, group_id, name"),
+        supabase.from("shelf_groups").select("id, brand_code, name"),
+        supabase.from("brands").select("code, full_name"),
+      ]);
+      // 构建 leaf → brand 映射
+      const catOf = {}; (cats || []).forEach(c => { catOf[c.id] = c; });
+      const groupOf = {}; (groups || []).forEach(g => { groupOf[g.id] = g; });
+      const brandName = {}; (brands || []).forEach(b => { brandName[b.code] = b.full_name || b.code; });
+      const brandOfLeaf = {};
+      (leaves || []).forEach(l => {
+        const cat = catOf[l.cat_id];
+        const grp = cat ? groupOf[cat.group_id] : null;
+        brandOfLeaf[l.id] = grp ? (brandName[grp.brand_code] || grp.brand_code) : "未归属";
+      });
+      // 在售 ASIN
+      const list = (prods || [])
+        .filter(p => p.st === "selling" && p.asin)
+        .map(p => ({ asin: p.asin, name: p.name, brand: brandOfLeaf[p.leaf_id] || "未归属" }));
+      // 评论数据: 演示 mock (待接亚马逊评论 API)
+      const MOCK_REVIEWS = [
+        { title: "非常好用, 强烈推荐", rating: 5, date: "2026-08-02", user: "Jean M.", content: "产品质量超出预期, 做工扎实, 用起来很顺手。已经推荐给朋友了。", images: 2, video: false },
+        { title: "不错, 但有一点小瑕疵", rating: 4, date: "2026-07-28", user: "Sophie L.", content: "整体满意, 就是包装稍微有点简陋, 其他都很好。", images: 0, video: false },
+        { title: "运输有点慢, 产品还行", rating: 3, date: "2026-07-19", user: "Marc D.", content: "等了挺久才收到, 产品本身还行, 性价比可以。", images: 1, video: false },
+        { title: "视频开箱测评", rating: 5, date: "2026-07-10", user: "Camille R.", content: "录了个开箱视频, 整体体验很好, 大家可以看看视频再决定。", images: 0, video: true },
+        { title: "不太满意, 有点失望", rating: 2, date: "2026-06-30", user: "Pierre T.", content: "用了两周出现了一点问题, 售后处理也比较慢。", images: 0, video: false },
+      ];
+      // 每个 ASIN 随机生成演示评论 (同一批)
+      const withReviews = list.map((it, i) => {
+        const count = [3, 5, 8, 12, 24, 40][i % 6];
+        const avg = [4.2, 4.6, 3.8, 4.9, 4.1, 3.5][i % 6];
+        return { ...it, reviewCount: count, avgRating: avg, comments: MOCK_REVIEWS.slice(0, (i % 3) + 2) };
+      });
+      setItems(withReviews);
+      setLoaded(true);
+      if (withReviews.length) setSelAsin(withReviews[0].asin);
+    })();
+  }, []);
+
+  // 品牌统计
+  const brandCounts = useMemo(() => {
+    const m = {};
+    items.forEach(it => { m[it.brand] = (m[it.brand] || 0) + 1; });
+    return m;
+  }, [items]);
+
+  // 筛选后的列表
+  const filtered = useMemo(() => {
+    let l = items;
+    if (brandFilter !== "全部") l = l.filter(it => it.brand === brandFilter);
+    if (asinKw.trim()) l = l.filter(it => it.asin.toUpperCase().includes(asinKw.trim().toUpperCase()));
+    if (starFilter) l = l.filter(it => Math.round(it.avgRating) === Number(starFilter));
+    return [...l].sort((a, b) => b.reviewCount - a.reviewCount);
+  }, [items, brandFilter, asinKw, starFilter]);
+
+  const sel = items.find(it => it.asin === selAsin) || filtered[0];
+  const stars = (n) => "★".repeat(Math.round(n)) + "☆".repeat(5 - Math.round(n));
+
   return (
     <div>
+      {/* 顶部 */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>链接评分</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            在售 ASIN 健康度评分 · 全员可见 · 待 KK 提供评分维度和数据源
+            在售 ASIN 评论监控 · 评论数据每日同步亚马逊 API (当前演示数据) · 未来 AI 分析
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: C.faint }}>数据更新于</span>
+          <span style={{ fontSize: 12, color: C.faint, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>待接 API</span>
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        链接评分模块 · 待 KK 确认评分维度 (订单/BSR/评价/库存等) 与数据源
+
+      {/* 品牌 chips */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        {["全部", ...Object.keys(brandCounts).sort()].map(b => (
+          <div key={b} onClick={() => setBrandFilter(b)}
+            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, cursor: "pointer", background: brandFilter === b ? C.brand : C.panel, color: brandFilter === b ? "#0d1216" : C.ink, border: `1px solid ${brandFilter === b ? C.brand : C.line}`, fontWeight: 600 }}>
+            {b} {b !== "全部" && <span style={{ opacity: .7 }}>{brandCounts[b]}</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* 筛选行 */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <input value={asinKw} onChange={e => setAsinKw(e.target.value)} placeholder="ASIN 搜索"
+          style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, width: 180 }} />
+        <select value={starFilter} onChange={e => setStarFilter(e.target.value)}
+          style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+          <option value="">全部星级</option>
+          {[5, 4, 3, 2, 1].map(s => <option key={s} value={s}>{s} 星</option>)}
+        </select>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{filtered.length} 个在售 ASIN</span>
+      </div>
+
+      {/* 主体: 左 ASIN 列表 + 右评论详情 */}
+      <div style={{ display: "grid", gridTemplateColumns: "420px 1fr", gap: 14, alignItems: "start" }}>
+        {/* 左: ASIN 列表 */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "72vh", overflow: "auto", paddingRight: 4 }}>
+          {filtered.length ? filtered.map(it => (
+            <div key={it.asin} onClick={() => setSelAsin(it.asin)}
+              style={{ background: selAsin === it.asin ? `${C.brand}18` : C.panel, border: `1px solid ${selAsin === it.asin ? C.brand : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, color: "#0d1216", background: C.brand, borderRadius: 4, padding: "2px 6px", fontWeight: 700 }}>{it.brand}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: "monospace" }}>{it.asin}</span>
+                <span style={{ fontSize: 11, color: C.sub, marginLeft: "auto" }}>{it.name}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                <span style={{ fontSize: 13, color: "#d9a441", letterSpacing: 1 }}>{stars(it.avgRating)}</span>
+                <span style={{ fontSize: 11, color: C.ink, fontWeight: 600 }}>{it.avgRating.toFixed(1)}</span>
+                <span style={{ fontSize: 11, color: C.faint, marginLeft: "auto" }}>{it.reviewCount} 条评论</span>
+              </div>
+            </div>
+          )) : (
+            <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>没有匹配的在售 ASIN</div>
+          )}
+        </div>
+
+        {/* 右: 评论详情 */}
+        {sel && (
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 20px" }}>
+            {/* 概览 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 16, paddingBottom: 14, borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ textAlign: "center", minWidth: 70 }}>
+                <div style={{ fontSize: 34, fontWeight: 800, color: C.ink }}>{sel.avgRating.toFixed(1)}</div>
+                <div style={{ fontSize: 12, color: "#d9a441", letterSpacing: 1 }}>{stars(sel.avgRating)}</div>
+                <div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>{sel.reviewCount} 条</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, fontFamily: "monospace" }}>{sel.asin}</div>
+                <div style={{ fontSize: 12, color: C.sub, marginTop: 2 }}>{sel.brand} · {sel.name}</div>
+                {/* 星级分布 */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 10 }}>
+                  {[5, 4, 3, 2, 1].map(s => {
+                    const pct = s === 5 ? 70 : s === 4 ? 18 : s === 3 ? 7 : s === 2 ? 3 : 2;
+                    return (
+                      <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, color: C.sub }}>
+                        <span style={{ width: 20 }}>{s}★</span>
+                        <div style={{ flex: 1, height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
+                          <div style={{ width: pct + "%", height: "100%", background: "#d9a441" }} />
+                        </div>
+                        <span style={{ width: 30, textAlign: "right", color: C.faint }}>{Math.round(sel.reviewCount * pct / 100)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <span style={{ fontSize: 10, color: C.faint, alignSelf: "flex-start" }}>演示数据 · 待接 API</span>
+            </div>
+
+            {/* 评论列表 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14, maxHeight: "52vh", overflow: "auto" }}>
+              {sel.comments.map((c, i) => (
+                <div key={i} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ width: 24, height: 24, borderRadius: 12, background: C.brand, color: "#0d1216", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {c.user[0]}
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{c.user}</span>
+                    <span style={{ fontSize: 11, color: "#d9a441" }}>{stars(c.rating)}</span>
+                    <span style={{ fontSize: 10, color: C.faint, marginLeft: "auto" }}>{c.date}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{c.title}</div>
+                  <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.6 }}>{c.content}</div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    {c.images > 0 && Array.from({ length: c.images }).map((_, j) => (
+                      <div key={j} style={{ width: 48, height: 48, borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🖼</div>
+                    ))}
+                    {c.video && (
+                      <div style={{ width: 84, height: 48, borderRadius: 6, background: "#1f3a68", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff" }}>▶ 视频</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {!sel.comments.length && (
+                <div style={{ padding: 24, textAlign: "center", color: C.faint, fontSize: 12 }}>暂无评论</div>
+              )}
+            </div>
+
+            {/* AI 分析占位 */}
+            <div style={{ marginTop: 14, background: `${C.brand}0d`, border: `1px dashed ${C.brand}`, borderRadius: 10, padding: "12px 14px", fontSize: 12, color: C.sub }}>
+              🤖 <b style={{ color: C.ink }}>AI 评论分析</b> · 待接入 — 未来自动总结: 好评点 / 差评原因 / 改进建议 / 竞品对比
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
