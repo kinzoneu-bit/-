@@ -1,0 +1,40 @@
+{
+  "region": "eu",
+  "appClientId": "你的 LWA Client ID",
+  "appClientSecret": "你的 LWA Client Secret",
+  "awsAccessKeyId": "你的 AWS Access Key ID",
+  "awsSecretAccessKey": "你的 AWS Secret Access Key",
+  "roleArn": "arn:aws:iam::xxxx:role/SP-API-Role",
+  "shops": [
+    {
+      "name": "kila",
+      "sellerId": "店铺1的 Seller ID",
+      "refreshToken": "店铺1授权后拿到的 Refresh Token",
+      "marketplaceIds": ["A13V1IB3VIYZZH"]
+    },
+    {
+      "name": "woof",
+      "sellerId": "店铺2的 Seller ID",
+      "refreshToken": "店铺2授权后拿到的 Refresh Token",
+      "marketplaceIds": ["A13V1IB3VIYZZH"]
+    },
+    {
+      "name": "Vercoryx",
+      "sellerId": "店铺3的 Seller ID",
+      "refreshToken": "店铺3授权后拿到的 Refresh Token",
+      "marketplaceIds": ["A13V1IB3VIYZZH"]
+    },
+    {
+      "name": "kinzon",
+      "sellerId": "店铺4的 Seller ID",
+      "refreshToken": "店铺4授权后拿到的 Refresh Token",
+      "marketplaceIds": ["A13V1IB3VIYZZH"]
+    },
+    {
+      "name": "未归属",
+      "sellerId": "店铺5的 Seller ID",
+      "refreshToken": "店铺5授权后拿到的 Refresh Token",
+      "marketplaceIds": ["A13V1IB3VIYZZH"]
+    }
+  ]
+}
