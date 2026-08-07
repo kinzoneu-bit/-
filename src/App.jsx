@@ -1614,9 +1614,9 @@ function Shipments() {
       {/* 表格: 26 列太宽, 横向滚动 */}
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
-          <div style={{ minWidth: 2000 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
-              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "备注"].map(h => (
+          <div style={{ minWidth: 2260 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "累计天数", "账单核对", "运费已付", "备注"].map(h => (
                 <div key={h} style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>{h}</div>
               ))}
             </div>
@@ -1626,8 +1626,9 @@ function Shipments() {
               const o14 = checkOverdue.r14.find(o => o.row.id === r.id);
               const warn = o65 || o14;
               const warnColor = o65 ? "#c05b52" : "#d9a441";
+              const cumDays = r.ship_date ? Math.floor((Date.now() - new Date(r.ship_date).getTime()) / 86400000) : null;
               return (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: warn ? `${warnColor}22` : (bColor ? `${bColor}1f` : (i % 2 ? C.bg : "transparent")), color: C.ink, borderLeft: warn ? `3px solid ${warnColor}` : (bColor ? `3px solid ${bColor}` : "3px solid transparent") }}>
+              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px 80px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: warn ? `${warnColor}22` : (bColor ? `${bColor}1f` : (i % 2 ? C.bg : "transparent")), color: C.ink, borderLeft: warn ? `3px solid ${warnColor}` : (bColor ? `3px solid ${bColor}` : "3px solid transparent") }}>
                 <div style={{ padding: "6px", position: "relative" }}>
                   {r.ship_date}
                   {warn && canEdit && <span title={`已过 ${warn.days} 天, 待填: ${warn.missing.join(", ")}`} style={{ marginLeft: 4, color: warnColor, fontWeight: 700, cursor: "help" }}>⚠</span>}
@@ -1657,6 +1658,9 @@ function Shipments() {
                 <div style={{ padding: "6px", color: C.drop }}>{r.loss_amount ? "¥" + Number(r.loss_amount).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.insured_amount ? "¥" + Number(r.insured_amount).toFixed(2) : "—"}</div>
+                <div style={{ padding: "6px", fontWeight: 600, color: cumDays > 65 ? "#c05b52" : cumDays > 14 ? "#d9a441" : C.ink }}>{cumDays != null ? `${cumDays}天` : "—"}</div>
+                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.bill_checked ? "#4db6a4" : C.faint }}>{r.bill_checked ? "✓ 已对" : "✗ 未对"}</div>
+                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.freight_paid ? "#4db6a4" : C.drop }}>{r.freight_paid ? "✓ 已付" : "✗ 未付"}</div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
               </div>
               );
