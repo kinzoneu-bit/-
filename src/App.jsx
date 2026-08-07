@@ -604,9 +604,9 @@ function Overview({ siteEvals, onPick }) {
 
   // 拖拽换框: 权限检查 + 写历史 log + 重置计时
   // 规则:
-  //   h1 → h2: 仅 成都供应链 + admin
-  //   h2 → h3: 仅 成都链接 + admin
-  //   admin: 任意方向; 拖出 h1 → 其他框 (非 h2) 自动标 researched_skip
+  //   h1 → h2: 仅 成都供应链 + admin/fr
+  //   h2 → h3: 仅 成都链接 + admin/fr
+  //   admin/fr: 任意方向; 拖出 h1 → 其他框 (非 h2) 自动标 researched_skip
   //   其他角色: 按 ROLE_PERMISSIONS 检查
   const moveTo = async (leafId, targetBox) => {
     if (!leafId || !targetBox) return;
@@ -620,10 +620,10 @@ function Overview({ siteEvals, onPick }) {
       alert(`无权操作：${roleLabel} 不能把类目从「${fromTitle}」拖到「${toTitle}」`);
       return;
     }
-    // admin 拖出 h1 (到非 h2 框) → 自动标 researched_skip
-    if (userRole === "admin" && fromBox === "h1" && targetBox !== "h2") {
+    // admin/fr 拖出 h1 (到非 h2 框) → 自动标 researched_skip
+    if (isFullAccess && fromBox === "h1" && targetBox !== "h2") {
       const info = ID_NAME[leafId];
-      const ok = confirm(`管理员放弃：将 "${info ? info.name : leafId}" 标记为「已调研不做」？\n（shelf_leaves.st → researched_skip）`);
+      const ok = confirm(`放弃此调研：将 "${info ? info.name : leafId}" 标记为「已调研不做」？\n（shelf_leaves.st → researched_skip）`);
       if (!ok) return;
       const { error: e1 } = await supabase.from("shelf_leaves").update({ st: "researched_skip", phase: null }).eq("id", leafId);
       if (e1) { alert("标记失败: " + e1.message); return; }
@@ -645,14 +645,17 @@ function Overview({ siteEvals, onPick }) {
     } catch (e) { /* 表可能未建, 不影响主流程 */ }
     await Promise.all([loadHandoffs(), loadHandoffLog()]);
     // 拖出 h1 后, shelf_leaves 状态变了, 刷新全局
-    if (userRole === "admin" && fromBox === "h1" && targetBox !== "h2") {
+    if (isFullAccess && fromBox === "h1" && targetBox !== "h2") {
       try { await fetchShelfData(); } catch (e) {}
     }
   };
 
   // 拖拽换调研阶段: 更新 shelf_leaves.phase + 记录 monitor_research_progress + 刷新
+  // 权限: 调研阶段推进归 供应链 + admin/fr (调研是供应链的职责)
+  const canDragPhase = isFullAccess || userRole === "cd_supplier";
   const movePhase = async (leafId, targetPhase) => {
     if (!leafId || !targetPhase) return;
+    if (!canDragPhase) { alert(`无权操作：${roleLabel} 不能推进调研阶段`); return; }
     const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", leafId);
     if (e1) { alert("保存失败: " + e1.message); return; }
     try {
@@ -809,7 +812,12 @@ function Overview({ siteEvals, onPick }) {
 
   return (
     <div>
-      <SectionTitle t="目前在调研的产品" sub="按 4 个调研阶段分组 · 一级类目聚合 · 点开品牌查看具体 leaf" />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>目前在调研的产品</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>按 4 个调研阶段分组 · 一级类目聚合 · 点开品牌查看具体 leaf{!canDragPhase && " · 仅供应链/管理员可推进阶段"}</div>
+        </div>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
         {Object.entries(LEAF_PHASE).map(([k, v]) => {
           const data = phaseMap[k] || { total: 0, byBrand: {} };
@@ -817,10 +825,10 @@ function Overview({ siteEvals, onPick }) {
           const [phaseDrag, setPhaseDrag] = useState(false);
           return (
             <div key={k}
-              onDragOver={(e) => { e.preventDefault(); setPhaseDrag(true); }}
+              onDragOver={(e) => { if (canDragPhase) { e.preventDefault(); setPhaseDrag(true); } }}
               onDragLeave={() => setPhaseDrag(false)}
-              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId, k); }}
-              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
+              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId && canDragPhase) movePhase(dragId, k); }}
+              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6, opacity: canDragPhase ? 1 : 0.8 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
@@ -837,11 +845,14 @@ function Overview({ siteEvals, onPick }) {
                       </summary>
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
                         {items.map(l => (
-                          <div key={l.id} draggable
-                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId(l.id); }}
+                          <div key={l.id} draggable={canDragPhase}
+                            onDragStart={(e) => {
+                              if (!canDragPhase) { e.preventDefault(); return; }
+                              e.dataTransfer.setData("text/plain", l.id); setDragId(l.id);
+                            }}
                             onDragEnd={() => setDragId(null)}
-                            style={{ padding: "3px 0", fontSize: 12, cursor: "grab" }}>
-                            <div style={{ color: C.ink }}>{l.name}</div>
+                            style={{ padding: "3px 0", fontSize: 12, cursor: canDragPhase ? "grab" : "not-allowed" }}>
+                            <div style={{ color: canDragPhase ? C.ink : C.faint }}>{l.name}{!canDragPhase && <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>🔒</span>}</div>
                             <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
                               <span>{l.enterAt ? "入: " + new Date(l.enterAt).toLocaleDateString("zh-CN") : "入: —"}</span>
                               <span>· {l.duration}</span>
@@ -1035,10 +1046,10 @@ function Overview({ siteEvals, onPick }) {
         </div>
       </div>
 
-      {isAdmin && (
+      {isFullAccess && (
         <>
-          {/* 阶段转化分析: 任意时间段内 状态转换统计 (仅 admin 可见) */}
-          <SectionTitle t="阶段转化分析" sub="统计任意时间段内进入某阶段, 并最终到达后续阶段的类目数量（仅 KK/法国可见）" />
+          {/* 阶段转化分析: 任意时间段内 状态转换统计 (仅 admin/法国 可见) */}
+          <SectionTitle t="阶段转化分析" sub="统计任意时间段内进入某阶段, 并最终到达后续阶段的类目数量（仅管理员/法国可见）" />
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
           <span style={{ fontSize: 12, color: C.sub }}>从</span>
@@ -1419,6 +1430,16 @@ function Track({ selSku, setSelSku }) {
 // ---------------- 品牌货架 (三层展开: 品牌 → 大类 → 类目) ----------------
 function Shelf() {
   const brands = Object.keys(BRAND_SHELF);
+  // 当前用户角色 (类目明细编辑按钮按角色显示)
+  const [shelfEmail, setShelfEmail] = useState("");
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { if (data && data.user) setShelfEmail(data.user.email || ""); });
+  }, []);
+  const sRole = getUserRole(shelfEmail);
+  const sFull = sRole === "admin" || sRole === "fr";          // 改状态/加末端
+  const sSupplier = sFull || sRole === "cd_supplier";          // 加供应商
+  const sLink = sFull || sRole === "cd_link";                  // 加产品
+  const sPhase = sFull || sRole === "cd_supplier";             // 调研细分阶段
   const [openB, setOpenB] = useState({});      // 展开的品牌
   const [openG, setOpenG] = useState({});      // 展开的大类, key = brand|groupIdx
   const [openC, setOpenC] = useState({});      // 展开的类目, key = brand|groupIdx|catIdx
@@ -1579,10 +1600,11 @@ function Shelf() {
     await refreshShelf();
   };
 
+  // 状态点: 仅 sFull (admin/fr) 可点; 其他角色只读
   const stDot = (s, onClick, extra) => (
-    <span onClick={onClick}
-      style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[s] ? SHELF_ST[s].color : C.faint, display: "inline-block", cursor: "pointer", ...(extra || {}) }}
-      title="点击修改状态" />
+    <span onClick={sFull ? onClick : undefined}
+      style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[s] ? SHELF_ST[s].color : C.faint, display: "inline-block", cursor: sFull ? "pointer" : "default", opacity: sFull ? 1 : 0.45, ...(extra || {}) }}
+      title={sFull ? "点击修改状态" : "仅管理员/法国可修改状态"} />
   );
 
   return (
@@ -1756,7 +1778,7 @@ function Shelf() {
                                                     }
                                                     return null;
                                                   })()}
-                                                  {lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
+                                                  {sPhase && lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
                                                     <select
                                                       value={lf.phase || ""}
                                                       onChange={(e) => {
@@ -1788,9 +1810,9 @@ function Shelf() {
                                                     <Branch title="产品">
                                                       {shownProducts.length ? shownProducts.map((p, pi) => (
                                                         <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                          <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
-                                                            style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
-                                                            title="点击修改状态" />{p.name}
+                                                          <span onClick={sFull ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); } : undefined}
+                                                            style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: sFull ? "pointer" : "default", opacity: sFull ? 1 : 0.45 }}
+                                                            title={sFull ? "点击修改状态" : "仅管理员/法国可修改"} />{p.name}
                                                           <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
                                                           {p.asin && (
                                                             <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"
@@ -1801,10 +1823,12 @@ function Shelf() {
                                                           )}
                                                         </div>
                                                       )) : <Empty t="暂无产品" />}
-                                                      <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
-                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                        + 新增产品
-                                                      </div>
+                                                      {sLink && (
+                                                        <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
+                                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                          + 新增产品
+                                                        </div>
+                                                      )}
                                                     </Branch>
                                                     <Branch title="供应商">
                                                       {lf.suppliers.length ? lf.suppliers.map((sp, si) => (
@@ -1814,29 +1838,33 @@ function Shelf() {
                                                           <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
                                                         </div>
                                                       )) : <Empty t="暂无供应商" />}
-                                                      <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
-                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                        + 新增供应商
-                                                      </div>
+                                                      {sSupplier && (
+                                                        <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
+                                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                          + 新增供应商
+                                                        </div>
+                                                      )}
                                                     </Branch>
                                                   </div>
                                                 )}
                                               </div>
                                             );
                                           })}
-                                        <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: c.id, catName: c.name }); }}
-                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "8px 16px 10px 82px" }}>
-                                          + 新增末端类目
-                                        </div>
+                                        {sFull && (
+                                          <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: c.id, catName: c.name }); }}
+                                            style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "8px 16px 10px 82px" }}>
+                                            + 新增末端类目
+                                          </div>
+                                        )}
                                           </React.Fragment>
                                         ) : (
                                           <div style={{ padding: "10px 16px 14px 82px" }}>
                                             <Branch title="产品">
                                               {detail && detail.products.length ? detail.products.map((p, pi) => (
                                                 <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                  <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
-                                                    style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
-                                                    title="点击修改状态" />{p.name}
+                                                  <span onClick={sFull ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); } : undefined}
+                                                    style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: sFull ? "pointer" : "default", opacity: sFull ? 1 : 0.45 }}
+                                                    title={sFull ? "点击修改状态" : "仅管理员/法国可修改"} />{p.name}
                                                   <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
                                                 </div>
                                               )) : <Empty t="暂无产品" />}
