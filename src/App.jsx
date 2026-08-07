@@ -1769,6 +1769,13 @@ function LinkScore() {
   const sel = items.find(it => it.asin === selAsin) || filtered[0];
   const stars = (n) => "★".repeat(Math.round(n)) + "☆".repeat(5 - Math.round(n));
 
+  // 最近 7 天差评 (演示数据, 待接亚马逊评论 API)
+  const RECENT_BAD = [
+    { asin: "B0GLWV84HC", brand: "kila", date: "2026-08-05", rating: 1, user: "Marc D.", title: "完全不能用, 浪费钱", content: "买了一个月就坏了, 客服也不理人, 非常失望。", images: 2, video: false },
+    { asin: "B0RXOWN01", brand: "woof", date: "2026-08-04", rating: 2, user: "Sophie L.", title: "差评, 不建议买", content: "和图片差异很大, 做工粗糙, 用起来体验差。", images: 1, video: false },
+    { asin: "B0MLUUFD", brand: "Vercoryx", date: "2026-08-02", rating: 1, user: "Pierre T.", title: "运输损坏 + 质量差", content: "包装完全没保护, 到手外壳碎了, 退货也麻烦。", images: 3, video: true },
+  ];
+
   return (
     <div>
       {/* 顶部 */}
@@ -1782,6 +1789,35 @@ function LinkScore() {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 11, color: C.faint }}>数据更新于</span>
           <span style={{ fontSize: 12, color: C.faint, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>待接 API</span>
+        </div>
+      </div>
+
+      {/* 评论预警: 最近 7 天差评集中 */}
+      <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 12, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 14 }}>🔴</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#c05b52" }}>评论预警 · 最近 7 天差评 ({RECENT_BAD.length} 条)</span>
+          <span style={{ fontSize: 10, color: C.faint, marginLeft: "auto" }}>演示数据 · 待接亚马逊评论 API</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
+          {RECENT_BAD.map((r, i) => (
+            <div key={i} style={{ background: C.panel, border: "1px solid #c05b5244", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: "#0d1216", background: C.brand, borderRadius: 4, padding: "2px 6px", fontWeight: 700 }}>{r.brand}</span>
+                <span style={{ fontSize: 11, fontFamily: "monospace", color: C.ink, fontWeight: 600 }}>{r.asin}</span>
+                <span style={{ fontSize: 12, color: "#d9756f", letterSpacing: 1, marginLeft: "auto" }}>{"★".repeat(r.rating) + "☆".repeat(5 - r.rating)}</span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{r.title}</div>
+              <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, marginBottom: 8 }}>{r.content}</div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                {r.images > 0 && Array.from({ length: r.images }).map((_, j) => (
+                  <div key={j} style={{ width: 28, height: 28, borderRadius: 4, background: C.bg, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>🖼</div>
+                ))}
+                {r.video && <div style={{ width: 56, height: 28, borderRadius: 4, background: "#1f3a68", border: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff" }}>▶ 视频</div>}
+              </div>
+              <div style={{ fontSize: 10, color: C.faint }}>{r.date} · {r.user}</div>
+            </div>
+          ))}
         </div>
       </div>
 
