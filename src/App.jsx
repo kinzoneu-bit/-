@@ -495,7 +495,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"]].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"], ["finance", "财务核算"]].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -508,6 +508,7 @@ export default function App() {
         {tab === "shelf" && <Shelf />}
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
+        {tab === "finance" && <Finance />}
       </div>
     </div>
   );
@@ -1446,6 +1447,101 @@ function Track({ selSku, setSelSku }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------- 财务核算 (空骨架, 完整版含 4 大模块) ----------------
+// TODO: 完整财务体系
+//   1) 库存视角: 周转效率 / 库存天数 / 备货周期 / 滞销预警
+//   2) 利润体系: 单品利润 / 末端类目毛利 / 平台费 / 税费 / 净利
+//   3) 现金流体系: 月度流入流出 / 应收回款 / 应付账期
+//   4) 资本占用 & 资金成本: 在途库存金额 / 资金占用 / 未来 90 天资金需求预测
+// 数据来源建议:
+//   - 采购成本: 手动录入 (新建表 finance_unit_cost)
+//   - 售价 / 订单: 接 Amazon SP-API
+//   - 平台费 / 广告费: 财务月度导入
+function Finance() {
+  const modules = [
+    {
+      key: "inventory",
+      title: "库存视角",
+      desc: "周转效率 / 库存天数 / 备货周期 / 滞销预警",
+      what: "看每个 SKU 的钱压了多久——库存 30 天卖完 vs 90 天卖完, 资金成本天差地别",
+      dataSource: "products.st × FBA 库存 × 销售速率（需 SP-API）",
+    },
+    {
+      key: "profit",
+      title: "利润体系",
+      desc: "单品利润 / 末端类目毛利 / 平台费 / 税费 / 净利",
+      what: "每个产品真正赚多少——从采购到平台到账期全链路",
+      dataSource: "采购成本（手动录）+ 售价（SP-API）+ 平台费 15% / 广告分摊 / 退费 / VAT",
+    },
+    {
+      key: "cashflow",
+      title: "现金流体系",
+      desc: "月度流入流出 / 应收回款 / 应付账期",
+      what: "公司账上实际有多少钱——不是利润，是现金流",
+      dataSource: "店铺结算单（Amazon Settlement API）+ 采购付款记录",
+    },
+    {
+      key: "capital",
+      title: "资本占用 & 资金成本",
+      desc: "在途库存金额 / 资金占用 / 未来 90 天资金需求预测",
+      what: "压了多少资金在仓库 / 供应商未到货 / 下一个备货周期要备多少钱",
+      dataSource: "库存金额 + 采购订单 + 30/60/90 天滚动预测",
+    },
+  ];
+
+  return (
+    <div>
+      {/* 顶部 — 时间戳 + 体系说明（呼应日级监控架构的时间戳设计） */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>财务核算</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            运营的财务视角透视：库存 / 利润 / 现金流 / 资本占用 · 当前空骨架, 4 个模块分阶段落地
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: C.faint }}>数据更新于</span>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>
+            尚未接入
+          </span>
+        </div>
+      </div>
+
+      {/* 4 大模块占位卡 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
+        {modules.map(m => (
+          <div key={m.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "20px 22px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{m.title}</span>
+              <span style={{ fontSize: 10, color: C.faint, marginLeft: "auto", padding: "2px 8px", borderRadius: 10, border: `1px solid ${C.line}` }}>
+                待建设
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>{m.desc}</div>
+            <div style={{ fontSize: 12, color: C.ink, lineHeight: 1.6, marginBottom: 10, padding: "8px 10px", background: C.bg, borderRadius: 6, borderLeft: `2px solid ${C.brand}` }}>
+              {m.what}
+            </div>
+            <div style={{ fontSize: 11, color: C.faint }}>
+              <span style={{ color: C.sub, fontWeight: 600 }}>数据来源建议：</span>{m.dataSource}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 底部: 落地路径 */}
+      <div style={{ marginTop: 18, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 20px" }}>
+        <div style={{ fontSize: 12, color: C.sub, fontWeight: 600, marginBottom: 8 }}>落地路径（按优先级）</div>
+        <div style={{ fontSize: 12, color: C.ink, lineHeight: 1.8 }}>
+          ① 建 <code style={{ background: C.bg, padding: "1px 5px", borderRadius: 3, color: C.brand }}>finance_unit_cost</code> 表（采购成本手动录）<br />
+          ② 利润模块：新品上架前必填采购成本, 计算单 SKU 毛利<br />
+          ③ 库存模块：接 Amazon SP-API 库存 + 销售速率, 算周转天数 / 滞销预警<br />
+          ④ 现金流 + 资本占用：接 Amazon Settlement API + 采购订单数据
+        </div>
+      </div>
     </div>
   );
 }
