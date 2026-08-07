@@ -177,6 +177,15 @@ BEGIN
                     AND box_key = ''h2'')
              WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = ''cd_link'')
                          AND box_key = ''h3'')';
+    -- cd_promotion: upsert 到 h4 (从 h3 来的行或新行, 货备好推上去)
+    EXECUTE 'CREATE POLICY "mh_promotion_insert" ON public.monitor_handoff FOR INSERT TO authenticated
+             WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = ''cd_promotion'')
+                         AND box_key = ''h4'')';
+    EXECUTE 'CREATE POLICY "mh_promotion_update" ON public.monitor_handoff FOR UPDATE TO authenticated
+             USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = ''cd_promotion'')
+                    AND box_key = ''h3'')
+             WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = ''cd_promotion'')
+                         AND box_key = ''h4'')';
   END IF;
 END $$;
 
@@ -194,7 +203,7 @@ BEGIN
     EXECUTE 'ALTER TABLE public.monitor_handoff_log ENABLE ROW LEVEL SECURITY';
     EXECUTE 'CREATE POLICY "mhlog_read" ON public.monitor_handoff_log FOR SELECT TO authenticated USING (true)';
     EXECUTE 'CREATE POLICY "mhlog_insert_role" ON public.monitor_handoff_log FOR INSERT TO authenticated
-             WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN (''admin'',''fr'',''cd_supplier'',''cd_link'')))';
+             WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN (''admin'',''fr'',''cd_supplier'',''cd_link'',''cd_promotion'')))';
   END IF;
 END $$;
 

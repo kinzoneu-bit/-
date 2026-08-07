@@ -108,7 +108,7 @@ const ROLE_PERMISSIONS = {
   fr:           { fromAny: true, toAny: true, label: "法国成员" },
   cd_supplier:  { from: ["h1"], to: ["h2"], label: "成都·供应链" },
   cd_link:      { from: ["h2"], to: ["h3"], label: "成都·链接" },
-  cd_promotion: { from: [], to: [], label: "成都·推广" },
+  cd_promotion: { from: ["h3"], to: ["h4"], label: "成都·推广" },
 };
 // 邮箱 → 角色
 const EMAIL_TO_ROLE = {
@@ -886,7 +886,7 @@ function Overview({ siteEvals, onPick }) {
             <span style={{ fontSize: 10, color: C.faint }}>
               {userRole === "cd_supplier" && "(调研期间 → 链接制作)"}
               {userRole === "cd_link" && "(链接制作期间 → 采购备货)"}
-              {userRole === "cd_promotion" && "(暂无交接权限)"}
+              {userRole === "cd_promotion" && "(采购备货 → 进入可售)"}
             </span>
           )}
           {isFullAccess && <span style={{ fontSize: 10, color: C.faint }}>(全权限 · 拖出 h1 非 h2 自动标记为「已调研不做」)</span>}
