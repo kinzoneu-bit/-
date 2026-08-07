@@ -111,14 +111,13 @@ const ROLE_PERMISSIONS = {
   cd_promotion: { from: [], to: [], label: "成都·推广" },
 };
 // 邮箱 → 角色
-// TODO: 成都·供应链 / 成都·链接 / 法国 的真邮箱明天由 KK 确认后替换
 const EMAIL_TO_ROLE = {
   "kinzon.eu@gmail.com":  "admin",
   "qianlin20222@163.com": "admin",
-  "503279601@qq.com":     "cd_promotion",  // 已确认
-  "915126059@qq.com":     "fr",            // 暂按之前的"法国团队"映射, 待确认
-  // "TODO_CD_SUPPLIER@xxx": "cd_supplier",  // 成都·供应链 - 待补
-  // "TODO_CD_LINK@xxx":     "cd_link",      // 成都·链接 - 待补
+  "503279601@qq.com":     "cd_promotion",   // 成都·推广 (已确认)
+  "2386332469@qq.com":    "cd_link",        // 成都·链接 (2026-08-07 确认)
+  "2990206556@qq.com":    "cd_supplier",    // 成都·供应链 (2026-08-07 确认)
+  "915126059@qq.com":     "fr",             // 法国成员, 全权限 (待确认)
 };
 const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
 const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (role ? "未授权" : "未登录");
