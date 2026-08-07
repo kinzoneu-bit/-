@@ -502,7 +502,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ...(curRole === "admin" ? [["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["finance", "财务核算"]] : [])].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -516,6 +516,8 @@ export default function App() {
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
         {tab === "shipments" && <Shipments />}
+        {tab === "inventory" && <InventoryStats />}
+        {tab === "score" && <LinkScore />}
         {tab === "finance" && <Finance />}
       </div>
     </div>
@@ -1666,6 +1668,50 @@ function Shipments() {
           暂无发货记录 · Excel 导入: node scripts/import-shipments.mjs {"<文件>"} --store=店铺名
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------- 库存统计 (空骨架, 待 KK 提供维度与数据源) ----------------
+function InventoryStats() {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>库存统计</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            各店铺 / 类目 / ASIN 维度的库存数据 · 全员可见 · 待 KK 提供维度与数据源
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        </div>
+      </div>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        库存统计模块 · 待 KK 确认维度 (店铺/类目/ASIN) 与数据源 (SP-API 库存/采购记录)
+      </div>
+    </div>
+  );
+}
+
+// ---------------- 链接评分 (空骨架, 待 KK 提供评分维度和数据源) ----------------
+function LinkScore() {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>链接评分</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            在售 ASIN 健康度评分 · 全员可见 · 待 KK 提供评分维度和数据源
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        </div>
+      </div>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        链接评分模块 · 待 KK 确认评分维度 (订单/BSR/评价/库存等) 与数据源
+      </div>
     </div>
   );
 }
