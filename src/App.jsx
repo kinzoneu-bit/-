@@ -310,6 +310,17 @@ const SHELF_ST = {
   researched_skip: { label: "已调研不做", color: "#7a5b52" },
 };
 
+// 交接框 ↔ 允许的类目状态 (KK 确认 2026-08-07: 状态与阶段必须一致, 否则报错)
+//   h1 调研期间 / h2 链接制作 / h3 采购备货 → 只能 idle (还没动/开发中)
+//   h4 进入可售 → 只能 selling (在售)
+//   不在交接框 → 4 档自由 (货架老数据)
+const BOX_ALLOWED_ST = {
+  h1: ["idle"],
+  h2: ["idle"],
+  h3: ["idle"],
+  h4: ["selling"],
+};
+
 // 调研阶段 (leaf 的 idle 细分): 1 立项 → 2 前置调研 → 3 挖掘供应商 → 4 定款
 // 中文显示为 "在调研-立项" 等, 挂在 st=idle 的 leaf 上, phase 为空 = 笼统"在调研"
 const LEAF_PHASE = {
@@ -602,12 +613,13 @@ function Overview({ siteEvals, onPick }) {
     return m;
   }, [handoffs, lToGroup]);
 
-  // 拖拽换框: 权限检查 + 写历史 log + 重置计时
+  // 拖拽换框: 权限检查 + 一致性校验 + 写历史 log + 重置计时
   // 规则:
   //   h1 → h2: 仅 成都供应链 + admin/fr
   //   h2 → h3: 仅 成都链接 + admin/fr
-  //   admin/fr: 任意方向; 拖出 h1 → 其他框 (非 h2) 自动标 researched_skip
-  //   其他角色: 按 ROLE_PERMISSIONS 检查
+  //   h3 → h4: 仅 成都推广 + admin/fr
+  //   admin/fr: 任意方向; 拖出 h1 → 其他框 (非 h2) 移出流程并标 researched_skip
+  //   一致性: 目标框要求的状态与类目当前状态必须匹配 (BOX_ALLOWED_ST), 否则报错
   const moveTo = async (leafId, targetBox) => {
     if (!leafId || !targetBox) return;
     // 找当前 box
@@ -620,15 +632,35 @@ function Overview({ siteEvals, onPick }) {
       alert(`无权操作：${roleLabel} 不能把类目从「${fromTitle}」拖到「${toTitle}」`);
       return;
     }
-    // admin/fr 拖出 h1 (到非 h2 框) → 自动标 researched_skip
+    const now = new Date().toISOString();
+    const info2 = ID_NAME[leafId];
+    // admin/fr 拖出 h1 (到非 h2 框) → 移出交接流程 + 标 researched_skip
     if (isFullAccess && fromBox === "h1" && targetBox !== "h2") {
-      const info = ID_NAME[leafId];
-      const ok = confirm(`放弃此调研：将 "${info ? info.name : leafId}" 标记为「已调研不做」？\n（shelf_leaves.st → researched_skip）`);
+      const ok = confirm(`放弃此调研：将 "${info2 ? info2.name : leafId}" 标记为「已调研不做」并移出交接流程？`);
       if (!ok) return;
       const { error: e1 } = await supabase.from("shelf_leaves").update({ st: "researched_skip", phase: null }).eq("id", leafId);
       if (e1) { alert("标记失败: " + e1.message); return; }
+      await supabase.from("monitor_handoff").delete().eq("leaf_id", leafId);
+      try {
+        await supabase.from("monitor_handoff_log").insert({
+          leaf_id: leafId, from_box: fromBox, to_box: null, moved_at: now,
+          moved_by_email: currentEmail, note: "researched_skip",
+        });
+      } catch (e) { /* 表可能未建 */ }
+      await Promise.all([loadHandoffs(), loadHandoffLog()]);
+      try { await fetchShelfData(); } catch (e) {}
+      return;
     }
-    const now = new Date().toISOString();
+    // 一致性校验: 目标框要求的状态与类目当前状态匹配 (KK: 不一致弹报错框)
+    const curSt = info2 ? info2.st : null;
+    const allowedSt = BOX_ALLOWED_ST[targetBox];
+    if (allowedSt && curSt && !allowedSt.includes(curSt)) {
+      const boxTitle = (HANDOFF_BOXES.find(b => b.id === targetBox) || {}).title || targetBox;
+      const stLabel = SHELF_ST[curSt] ? SHELF_ST[curSt].label : curSt;
+      const needLabel = allowedSt.map(s => (SHELF_ST[s] || {}).label || s).join(" / ");
+      alert(`状态不一致：该类目当前是「${stLabel}」，不能拖到「${boxTitle}」（此阶段要求「${needLabel}」）。\n请先在类目明细把状态改为「${needLabel}」（或由管理员操作）。`);
+      return;
+    }
     // 写主表
     const { error } = await supabase.from("monitor_handoff")
       .upsert({ leaf_id: leafId, box_key: targetBox, start_at: now }, { onConflict: "leaf_id" });
@@ -644,18 +676,12 @@ function Overview({ siteEvals, onPick }) {
       });
     } catch (e) { /* 表可能未建, 不影响主流程 */ }
     await Promise.all([loadHandoffs(), loadHandoffLog()]);
-    // 拖出 h1 后, shelf_leaves 状态变了, 刷新全局
-    if (isFullAccess && fromBox === "h1" && targetBox !== "h2") {
-      try { await fetchShelfData(); } catch (e) {}
-    }
   };
 
   // 拖拽换调研阶段: 更新 shelf_leaves.phase + 记录 monitor_research_progress + 刷新
-  // 权限: 调研阶段推进归 供应链 + admin/fr (调研是供应链的职责)
-  const canDragPhase = isFullAccess || userRole === "cd_supplier";
+  // 权限: 默认全部登录用户可操作 (KK: 除交接拖拽外其他全开)
   const movePhase = async (leafId, targetPhase) => {
     if (!leafId || !targetPhase) return;
-    if (!canDragPhase) { alert(`无权操作：${roleLabel} 不能推进调研阶段`); return; }
     const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", leafId);
     if (e1) { alert("保存失败: " + e1.message); return; }
     try {
@@ -815,7 +841,7 @@ function Overview({ siteEvals, onPick }) {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>目前在调研的产品</div>
-          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>按 4 个调研阶段分组 · 一级类目聚合 · 点开品牌查看具体 leaf{!canDragPhase && " · 仅供应链/管理员可推进阶段"}</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>按 4 个调研阶段分组 · 一级类目聚合 · 点开品牌查看具体 leaf</div>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 1, background: C.line, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
@@ -825,10 +851,10 @@ function Overview({ siteEvals, onPick }) {
           const [phaseDrag, setPhaseDrag] = useState(false);
           return (
             <div key={k}
-              onDragOver={(e) => { if (canDragPhase) { e.preventDefault(); setPhaseDrag(true); } }}
+              onDragOver={(e) => { e.preventDefault(); setPhaseDrag(true); }}
               onDragLeave={() => setPhaseDrag(false)}
-              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId && canDragPhase) movePhase(dragId, k); }}
-              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6, opacity: canDragPhase ? 1 : 0.8 }}>
+              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId, k); }}
+              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
@@ -845,14 +871,11 @@ function Overview({ siteEvals, onPick }) {
                       </summary>
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
                         {items.map(l => (
-                          <div key={l.id} draggable={canDragPhase}
-                            onDragStart={(e) => {
-                              if (!canDragPhase) { e.preventDefault(); return; }
-                              e.dataTransfer.setData("text/plain", l.id); setDragId(l.id);
-                            }}
+                          <div key={l.id} draggable
+                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId(l.id); }}
                             onDragEnd={() => setDragId(null)}
-                            style={{ padding: "3px 0", fontSize: 12, cursor: canDragPhase ? "grab" : "not-allowed" }}>
-                            <div style={{ color: canDragPhase ? C.ink : C.faint }}>{l.name}{!canDragPhase && <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>🔒</span>}</div>
+                            style={{ padding: "3px 0", fontSize: 12, cursor: "grab" }}>
+                            <div style={{ color: C.ink }}>{l.name}</div>
                             <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
                               <span>{l.enterAt ? "入: " + new Date(l.enterAt).toLocaleDateString("zh-CN") : "入: —"}</span>
                               <span>· {l.duration}</span>
@@ -1430,22 +1453,30 @@ function Track({ selSku, setSelSku }) {
 // ---------------- 品牌货架 (三层展开: 品牌 → 大类 → 类目) ----------------
 function Shelf() {
   const brands = Object.keys(BRAND_SHELF);
-  // 当前用户角色 (类目明细编辑按钮按角色显示)
+  // 改状态权限: 按拖拽权限框住 (KK: 货架改状态与进度拖拽同权限)
+  //   sFull (admin/fr) 全改; 角色只能改自己负责阶段的 leaf/product 状态
   const [shelfEmail, setShelfEmail] = useState("");
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => { if (data && data.user) setShelfEmail(data.user.email || ""); });
   }, []);
   const sRole = getUserRole(shelfEmail);
-  const sFull = sRole === "admin" || sRole === "fr";          // 改状态/加末端
-  const sSupplier = sFull || sRole === "cd_supplier";          // 加供应商
-  const sLink = sFull || sRole === "cd_link";                  // 加产品
-  const sPhase = sFull || sRole === "cd_supplier";             // 调研细分阶段
-  // 各角色负责的交接阶段 (改状态权限按阶段放开)
+  const sFull = sRole === "admin" || sRole === "fr";
   const sMyBoxes = sRole === "cd_supplier" ? ["h1"]
     : sRole === "cd_link" ? ["h2"]
     : sRole === "cd_promotion" ? ["h3", "h4"] : [];
-  // leaf 是否在"当前角色负责阶段"内 → 可改状态
   const canEditSt = (leafId) => sFull || sMyBoxes.includes(handoffMap[leafId]);
+  // 一致性校验: 状态必须匹配当前阶段 (BOX_ALLOWED_ST)
+  const checkStBox = (leafId, newSt) => {
+    const box = handoffMap[leafId];
+    if (!box) return null; // 不在交接框, 4 档自由
+    const allowed = BOX_ALLOWED_ST[box];
+    if (allowed && !allowed.includes(newSt)) {
+      const boxTitle = (HANDOFF_BOXES.find(b => b.id === box) || {}).title || box;
+      const stLabel = SHELF_ST[newSt] ? SHELF_ST[newSt].label : newSt;
+      return `状态不一致：该类目当前在「${boxTitle}」，此阶段只允许「${allowed.map(s => SHELF_ST[s].label).join(" / ")}」，不能标为「${stLabel}」。\n请先在开发进度里把它拖到正确阶段（或由管理员操作）。`;
+    }
+    return null;
+  };
   const [openB, setOpenB] = useState({});      // 展开的品牌
   const [openG, setOpenG] = useState({});      // 展开的大类, key = brand|groupIdx
   const [openC, setOpenC] = useState({});      // 展开的类目, key = brand|groupIdx|catIdx
@@ -1516,6 +1547,19 @@ function Shelf() {
 
   const saveSt = async (newSt) => {
     if (!edit) return;
+    // 权限: 改状态按拖拽权限框住 (只能改自己负责阶段的)
+    if (edit.type === "leaf" && !canEditSt(edit.id)) {
+      alert("无权操作：你只能修改自己负责阶段（拖拽范围内）的类目状态"); return;
+    }
+    if (edit.type === "product" && edit.leafId && !canEditSt(edit.leafId)) {
+      alert("无权操作：你只能修改自己负责阶段（拖拽范围内）的产品状态"); return;
+    }
+    // 一致性: 新状态必须匹配当前阶段 (BOX_ALLOWED_ST)
+    const boxLeafId = edit.type === "leaf" ? edit.id : (edit.type === "product" ? edit.leafId : null);
+    if (boxLeafId) {
+      const msg = checkStBox(boxLeafId, newSt);
+      if (msg) { alert(msg); return; }
+    }
     // leaf 离开 idle 状态时清掉 phase, 避免残留
     const payload = edit.type === "leaf" && newSt !== "idle" ? { st: newSt, phase: null } : { st: newSt };
     const { error } = await supabase.from(edit.table).update(payload).eq("id", edit.id);
@@ -1787,7 +1831,7 @@ function Shelf() {
                                                     }
                                                     return null;
                                                   })()}
-                                                  {sPhase && lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
+                                                  {lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
                                                     <select
                                                       value={lf.phase || ""}
                                                       onChange={(e) => {
@@ -1819,7 +1863,7 @@ function Shelf() {
                                                     <Branch title="产品">
                                                       {shownProducts.length ? shownProducts.map((p, pi) => (
                                                         <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                          <span onClick={canEditSt(lf.id) ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); } : undefined}
+                                                          <span onClick={canEditSt(lf.id) ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name, leafId: lf.id }); } : undefined}
                                                             style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: canEditSt(lf.id) ? "pointer" : "default", opacity: canEditSt(lf.id) ? 1 : 0.45 }}
                                                             title={canEditSt(lf.id) ? "点击修改状态" : "仅管理员/法国或本阶段负责人可修改"} />{p.name}
                                                           <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
@@ -1832,12 +1876,10 @@ function Shelf() {
                                                           )}
                                                         </div>
                                                       )) : <Empty t="暂无产品" />}
-                                                      {sLink && (
-                                                        <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
-                                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                          + 新增产品
-                                                        </div>
-                                                      )}
+                                                      <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
+                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                        + 新增产品
+                                                      </div>
                                                     </Branch>
                                                     <Branch title="供应商">
                                                       {lf.suppliers.length ? lf.suppliers.map((sp, si) => (
@@ -1847,33 +1889,29 @@ function Shelf() {
                                                           <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
                                                         </div>
                                                       )) : <Empty t="暂无供应商" />}
-                                                      {sSupplier && (
-                                                        <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
-                                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                          + 新增供应商
-                                                        </div>
-                                                      )}
+                                                      <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
+                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                        + 新增供应商
+                                                      </div>
                                                     </Branch>
                                                   </div>
                                                 )}
                                               </div>
                                             );
                                           })}
-                                        {sFull && (
-                                          <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: c.id, catName: c.name }); }}
-                                            style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "8px 16px 10px 82px" }}>
-                                            + 新增末端类目
-                                          </div>
-                                        )}
+                                        <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: c.id, catName: c.name }); }}
+                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "8px 16px 10px 82px" }}>
+                                          + 新增末端类目
+                                        </div>
                                           </React.Fragment>
                                         ) : (
                                           <div style={{ padding: "10px 16px 14px 82px" }}>
                                             <Branch title="产品">
                                               {detail && detail.products.length ? detail.products.map((p, pi) => (
                                                 <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                  <span onClick={sFull ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); } : undefined}
-                                                    style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: sFull ? "pointer" : "default", opacity: sFull ? 1 : 0.45 }}
-                                                    title={sFull ? "点击修改状态" : "仅管理员/法国可修改"} />{p.name}
+                                                  <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
+                                                    style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
+                                                    title="点击修改状态" />{p.name}
                                                   <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
                                                 </div>
                                               )) : <Empty t="暂无产品" />}
