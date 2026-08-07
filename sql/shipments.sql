@@ -1,7 +1,6 @@
 -- =============================================================
--- shipments · 发货记录 (v2 · 按 KK Excel 实际列结构 2026-08-07)
--- Excel: 发货记录-3.2至7.21.xlsx (26 列)
--- 权限: 仅 admin 可读写
+-- shipments · 发货记录 (v3 · 2026-08-07)
+-- 权限 (KK): 全员可读; 仅 admin / cd_promotion(成都推广) 可写
 -- =============================================================
 DROP TABLE IF EXISTS shipments;
 CREATE TABLE shipments (
@@ -42,14 +41,15 @@ CREATE INDEX IF NOT EXISTS idx_shipments_store ON shipments (store);
 CREATE INDEX IF NOT EXISTS idx_shipments_product ON shipments (product_name);
 CREATE INDEX IF NOT EXISTS idx_shipments_asin ON shipments (asin);
 
--- RLS: 仅 admin 可读写
+-- RLS: 全员可读; 仅 admin / cd_promotion 可写
 ALTER TABLE shipments ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "ship_read"  ON shipments;
 DROP POLICY IF EXISTS "ship_write" ON shipments;
 
-CREATE POLICY "ship_read" ON shipments FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'admin'));
+CREATE POLICY "ship_read" ON shipments FOR SELECT TO authenticated USING (true);
 CREATE POLICY "ship_write" ON shipments FOR ALL TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'admin'))
-  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'admin'));
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up
+                 WHERE up.user_id = auth.uid() AND up.role IN ('admin','cd_promotion')))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up
+                      WHERE up.user_id = auth.uid() AND up.role IN ('admin','cd_promotion')));

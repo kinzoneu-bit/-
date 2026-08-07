@@ -502,7 +502,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"], ...(curRole === "admin" ? [["shipments", "发货记录"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ...(curRole === "admin" ? [["finance", "财务核算"]] : [])].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -1470,8 +1470,7 @@ function Track({ selSku, setSelSku }) {
 //   - 售价 / 订单: 接 Amazon SP-API
 //   - 平台费 / 广告费: 财务月度导入
 // ---------------- 发货记录 ----------------
-// 仅 admin 可见可读写 (财务/物流敏感, 与财务模块同等级)
-// 数据格式待 KK 提供, 当前为空骨架 + 表格布局
+// 全员可见; 仅 admin / cd_promotion(成都推广) 可更新 (RLS 同步)
 function Shipments() {
   const [shipRole, setShipRole] = useState(null);
   useEffect(() => {
@@ -1480,6 +1479,7 @@ function Shipments() {
     });
   }, []);
   const isAdmin = shipRole === "admin";
+  const canEdit = shipRole === "admin" || shipRole === "cd_promotion";
 
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");
@@ -1498,9 +1498,22 @@ function Shipments() {
       setStoreOpts(st); setLoaded(true);
     }
   };
-  useEffect(() => { if (isAdmin) load(); }, [isAdmin]);
+  useEffect(() => { if (shipRole) load(); }, [shipRole]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (isAdmin && loaded) load(); }, [filterStore]);
+  useEffect(() => { if (shipRole && loaded) load(); }, [filterStore]);
+
+  // 批次着色: 同一批次 (ship_batch 为空继承上一个非空) 同色, 不同批次不同颜色
+  const batchColorOf = useMemo(() => {
+    const PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
+    const sorted = [...rows].sort((a, b) => new Date(a.ship_date) - new Date(b.ship_date));
+    const colorOf = {};
+    let idx = -1, lastBatch = null;
+    sorted.forEach(r => {
+      if (r.ship_batch && r.ship_batch !== lastBatch) { idx++; lastBatch = r.ship_batch; }
+      colorOf[r.id] = PALETTE[Math.max(0, idx) % PALETTE.length];
+    });
+    return colorOf;
+  }, [rows]);
 
   // 汇总: 各店铺发货数 + 数量合计 + 到仓成本
   const summary = useMemo(() => {
@@ -1514,9 +1527,6 @@ function Shipments() {
     return byStore;
   }, [rows]);
 
-  if (shipRole !== null && !isAdmin) {
-    return <div style={{ padding: 60, textAlign: "center", color: C.faint, fontSize: 13, border: `1px dashed ${C.line}`, borderRadius: 12 }}>发货记录仅管理员可见</div>;
-  }
   if (shipRole === null) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
 
   return (
@@ -1526,7 +1536,7 @@ function Shipments() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>发货记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺筛选 · 26 列(按 Excel): 日期/仓库/批次/名称/ASIN/数量/采购价/货值/总值/头程/杂费/关税/保险费/分摊费/到仓价/物流商/渠道/单价/尾程单号/上架日期/上架数量/损耗/赔付/亏损/保险单号/投保金额 · 仅管理员可见
+            按店铺筛选 · 26 列(按 Excel) · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/管理员可更新" : "只读"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1570,8 +1580,10 @@ function Shipments() {
                 <div key={h} style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>{h}</div>
               ))}
             </div>
-            {rows.map((r, i) => (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
+            {rows.map((r, i) => {
+              const bColor = batchColorOf[r.id];
+              return (
+              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bColor ? `${bColor}1f` : (i % 2 ? C.bg : "transparent"), color: C.ink, borderLeft: bColor ? `3px solid ${bColor}` : "3px solid transparent" }}>
                 <div style={{ padding: "6px" }}>{r.ship_date}</div>
                 <div style={{ padding: "6px" }}>{r.ship_warehouse || "—"}</div>
                 <div style={{ padding: "6px", color: C.sub, fontSize: 10 }}>{r.ship_batch || "—"}</div>
@@ -1600,7 +1612,8 @@ function Shipments() {
                 <div style={{ padding: "6px" }}>{r.insured_amount || "—"}</div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : (
