@@ -6,7 +6,7 @@
 --   admin + fr       : 全部表可写 + 拖出 h1 可标 researched_skip + 可见阶段转化分析
 --   cd_supplier      : monitor_handoff 仅 h1→h2; 可加供应商; 可推调研阶段
 --   cd_link          : monitor_handoff 仅 h2→h3; 可加产品/改ASIN
---   cd_promotion     : 只读
+--   cd_promotion     : monitor_handoff 仅 h3→h4 (采购备货 → 进入可售)
 -- 在 Supabase SQL Editor 整段 Run 即可 (幂等, 可重复跑)
 -- =============================================================
 
