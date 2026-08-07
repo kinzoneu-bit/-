@@ -1504,6 +1504,14 @@ function Shipments() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (shipRole && loaded) load(); }, [filterStore]);
 
+  // 勾选切换 (账单核对/运费已付) · 仅 canEdit
+  const toggleField = async (rowId, field, current) => {
+    if (!canEdit) return;
+    const { error } = await supabase.from("shipments").update({ [field]: !current }).eq("id", rowId);
+    if (error) { alert("更新失败: " + error.message); return; }
+    setRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: !current } : r));
+  };
+
   // 批次着色: 同一批次 (ship_batch 为空继承上一个非空) 同色, 不同批次不同颜色
   const batchColorOf = useMemo(() => {
     const PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
@@ -1659,8 +1667,16 @@ function Shipments() {
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.insured_amount ? "¥" + Number(r.insured_amount).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px", fontWeight: 600, color: cumDays > 65 ? "#c05b52" : cumDays > 14 ? "#d9a441" : C.ink }}>{cumDays != null ? `${cumDays}天` : "—"}</div>
-                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.bill_checked ? "#4db6a4" : C.faint }}>{r.bill_checked ? "✓ 已对" : "✗ 未对"}</div>
-                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.freight_paid ? "#4db6a4" : C.drop }}>{r.freight_paid ? "✓ 已付" : "✗ 未付"}</div>
+                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.bill_checked ? "#4db6a4" : C.faint, cursor: canEdit ? "pointer" : "default", opacity: canEdit ? 1 : 0.6 }}
+                  onClick={canEdit ? () => toggleField(r.id, "bill_checked", r.bill_checked) : undefined}
+                  title={canEdit ? "点击切换" : "仅管理员/成都推广可改"}>
+                  {r.bill_checked ? "✓ 已对" : "✗ 未对"}
+                </div>
+                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.freight_paid ? "#4db6a4" : C.drop, cursor: canEdit ? "pointer" : "default", opacity: canEdit ? 1 : 0.6 }}
+                  onClick={canEdit ? () => toggleField(r.id, "freight_paid", r.freight_paid) : undefined}
+                  title={canEdit ? "点击切换" : "仅管理员/成都推广可改"}>
+                  {r.freight_paid ? "✓ 已付" : "✗ 未付"}
+                </div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
               </div>
               );
