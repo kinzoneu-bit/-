@@ -1440,6 +1440,12 @@ function Shelf() {
   const sSupplier = sFull || sRole === "cd_supplier";          // 加供应商
   const sLink = sFull || sRole === "cd_link";                  // 加产品
   const sPhase = sFull || sRole === "cd_supplier";             // 调研细分阶段
+  // 各角色负责的交接阶段 (改状态权限按阶段放开)
+  const sMyBoxes = sRole === "cd_supplier" ? ["h1"]
+    : sRole === "cd_link" ? ["h2"]
+    : sRole === "cd_promotion" ? ["h3", "h4"] : [];
+  // leaf 是否在"当前角色负责阶段"内 → 可改状态
+  const canEditSt = (leafId) => sFull || sMyBoxes.includes(handoffMap[leafId]);
   const [openB, setOpenB] = useState({});      // 展开的品牌
   const [openG, setOpenG] = useState({});      // 展开的大类, key = brand|groupIdx
   const [openC, setOpenC] = useState({});      // 展开的类目, key = brand|groupIdx|catIdx
@@ -1600,12 +1606,15 @@ function Shelf() {
     await refreshShelf();
   };
 
-  // 状态点: 仅 sFull (admin/fr) 可点; 其他角色只读
-  const stDot = (s, onClick, extra) => (
-    <span onClick={sFull ? onClick : undefined}
-      style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[s] ? SHELF_ST[s].color : C.faint, display: "inline-block", cursor: sFull ? "pointer" : "default", opacity: sFull ? 1 : 0.45, ...(extra || {}) }}
-      title={sFull ? "点击修改状态" : "仅管理员/法国可修改状态"} />
-  );
+  // 状态点: 默认仅 sFull (admin/fr) 可点; 传入 enabled 可放开到"本阶段负责人"
+  const stDot = (s, onClick, extra, enabled) => {
+    const can = enabled === undefined ? sFull : enabled;
+    return (
+      <span onClick={can ? onClick : undefined}
+        style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[s] ? SHELF_ST[s].color : C.faint, display: "inline-block", cursor: can ? "pointer" : "default", opacity: can ? 1 : 0.45, ...(extra || {}) }}
+        title={can ? "点击修改状态" : "仅管理员/法国或本阶段负责人可修改"} />
+    );
+  };
 
   return (
     <div>
@@ -1761,7 +1770,7 @@ function Shelf() {
                                                   <span onClick={() => setOpenL(st => ({ ...st, [lkey]: !st[lkey] }))} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
                                                     <Caret open={lOpen} small />
                                                     {stDot(lf.st === "idle" && lf.phase ? lf.phase : lf.st,
-                                                      (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, phase: lf.phase, label: lf.leaf }); })}
+                                                      (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, phase: lf.phase, label: lf.leaf }); }, undefined, canEditSt(lf.id))}
                                                   </span>
                                                   <span onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })} style={{ fontSize: 13, color: C.ink, fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted", textDecorationColor: C.faint, textUnderlineOffset: 3 }}>
                                                     {lf.leaf}
@@ -1810,9 +1819,9 @@ function Shelf() {
                                                     <Branch title="产品">
                                                       {shownProducts.length ? shownProducts.map((p, pi) => (
                                                         <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                          <span onClick={sFull ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); } : undefined}
-                                                            style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: sFull ? "pointer" : "default", opacity: sFull ? 1 : 0.45 }}
-                                                            title={sFull ? "点击修改状态" : "仅管理员/法国可修改"} />{p.name}
+                                                          <span onClick={canEditSt(lf.id) ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); } : undefined}
+                                                            style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: canEditSt(lf.id) ? "pointer" : "default", opacity: canEditSt(lf.id) ? 1 : 0.45 }}
+                                                            title={canEditSt(lf.id) ? "点击修改状态" : "仅管理员/法国或本阶段负责人可修改"} />{p.name}
                                                           <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
                                                           {p.asin && (
                                                             <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"

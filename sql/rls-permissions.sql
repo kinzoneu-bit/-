@@ -4,9 +4,10 @@
 -- 角色: admin / fr / cd_supplier / cd_link / cd_promotion
 -- 权限矩阵 (KK 已确认):
 --   admin + fr       : 全部表可写 + 拖出 h1 可标 researched_skip + 可见阶段转化分析
---   cd_supplier      : monitor_handoff 仅 h1→h2; 可加供应商; 可推调研阶段
---   cd_link          : monitor_handoff 仅 h2→h3; 可加产品/改ASIN
---   cd_promotion     : monitor_handoff 仅 h3→h4 (采购备货 → 进入可售)
+--   cd_supplier      : 仅 h1 阶段: 拖 h1→h2 + 改 h1 内类目/产品状态 + 加供应商 + 推调研阶段
+--   cd_link          : 仅 h2 阶段: 拖 h2→h3 + 改 h2 内类目/产品状态 + 加产品/改ASIN
+--   cd_promotion     : 仅 h3/h4 阶段: 拖 h3→h4 + 改 h3/h4 内类目/产品状态
+--   (角色写权限全部通过 monitor_handoff.box_key 关联限定在本阶段)
 -- 在 Supabase SQL Editor 整段 Run 即可 (幂等, 可重复跑)
 -- =============================================================
 
@@ -100,35 +101,84 @@ CREATE POLICY "full_write_leaves" ON public.shelf_leaves
   USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN ('admin','fr')))
   WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN ('admin','fr')));
 
--- products: admin/fr 全写 + cd_link 可 新增/改 (加产品/改ASIN)
+-- products: admin/fr 全写 + cd_link 可 新增/改 (加产品/改ASIN, 限 h2)
+--                    + cd_supplier/cd_promotion 可改自己阶段内的 st
 DROP POLICY IF EXISTS "full_write_products" ON public.products;
 DROP POLICY IF EXISTS "link_write_products"  ON public.products;
+DROP POLICY IF EXISTS "link_update_products" ON public.products;
 CREATE POLICY "full_write_products" ON public.products
   FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN ('admin','fr')))
   WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN ('admin','fr')));
+-- cd_link: 只能给"在 h2 的 leaf"新增产品/改状态
 CREATE POLICY "link_write_products" ON public.products
   FOR INSERT TO authenticated
-  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link'));
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = products.leaf_id AND mh.box_key = 'h2'));
 CREATE POLICY "link_update_products" ON public.products
   FOR UPDATE TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link'))
-  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link'));
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link')
+         AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = products.leaf_id AND mh.box_key = 'h2'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = products.leaf_id AND mh.box_key = 'h2'));
+-- cd_supplier: 可改"在 h1 的"产品状态 (调研期)
+DROP POLICY IF EXISTS "supplier_update_products" ON public.products;
+CREATE POLICY "supplier_update_products" ON public.products
+  FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier')
+         AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = products.leaf_id AND mh.box_key = 'h1'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = products.leaf_id AND mh.box_key = 'h1'));
+-- cd_promotion: 可改"在 h3/h4 的"产品状态 (备货/推广期)
+DROP POLICY IF EXISTS "promotion_update_products" ON public.products;
+CREATE POLICY "promotion_update_products" ON public.products
+  FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_promotion')
+         AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = products.leaf_id AND mh.box_key IN ('h3','h4')))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_promotion')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = products.leaf_id AND mh.box_key IN ('h3','h4')));
 
--- suppliers: admin/fr 全写 + cd_supplier 可 新增/改 (挖供应商)
+-- shelf_leaves: admin/fr 全写 + 角色可改自己阶段内 leaf 的 st
+DROP POLICY IF EXISTS "supplier_update_leaves" ON public.shelf_leaves;
+DROP POLICY IF EXISTS "link_update_leaves"     ON public.shelf_leaves;
+DROP POLICY IF EXISTS "promotion_update_leaves" ON public.shelf_leaves;
+CREATE POLICY "supplier_update_leaves" ON public.shelf_leaves
+  FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier')
+         AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = shelf_leaves.id AND mh.box_key = 'h1'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = shelf_leaves.id AND mh.box_key = 'h1'));
+CREATE POLICY "link_update_leaves" ON public.shelf_leaves
+  FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link')
+         AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = shelf_leaves.id AND mh.box_key = 'h2'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_link')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = shelf_leaves.id AND mh.box_key = 'h2'));
+CREATE POLICY "promotion_update_leaves" ON public.shelf_leaves
+  FOR UPDATE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_promotion')
+         AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = shelf_leaves.id AND mh.box_key IN ('h3','h4')))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_promotion')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = shelf_leaves.id AND mh.box_key IN ('h3','h4')));
+
+-- suppliers: admin/fr 全写 + cd_supplier 可 新增/改 (挖供应商, 限 h1 阶段的 leaf)
 DROP POLICY IF EXISTS "full_write_suppliers" ON public.suppliers;
 DROP POLICY IF EXISTS "supplier_write_suppliers" ON public.suppliers;
+DROP POLICY IF EXISTS "supplier_update_suppliers" ON public.suppliers;
 CREATE POLICY "full_write_suppliers" ON public.suppliers
   FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN ('admin','fr')))
   WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role IN ('admin','fr')));
 CREATE POLICY "supplier_write_suppliers" ON public.suppliers
   FOR INSERT TO authenticated
-  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier'));
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = suppliers.leaf_id AND mh.box_key = 'h1'));
 CREATE POLICY "supplier_update_suppliers" ON public.suppliers
   FOR UPDATE TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier'))
-  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier'));
+  USING (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier')
+         AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = suppliers.leaf_id AND mh.box_key = 'h1'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up WHERE up.user_id = auth.uid() AND up.role = 'cd_supplier')
+              AND EXISTS (SELECT 1 FROM public.monitor_handoff mh WHERE mh.leaf_id = suppliers.leaf_id AND mh.box_key = 'h1'));
 
 -- site_evals: admin/fr 全写
 DROP POLICY IF EXISTS "full_write_evals" ON public.site_evals;
