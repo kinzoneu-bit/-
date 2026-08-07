@@ -1597,13 +1597,13 @@ function Shipments() {
         </div>
       ) : null}
 
-      {/* 未补字段警告条 */}
-      {checkOverdue.r65.length > 0 && (
+      {/* 未补字段警告条 (仅 admin/cd_promotion 可见) */}
+      {canEdit && checkOverdue.r65.length > 0 && (
         <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
           🔴 <b>{checkOverdue.r65.length} 条</b>发货已超 65 天, 缺上架字段 (上架日期/上架数量/损耗/赔付/亏损), 需成都推广尽快补全
         </div>
       )}
-      {checkOverdue.r14.length > 0 && (
+      {canEdit && checkOverdue.r14.length > 0 && (
         <div style={{ background: "#d9a44122", border: "1px solid #d9a441", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#d9a441" }}>
           🟡 <b>{checkOverdue.r14.length} 条</b>发货已超 14 天, 缺费用/物流字段 (头程/杂费/关税/保险费/分摊费/到仓价/物流商/渠道/单价/尾程单号), 需成都推广尽快补全
         </div>
@@ -1628,7 +1628,7 @@ function Shipments() {
               <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: warn ? `${warnColor}22` : (bColor ? `${bColor}1f` : (i % 2 ? C.bg : "transparent")), color: C.ink, borderLeft: warn ? `3px solid ${warnColor}` : (bColor ? `3px solid ${bColor}` : "3px solid transparent") }}>
                 <div style={{ padding: "6px", position: "relative" }}>
                   {r.ship_date}
-                  {warn && <span title={`已过 ${warn.days} 天, 待填: ${warn.missing.join(", ")}`} style={{ marginLeft: 4, color: warnColor, fontWeight: 700, cursor: "help" }}>⚠</span>}
+                  {warn && canEdit && <span title={`已过 ${warn.days} 天, 待填: ${warn.missing.join(", ")}`} style={{ marginLeft: 4, color: warnColor, fontWeight: 700, cursor: "help" }}>⚠</span>}
                 </div>
                 <div style={{ padding: "6px" }}>{r.ship_warehouse || "—"}</div>
                 <div style={{ padding: "6px", color: C.sub, fontSize: 10 }}>{r.ship_batch || "—"}</div>
