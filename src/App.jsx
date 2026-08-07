@@ -1536,7 +1536,7 @@ function Shipments() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>发货记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺筛选 · 26 列(按 Excel) · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/管理员可更新" : "只读"}
+            按店铺筛选 · 26 列(按 Excel) · 金额单位人民币(¥) · 日期降序 · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/管理员可更新" : "只读"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1565,7 +1565,7 @@ function Shipments() {
             <div key={s} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" }}>
               <div style={{ fontSize: 11, color: C.sub }}>{s}</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, marginTop: 2 }}>{v.count} 条 · {v.qty} 件</div>
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>到仓成本 €{v.cost.toFixed(2)}</div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>到仓成本 ¥{v.cost.toFixed(2)}</div>
             </div>
           ))}
         </div>
@@ -1590,7 +1590,7 @@ function Shipments() {
                 <div style={{ padding: "6px", fontWeight: 600 }}>{r.product_name}</div>
                 <div style={{ padding: "6px", color: C.sub }}>{r.asin || "—"}</div>
                 <div style={{ padding: "6px", fontWeight: 600 }}>{r.qty}</div>
-                <div style={{ padding: "6px" }}>{r.purchase_price ? "€" + Number(r.purchase_price).toFixed(2) : "—"}</div>
+                <div style={{ padding: "6px" }}>{r.purchase_price ? "¥" + Number(r.purchase_price).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px" }}>{r.goods_value || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.total_value || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.freight || "—"}</div>
@@ -1598,18 +1598,18 @@ function Shipments() {
                 <div style={{ padding: "6px" }}>{r.duty || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.insurance_fee || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.share_fee || "—"}</div>
-                <div style={{ padding: "6px", color: C.brand, fontWeight: 600 }}>{r.landed_cost ? "€" + Number(r.landed_cost).toFixed(2) : "—"}</div>
+                <div style={{ padding: "6px", color: C.brand, fontWeight: 600 }}>{r.landed_cost ? "¥" + Number(r.landed_cost).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px" }}>{r.logistics_provider || "—"}</div>
                 <div style={{ padding: "6px", color: C.sub }}>{r.channel || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.unit_price || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.unit_price ? "¥" + Number(r.unit_price).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.last_mile_no || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.listed_date || "—"}</div>
                 <div style={{ padding: "6px" }}>{r.listed_qty || "—"}</div>
                 <div style={{ padding: "6px", color: C.drop }}>{r.loss_qty || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.compensation_eur || "—"}</div>
-                <div style={{ padding: "6px", color: C.drop }}>{r.loss_amount || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.compensation_eur ? "¥" + Number(r.compensation_eur).toFixed(2) : "—"}</div>
+                <div style={{ padding: "6px", color: C.drop }}>{r.loss_amount ? "¥" + Number(r.loss_amount).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.insured_amount || "—"}</div>
+                <div style={{ padding: "6px" }}>{r.insured_amount ? "¥" + Number(r.insured_amount).toFixed(2) : "—"}</div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
               </div>
               );
