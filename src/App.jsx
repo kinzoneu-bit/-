@@ -2032,6 +2032,35 @@ function Finance() {
     return m;
   }, [cfRows]);
 
+  // ⑤ 资本占用 & 资金成本: 拉 shipments 计算
+  const [shipRows, setShipRows] = useState([]);
+  useEffect(() => {
+    if (!isAdmin) return;
+    supabase.from("shipments").select("store, ship_date, landed_cost, qty").then(({ data }) => setShipRows(data || []));
+  }, [isAdmin]);
+
+  const capitalUsage = useMemo(() => {
+    const today = Date.now();
+    let totalCost = 0, weightedDays = 0;
+    const byStore = {};
+    shipRows.forEach(r => {
+      if (!r.ship_date || !r.landed_cost) return;
+      const cost = Number(r.landed_cost) * Number(r.qty || 0);
+      const days = (today - new Date(r.ship_date).getTime()) / 86400000;
+      const safeDays = days > 0 ? days : 0;
+      totalCost += cost;
+      weightedDays += cost * safeDays;
+      const st = r.store || "未分类";
+      if (!byStore[st]) byStore[st] = { cost: 0, weighted: 0, count: 0 };
+      byStore[st].cost += cost;
+      byStore[st].weighted += cost * safeDays;
+      byStore[st].count += 1;
+    });
+    const avgDays = totalCost > 0 ? weightedDays / totalCost : 0;
+    const annualCost = totalCost * avgDays * 0.12 / 365;  // 12% 年化
+    return { totalCost, avgDays, annualCost, byStore };
+  }, [shipRows]);
+
   // 非 admin: 兜底拦截
   if (finRole !== null && !isAdmin) {
     return (
@@ -2216,12 +2245,69 @@ function Finance() {
         )}
       </div>
 
-      {/* ②③⑤ 待建模块占位 */}
+      {/* ⑤ 资本占用 & 资金成本 */}
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 20px", marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>⑤ 资本占用 & 资金成本</span>
+          <span style={{ fontSize: 10, color: C.brand, padding: "2px 8px", borderRadius: 10, border: `1px solid ${C.brand}` }}>已启用</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>公式: 成本 × 持有天数 × 年化 12% / 365</span>
+        </div>
+        <div style={{ fontSize: 12, color: C.sub, marginBottom: 14 }}>
+          库存金额(到仓价×数量)/ 资金占用 / 未来 90 天资金需求预测 · 资金需求待日级分析 + 库存完善后接入
+        </div>
+
+        {/* 3 个核心数字 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+          <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: C.sub }}>资本占用 (库存金额)</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.ink, marginTop: 2 }}>¥{capitalUsage.totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+            <div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>在途 ¥0 (暂无在途表)</div>
+          </div>
+          <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: C.sub }}>资金成本 (年化 12%)</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.drop, marginTop: 2 }}>¥{capitalUsage.annualCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+            <div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>平均持有 {capitalUsage.avgDays.toFixed(1)} 天</div>
+          </div>
+          <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: C.sub }}>90 天资金需求预测</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.faint, marginTop: 2 }}>待接入</div>
+            <div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>需日级分析 + 库存周转</div>
+          </div>
+        </div>
+
+        {/* 店铺维度明细 */}
+        {Object.keys(capitalUsage.byStore).length ? (
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr 0.8fr", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600 }}>
+              {["店铺", "成本金额", "持有天加权", "平均持有", "记录数"].map(h => (
+                <div key={h} style={{ padding: "8px 12px" }}>{h}</div>
+              ))}
+            </div>
+            {Object.entries(capitalUsage.byStore).map(([st, v], i) => {
+              const avg = v.cost > 0 ? v.weighted / v.cost : 0;
+              return (
+                <div key={st} style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1fr 0.8fr", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
+                  <div style={{ padding: "7px 12px", fontWeight: 600 }}>{st}</div>
+                  <div style={{ padding: "7px 12px" }}>¥{v.cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                  <div style={{ padding: "7px 12px", color: C.sub }}>¥{v.weighted.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                  <div style={{ padding: "7px 12px" }}>{avg.toFixed(1)} 天</div>
+                  <div style={{ padding: "7px 12px", color: C.faint }}>{v.count}</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ padding: 18, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>
+            暂无发货记录数据 · 等发货记录录入后自动计算
+          </div>
+        )}
+      </div>
+
+      {/* ②③ 待建模块占位 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
         {[
           { t: "② 库存视角", d: "周转效率 / 库存天数 / 备货周期 / 滞销预警", ds: "products.st × FBA 库存 × 销售速率（需 SP-API）" },
           { t: "③ 利润体系", d: "单品利润 / 末端类目毛利 / 平台费 / 税费 / 净利", ds: "采购成本（finance_unit_cost）+ 售价（SP-API）+ 平台费 / 广告 / VAT" },
-          { t: "⑤ 资本占用 & 资金成本", d: "在途库存金额 / 资金占用 / 未来 90 天资金需求预测", ds: "库存金额 + 采购订单 + 30/60/90 天滚动预测" },
         ].map(m => (
           <div key={m.t} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
