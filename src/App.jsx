@@ -502,7 +502,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -519,6 +519,8 @@ export default function App() {
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
         {tab === "score" && <LinkScore />}
+        {tab === "ordersummary" && <OrderSummary />}
+        {tab === "opsfee" && <OpsFee />}
         {tab === "finance" && <Finance />}
       </div>
     </div>
@@ -1976,6 +1978,50 @@ function LinkScore() {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------- 单品月度订单统计 (空骨架, 待 KK 填充) ----------------
+function OrderSummary() {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>单品月度订单统计</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            单品 × 月维度的订单量统计 · 仅管理员可见 · 待 KK 确认口径与数据源
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        </div>
+      </div>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        单品月度订单统计 · 待 KK 确认口径 (单品×月订单量 / 同比环比 / 品牌维度) 与数据源 (SP-API)
+      </div>
+    </div>
+  );
+}
+
+// ---------------- 店铺运维费用 (空骨架, 待 KK 填充) ----------------
+function OpsFee() {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            各店铺运维费用记录 (月租/工具/广告/杂费) · 仅管理员可见 · 待 KK 确认口径与数据源
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        </div>
+      </div>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        店铺运维费用 · 待 KK 确认费用项 (月租/工具订阅/广告/杂费) 与数据源 (Excel导入/手动录)
       </div>
     </div>
   );
