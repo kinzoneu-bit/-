@@ -502,7 +502,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"], ...(curRole === "admin" ? [["shipments", "发货记录"], ["aftersales", "发后记录"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "类目明细"], ["cross", "存量产品跨站点开发"], ["track", "链接日级跟进"], ...(curRole === "admin" ? [["shipments", "发货记录"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -516,7 +516,6 @@ export default function App() {
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
         {tab === "shipments" && <Shipments />}
-        {tab === "aftersales" && <Aftersales />}
         {tab === "finance" && <Finance />}
       </div>
     </div>
@@ -1601,136 +1600,6 @@ function Shipments() {
       ) : (
         <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>
           暂无发货记录 · 待 KK 提供数据源（导出/录入/Excel 导入）
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------- 发后记录 (售后/退货, 参照发货记录 21 列结构) ----------------
-function Aftersales() {
-  const [role, setRole] = useState(null);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data && data.user) setRole(getUserRole(data.user.email || ""));
-    });
-  }, []);
-  const isAdmin = role === "admin";
-
-  const [rows, setRows] = useState([]);
-  const [filterStore, setFilterStore] = useState("");
-  const [storeOpts, setStoreOpts] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-
-  const load = async () => {
-    let q = supabase.from("aftersales").select("*");
-    if (filterStore) q = q.eq("store", filterStore);
-    const { data, error } = await q.order("event_date", { ascending: false }).limit(2000);
-    if (error) { alert("读取失败(请先建表 aftersales): " + error.message); return; }
-    setRows(data || []);
-    if (!loaded) {
-      const { data: all } = await supabase.from("aftersales").select("store");
-      const st = [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
-      setStoreOpts(st); setLoaded(true);
-    }
-  };
-  useEffect(() => { if (isAdmin) load(); }, [isAdmin]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (isAdmin && loaded) load(); }, [filterStore]);
-
-  const summary = useMemo(() => {
-    const byStore = {};
-    rows.forEach(r => {
-      if (!byStore[r.store]) byStore[r.store] = { count: 0, refund: 0, loss: 0 };
-      byStore[r.store].count++;
-      byStore[r.store].refund += Number(r.refund_amount_eur || 0);
-      byStore[r.store].loss += Number(r.est_margin_eur || 0);
-    });
-    return byStore;
-  }, [rows]);
-
-  if (role !== null && !isAdmin) {
-    return <div style={{ padding: 60, textAlign: "center", color: C.faint, fontSize: 13, border: `1px dashed ${C.line}`, borderRadius: 12 }}>发后记录仅管理员可见</div>;
-  }
-  if (role === null) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>发后记录</div>
-          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            退货 / 换货 / 退款 / 客户投诉等售后事件 · 按店铺筛选 · 与发货记录同表结构 · 仅管理员可见
-          </div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: C.faint }}>数据更新于</span>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未录入</span>
-        </div>
-      </div>
-
-      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 18 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
-          <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
-            style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-            <option value="">全部店铺</option>
-            {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{rows.length} 条</span>
-        </div>
-      </div>
-
-      {Object.keys(summary).length ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginBottom: 14 }}>
-          {Object.entries(summary).map(([s, v]) => (
-            <div key={s} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, color: C.sub }}>{s}</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, marginTop: 2 }}>{v.count} 条</div>
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>退款 €{v.refund.toFixed(2)} · 损失毛利 €{v.loss.toFixed(2)}</div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {rows.length ? (
-        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
-          <div style={{ minWidth: 1500 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "90px 90px 80px 130px 60px 90px 70px 60px 60px 60px 110px 80px 90px 80px 90px 70px 90px 70px 80px 70px 80px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
-              {["发后日期", "涉及仓库", "关联批次", "名称", "数量", "事件类型", "重量kg", "长cm", "宽cm", "高cm", "关联", "体积费€", "退款€", "物流商", "渠道", "处理日期", "处理结果", "热销/天", "规格单价€", "损失毛利€", "备注"].map(h => (
-                <div key={h} style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>{h}</div>
-              ))}
-            </div>
-            {rows.map((r, i) => (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "90px 90px 80px 130px 60px 90px 70px 60px 60px 60px 110px 80px 90px 80px 90px 70px 90px 70px 80px 70px 80px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
-                <div style={{ padding: "6px" }}>{r.event_date}</div>
-                <div style={{ padding: "6px" }}>{r.event_warehouse || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.event_batch || "—"}</div>
-                <div style={{ padding: "6px", fontWeight: 600 }}>{r.product_name}</div>
-                <div style={{ padding: "6px" }}>{r.qty_affected}</div>
-                <div style={{ padding: "6px" }}>{r.event_type || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.total_weight_kg ? Number(r.total_weight_kg).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px" }}>{r.length_cm || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.width_cm || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.height_cm || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.related_to || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.volume_fee_eur ? "€" + Number(r.volume_fee_eur).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.drop, fontWeight: 600 }}>{r.refund_amount_eur ? "€" + Number(r.refund_amount_eur).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px" }}>{r.logistics_provider || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.channel || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.handled_date || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.handling_result || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.hot_sales || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.unit_cost_eur ? "€" + Number(r.unit_cost_eur).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.drop, fontWeight: 600 }}>{r.est_margin_eur ? "€" + Number(r.est_margin_eur).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>
-          暂无发后记录 · 待 KK 提供数据源（售后/退货事件 Excel 或手动录入）
         </div>
       )}
     </div>
