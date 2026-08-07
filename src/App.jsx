@@ -112,12 +112,12 @@ const ROLE_PERMISSIONS = {
 };
 // 邮箱 → 角色
 const EMAIL_TO_ROLE = {
-  "kinzon.eu@gmail.com":  "admin",
-  "qianlin20222@163.com": "admin",
+  "kinzon.eu@gmail.com":  "admin",          // KK
+  "qianlin20222@163.com": "fr",             // 法国成员 (2026-08-07 确认, 全权限)
   "503279601@qq.com":     "cd_promotion",   // 成都·推广 (已确认)
   "2386332469@qq.com":    "cd_link",        // 成都·链接 (2026-08-07 确认)
   "2990206556@qq.com":    "cd_supplier",    // 成都·供应链 (2026-08-07 确认)
-  "915126059@qq.com":     "fr",             // 法国成员, 全权限 (待确认)
+  // "915126059@qq.com": "?",               // 此前误映射为法国, 实际不是, 用途待 KK 确认
 };
 const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
 const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (role ? "未授权" : "未登录");
