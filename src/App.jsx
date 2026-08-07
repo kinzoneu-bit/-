@@ -1520,6 +1520,48 @@ function Finance() {
   const totQty = rows.reduce((s, r) => s + (r.order_qty || 0), 0);
   const totRev = rows.reduce((s, r) => s + Number(r.revenue || 0), 0);
 
+  // ---- ④ 现金流 ----
+  const [cfRows, setCfRows] = useState([]);
+  const [cfD1, setCfD1] = useState("");       // 起
+  const [cfD2, setCfD2] = useState("");       // 止
+  const [cfStore, setCfStore] = useState(""); // 店铺
+  const [cfChannel, setCfChannel] = useState(""); // 渠道
+  const [cfStoreOpts, setCfStoreOpts] = useState([]);
+  const [cfChannelOpts, setCfChannelOpts] = useState([]);
+  const [cfLoaded, setCfLoaded] = useState(false);
+
+  const loadCashflow = async () => {
+    let q = supabase.from("finance_cashflow").select("*");
+    if (cfD1) q = q.gte("tx_date", cfD1);
+    if (cfD2) q = q.lte("tx_date", cfD2);
+    if (cfStore) q = q.eq("store", cfStore);
+    if (cfChannel) q = q.eq("channel", cfChannel);
+    const { data, error } = await q.order("tx_date", { ascending: false }).limit(3000);
+    if (error) { alert("读取失败(请先建表 finance_cashflow): " + error.message); return; }
+    setCfRows(data || []);
+    if (!cfLoaded) {
+      const { data: all } = await supabase.from("finance_cashflow").select("store, channel");
+      const st = [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
+      const ch = [...new Set((all || []).map(r => r.channel).filter(Boolean))].sort();
+      setCfStoreOpts(st); setCfChannelOpts(ch); setCfLoaded(true);
+    }
+  };
+  useEffect(() => { if (isAdmin) loadCashflow(); }, [isAdmin]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (isAdmin && cfLoaded) loadCashflow(); }, [cfD1, cfD2, cfStore, cfChannel]);
+
+  // 现金流汇总: 按币种分组 (流入/流出/净额)
+  const cfByCur = useMemo(() => {
+    const m = {};
+    cfRows.forEach(r => {
+      const c = r.currency || "CNY";
+      if (!m[c]) m[c] = { income: 0, expense: 0 };
+      if (r.type === "income") m[c].income += Number(r.amount || 0);
+      else m[c].expense += Number(r.amount || 0);
+    });
+    return m;
+  }, [cfRows]);
+
   // 非 admin: 兜底拦截
   if (finRole !== null && !isAdmin) {
     return (
@@ -1624,13 +1666,92 @@ function Finance() {
         )}
       </div>
 
-      {/* ②③④ 待建模块占位 */}
+      {/* ④ 现金流 */}
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 20px", marginBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>④ 现金流</span>
+          <span style={{ fontSize: 10, color: C.brand, padding: "2px 8px", borderRadius: 10, border: `1px solid ${C.brand}` }}>已启用</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{cfRows.length} 行 · 每周账单导入</span>
+        </div>
+
+        {/* 筛选: 日期 / 店铺 / 渠道 */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+          <input type="date" value={cfD1} onChange={e => setCfD1(e.target.value)}
+            style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+          <span style={{ fontSize: 12, color: C.sub }}>至</span>
+          <input type="date" value={cfD2} onChange={e => setCfD2(e.target.value)}
+            style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+          <select value={cfStore} onChange={e => setCfStore(e.target.value)}
+            style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            <option value="">全部店铺</option>
+            {cfStoreOpts.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={cfChannel} onChange={e => setCfChannel(e.target.value)}
+            style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            <option value="">全部渠道</option>
+            {cfChannelOpts.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        {/* 汇总: 按币种分组 */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+          {Object.keys(cfByCur).length ? Object.entries(cfByCur).map(([cur, v]) => (
+            <div key={cur} style={{ display: "flex", gap: 10, flex: 1, minWidth: 260 }}>
+              <div style={{ flex: 1, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 11, color: C.sub }}>总流入 ({cur})</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.brand, marginTop: 2 }}>+{v.income.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+              </div>
+              <div style={{ flex: 1, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 11, color: C.sub }}>总流出 ({cur})</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.drop, marginTop: 2 }}>-{v.expense.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+              </div>
+              <div style={{ flex: 1, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 11, color: C.sub }}>净额 ({cur})</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: (v.income - v.expense) >= 0 ? C.ink : C.drop, marginTop: 2 }}>
+                  {(v.income - v.expense).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+          )) : (
+            <div style={{ width: "100%", padding: 16, textAlign: "center", color: C.faint, fontSize: 12 }}>暂无现金流数据</div>
+          )}
+        </div>
+
+        {/* 明细表 */}
+        {cfRows.length ? (
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr .9fr .8fr .7fr 1fr .7fr 1.6fr", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600 }}>
+              {["日期", "店铺", "渠道", "类型", "金额", "币种", "备注"].map(h => (
+                <div key={h} style={{ padding: "8px 12px" }}>{h}</div>
+              ))}
+            </div>
+            {cfRows.map((r, i) => (
+              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "1fr .9fr .8fr .7fr 1fr .7fr 1.6fr", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
+                <div style={{ padding: "7px 12px" }}>{r.tx_date}</div>
+                <div style={{ padding: "7px 12px" }}>{r.store}</div>
+                <div style={{ padding: "7px 12px", color: C.sub }}>{r.channel}</div>
+                <div style={{ padding: "7px 12px", color: r.type === "income" ? C.brand : C.drop, fontWeight: 600 }}>
+                  {r.type === "income" ? "流入" : "流出"}
+                </div>
+                <div style={{ padding: "7px 12px", fontWeight: 600 }}>{Number(r.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                <div style={{ padding: "7px 12px", color: C.sub }}>{r.currency}</div>
+                <div style={{ padding: "7px 12px", color: C.faint, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ padding: 24, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>
+            暂无数据 · 每周账单 Excel 导入 finance_cashflow 表
+          </div>
+        )}
+      </div>
+
+      {/* ②③⑤ 待建模块占位 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
         {[
-          { t: "② 库存视角", d: "周转效率 / 库存天数 / 备货周期 / 滞销预警", w: "看每个 SKU 的钱压了多久——库存 30 天卖完 vs 90 天卖完, 资金成本天差地别", ds: "products.st × FBA 库存 × 销售速率（需 SP-API）" },
-          { t: "③ 利润体系", d: "单品利润 / 末端类目毛利 / 平台费 / 税费 / 净利", w: "每个产品真正赚多少——从采购到平台到账期全链路", ds: "采购成本（finance_unit_cost）+ 售价（SP-API）+ 平台费 / 广告 / VAT" },
-          { t: "④ 现金流体系", d: "月度流入流出 / 应收回款 / 应付账期", w: "公司账上实际有多少钱——不是利润，是现金流", ds: "店铺结算单（Settlement API）+ 采购付款记录" },
-          { t: "⑤ 资本占用 & 资金成本", d: "在途库存金额 / 资金占用 / 未来 90 天资金需求预测", w: "压了多少资金在仓库 / 供应商未到货 / 下一个备货周期要备多少钱", ds: "库存金额 + 采购订单 + 30/60/90 天滚动预测" },
+          { t: "② 库存视角", d: "周转效率 / 库存天数 / 备货周期 / 滞销预警", ds: "products.st × FBA 库存 × 销售速率（需 SP-API）" },
+          { t: "③ 利润体系", d: "单品利润 / 末端类目毛利 / 平台费 / 税费 / 净利", ds: "采购成本（finance_unit_cost）+ 售价（SP-API）+ 平台费 / 广告 / VAT" },
+          { t: "⑤ 资本占用 & 资金成本", d: "在途库存金额 / 资金占用 / 未来 90 天资金需求预测", ds: "库存金额 + 采购订单 + 30/60/90 天滚动预测" },
         ].map(m => (
           <div key={m.t} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
