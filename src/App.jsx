@@ -1847,23 +1847,10 @@ function CatDash() {
                       {allRootCats.map((c, ci) => {
                         const detail = CAT_DETAIL[c.id];
                         const leafCount = detail ? detail.leaves.length : 0;
-                        // 聚合 chip 统计
-                        let sell = 0, idleP = 0, skip = 0;
-                        if (detail && detail.leaves) detail.leaves.forEach(lf => {
-                          if (lf.st === "researched_skip") skip++;
-                          else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
-                          else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
-                        });
                         return (
                           <div key={ci} style={{ marginBottom: 6, fontSize: 12, color: C.ink }}>
-                            <span style={{ width: 7, height: 7, borderRadius: 2, background: SHELF_ST[c.st] ? SHELF_ST[c.st].color : C.faint, display: "inline-block", marginRight: 6 }} />
                             <span style={{ fontWeight: 600 }}>{c.name}</span>
-                            <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {SHELF_ST[c.st] ? SHELF_ST[c.st].label : c.st} · {leafCount} 叶端</span>
-                            <span style={{ marginLeft: 12, display: "inline-flex", gap: 8, fontSize: 11 }}>
-                              <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {sell}</span>
-                              <span style={{ color: C.sub }}>在调研 {idleP}</span>
-                              <span style={{ color: C.faint }}>已调研不做 {skip}</span>
-                            </span>
+                            <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {leafCount} 叶端</span>
                           </div>
                         );
                       })}
@@ -1872,26 +1859,14 @@ function CatDash() {
                         const cOpen = !!openC[ckey];
                         const detail = CAT_DETAIL[c.id];
                         const leafCount = detail ? detail.leaves.length : 0;
-                        let sell = 0, idleP = 0, skip = 0;
-                        if (detail && detail.leaves) detail.leaves.forEach(lf => {
-                          if (lf.st === "researched_skip") skip++;
-                          else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
-                          else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
-                        });
                         return (
                           <div key={ci} style={{ marginBottom: 4 }}>
                             <div style={{ fontSize: 12, color: C.ink }}>
                               <span onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
                                 <Caret open={cOpen} small />
                               </span>
-                              <span style={{ width: 7, height: 7, borderRadius: 2, background: SHELF_ST[c.st] ? SHELF_ST[c.st].color : C.faint, display: "inline-block", marginLeft: 4, marginRight: 6 }} />
-                              <span style={{ fontWeight: 600 }}>{c.name}</span>
+                              <span style={{ fontWeight: 600, marginLeft: 4 }}>{c.name}</span>
                               <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {leafCount} 叶端</span>
-                              <span style={{ marginLeft: 12, display: "inline-flex", gap: 8, fontSize: 11 }}>
-                                <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {sell}</span>
-                                <span style={{ color: C.sub }}>在调研 {idleP}</span>
-                                <span style={{ color: C.faint }}>已调研不做 {skip}</span>
-                              </span>
                             </div>
                             {cOpen && (
                               <div style={{ marginLeft: 32, marginTop: 4 }}>
@@ -1900,8 +1875,7 @@ function CatDash() {
                                   const subLeafCount = subDetail ? subDetail.leaves.length : 0;
                                   return (
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>
-                                      <span style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[sub.st] ? SHELF_ST[sub.st].color : C.faint, display: "inline-block", marginRight: 4 }} />
-                                      {sub.name}
+                                      ({sub.name}
                                       <span style={{ color: C.faint, marginLeft: 6 }}>· {subLeafCount} 叶端</span>
                                     </div>
                                   );
