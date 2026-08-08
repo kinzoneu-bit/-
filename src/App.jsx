@@ -1851,6 +1851,10 @@ function CatDash() {
               const gOpen = !!openG[gkey];
               const allRootCats = (g.cats || []).filter(c => !c.children || c.children.length === 0);
               const nestedCats = (g.cats || []).filter(c => c.children && c.children.length > 0);
+              const gTally = (g.cats || []).reduce((s, c) => {
+                const t = tallyCatDeep(c);
+                return { sell: s.sell + t.sell, idleP: s.idleP + t.idleP, skip: s.skip + t.skip };
+              }, { sell: 0, idleP: 0, skip: 0 });
               return (
                 <div key={gkey} style={{ borderTop: `1px solid ${C.line}` }}>
                   <div onClick={() => setOpenG(s => ({ ...s, [gkey]: !s[gkey] }))}
