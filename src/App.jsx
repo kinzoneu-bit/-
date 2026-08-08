@@ -2869,15 +2869,50 @@ function Shelf() {
                                           </React.Fragment>
                                         ) : (
                                           <div style={{ padding: "10px 16px 14px 82px" }}>
+                                            {/* 顶部统计: 产品 · 变体 · 供应商 */}
+                                            <div style={{ display: "flex", gap: 14, fontSize: 11, color: C.sub, marginBottom: 8, padding: "6px 8px", background: C.bg, borderRadius: 6 }}>
+                                              <span>产品 <b style={{ color: C.ink }}>{detail ? detail.products.length : 0}</b></span>
+                                              <span>变体 <b style={{ color: C.ink }}>{detail ? detail.products.reduce((s, p) => s + (p.variant_count || 0), 0) : 0}</b></span>
+                                              <span>供应商 <b style={{ color: C.ink }}>{detail ? detail.suppliers.length : 0}</b></span>
+                                            </div>
                                             <Branch title="产品">
-                                              {detail && detail.products.length ? detail.products.map((p, pi) => (
-                                                <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                  <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
-                                                    style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
-                                                    title="点击修改状态" />{p.name}
-                                                  <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
-                                                </div>
-                                              )) : <Empty t="暂无产品" />}
+                                              {detail && detail.products.length ? detail.products.map((p, pi) => {
+                                                const colors = Array.isArray(p.variant_colors) ? p.variant_colors : [];
+                                                const sizes = Array.isArray(p.variant_sizes) ? p.variant_sizes : [];
+                                                return (
+                                                  <div key={pi} style={{ fontSize: 12, padding: "6px 0", color: C.ink }}>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                      <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
+                                                        style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
+                                                        title="点击修改状态" />{p.name}
+                                                      <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
+                                                      {p.spu && <span style={{ color: C.faint, fontSize: 11 }}>· SPU: <span style={{ fontFamily: "monospace" }}>{p.spu}</span></span>}
+                                                      {(p.variant_count || 0) > 0 && <span style={{ color: C.faint, fontSize: 11 }}>· {p.variant_count}个变体</span>}
+                                                    </div>
+                                                    {(colors.length > 0 || sizes.length > 0) && (
+                                                      <div style={{ marginLeft: 18, marginTop: 4, fontSize: 11, color: C.sub, lineHeight: 1.8 }}>
+                                                        {colors.length > 0 && (
+                                                          <div>
+                                                            <span style={{ marginRight: 4 }}>颜色：</span>
+                                                            {colors.map((c, i) => (
+                                                              <span key={i} style={{ display: "inline-flex", alignItems: "center", marginRight: 10 }}>
+                                                                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: c.hex || "#888", marginRight: 4, border: `1px solid ${C.line}` }} />
+                                                                {c.name}
+                                                              </span>
+                                                            ))}
+                                                          </div>
+                                                        )}
+                                                        {sizes.length > 0 && (
+                                                          <div>
+                                                            <span style={{ marginRight: 4 }}>尺寸：</span>
+                                                            {sizes.map((s, i) => <span key={i} style={{ marginRight: 10, fontFamily: "monospace" }}>{s}</span>)}
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              }) : <Empty t="暂无产品" />}
                                             </Branch>
                                             <Branch title="供应商">
                                               {detail && detail.suppliers.length ? detail.suppliers.map((sp, si) => (
