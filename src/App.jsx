@@ -528,7 +528,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "开发进度"], ["catdash", "类目货架"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -541,7 +541,6 @@ export default function App() {
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
         {tab === "progress" && <LinkProgress />}
-        {tab === "catdash" && <CatDash setProjectFor={setProjectFor} />}
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
         {tab === "score" && <LinkScore />}
