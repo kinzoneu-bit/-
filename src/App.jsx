@@ -2844,15 +2844,14 @@ function Shelf() {
                                                         style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
                                                         + 新增产品
                                                       </div>
-                                                    </Branch>
-                                                    <Branch title="供应商">
+                                                      {/* 供应商内嵌产品 Branch 末尾 (KK 2026-08-08 模板) */}
                                                       {lf.suppliers.length ? lf.suppliers.map((sp, si) => (
                                                         <div key={si} style={{ fontSize: 12, padding: "5px 0", lineHeight: 1.6 }}>
                                                           <span style={{ color: C.ink, fontWeight: 600 }}>{sp.factory}</span>
                                                           <span style={{ color: C.sub }}> · {sp.contact}</span>
                                                           <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
                                                         </div>
-                                                      )) : <Empty t="暂无供应商" />}
+                                                      )) : null}
                                                       <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
                                                         style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
                                                         + 新增供应商
