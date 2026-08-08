@@ -1847,11 +1847,23 @@ function CatDash() {
                       {allRootCats.map((c, ci) => {
                         const detail = CAT_DETAIL[c.id];
                         const leafCount = detail ? detail.leaves.length : 0;
+                        // 聚合 chip 统计
+                        let sell = 0, idleP = 0, skip = 0;
+                        if (detail && detail.leaves) detail.leaves.forEach(lf => {
+                          if (lf.st === "researched_skip") skip++;
+                          else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
+                          else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
+                        });
                         return (
                           <div key={ci} style={{ marginBottom: 6, fontSize: 12, color: C.ink }}>
                             <span style={{ width: 7, height: 7, borderRadius: 2, background: SHELF_ST[c.st] ? SHELF_ST[c.st].color : C.faint, display: "inline-block", marginRight: 6 }} />
                             <span style={{ fontWeight: 600 }}>{c.name}</span>
                             <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {SHELF_ST[c.st] ? SHELF_ST[c.st].label : c.st} · {leafCount} 叶端</span>
+                            <span style={{ marginLeft: 12, display: "inline-flex", gap: 8, fontSize: 11 }}>
+                              <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {sell}</span>
+                              <span style={{ color: C.sub }}>在调研 {idleP}</span>
+                              <span style={{ color: C.faint }}>已调研不做 {skip}</span>
+                            </span>
                           </div>
                         );
                       })}
@@ -1860,6 +1872,12 @@ function CatDash() {
                         const cOpen = !!openC[ckey];
                         const detail = CAT_DETAIL[c.id];
                         const leafCount = detail ? detail.leaves.length : 0;
+                        let sell = 0, idleP = 0, skip = 0;
+                        if (detail && detail.leaves) detail.leaves.forEach(lf => {
+                          if (lf.st === "researched_skip") skip++;
+                          else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
+                          else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
+                        });
                         return (
                           <div key={ci} style={{ marginBottom: 4 }}>
                             <div style={{ fontSize: 12, color: C.ink }}>
@@ -1869,6 +1887,11 @@ function CatDash() {
                               <span style={{ width: 7, height: 7, borderRadius: 2, background: SHELF_ST[c.st] ? SHELF_ST[c.st].color : C.faint, display: "inline-block", marginLeft: 4, marginRight: 6 }} />
                               <span style={{ fontWeight: 600 }}>{c.name}</span>
                               <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {leafCount} 叶端</span>
+                              <span style={{ marginLeft: 12, display: "inline-flex", gap: 8, fontSize: 11 }}>
+                                <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {sell}</span>
+                                <span style={{ color: C.sub }}>在调研 {idleP}</span>
+                                <span style={{ color: C.faint }}>已调研不做 {skip}</span>
+                              </span>
                             </div>
                             {cOpen && (
                               <div style={{ marginLeft: 32, marginTop: 4 }}>
@@ -2811,10 +2834,7 @@ function Shelf() {
                 <span style={{ fontSize: 10, color: C.faint }}>{lf.path || ""}</span>
               </div>
             )) : <div style={{ padding: `10px 16px 10px ${pad + 24}px`, fontSize: 11, color: C.faint }}>暂无末端类目</div>}
-            <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: sub.id, catName: sub.name }); }}
-              style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: `8px 16px 10px ${pad + 24}px` }}>
-              + 新增末端类目
-            </div>
+            {/* 规则未定, 暂不显示新增末端类目按钮 */}
           </div>
         )}
       </div>
@@ -3100,20 +3120,14 @@ function Shelf() {
                                                           <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
                                                         </div>
                                                       )) : null}
-                                                      <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
-                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                        + 新增供应商
-                                                      </div>
+                                                      {/* 规则未定, 暂不显示新增供应商按钮 */}
                                                     </Branch>
                                                   </div>
                                                 )}
                                               </div>
                                             );
                                           })}
-                                        <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: c.id, catName: c.name }); }}
-                                          style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "8px 16px 10px 82px" }}>
-                                          + 新增末端类目
-                                        </div>
+                                        {/* 规则未定, 暂不显示新增末端类目按钮 */}
                                           </React.Fragment>
                                         ) : (
                                           <div style={{ padding: "10px 16px 14px 82px" }}>
@@ -3194,10 +3208,7 @@ function Shelf() {
                                                   <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
                                                 </div>
                                               )) : null}
-                                              <div onClick={(e) => { e.stopPropagation(); setAddSup({ leafId: lf.id }); }}
-                                                style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                + 新增供应商
-                                              </div>
+                                              {/* 规则未定, 暂不显示新增供应商按钮 */}
                                             </Branch>
                                           </div>
                                         )}
