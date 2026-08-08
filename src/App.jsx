@@ -2908,8 +2908,8 @@ function Shelf() {
                                                         )
                                                       )}
                                                     </div>
-                                                    {/* 变体下拉: 列出每个变体 (颜色+尺寸+ASIN) */}
-                                                    {variants.length > 0 && pOpen && (
+                                                    {/* 变体下拉: 默认全部展开 (KK 2026-08-08 反馈默认展开可见) */}
+                                                    {variants.length > 0 && (
                                                       <div style={{ marginLeft: 28, marginTop: 6, padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11, color: C.sub }}>
                                                         {variants.map((v, vi) => (
                                                           <div key={vi} style={{ display: "flex", alignItems: "center", gap: 12, padding: "3px 0" }}>
