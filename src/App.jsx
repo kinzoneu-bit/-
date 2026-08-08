@@ -2445,6 +2445,7 @@ function Shelf() {
   const [openC, setOpenC] = useState({});      // 展开的类目, key = brand|groupIdx|catIdx
   const [filterC, setFilterC] = useState({});  // 每个类目的筛选: undefined|'selling'|'idle'
   const [openL, setOpenL] = useState({});      // 展开的末端类目, key = ckey|leafIdx
+  const [openPV, setOpenPV] = useState({});    // 展开的产品变体, key = productId
   const [projectFor, setProjectFor] = useState(null); // 跳转 Project 弹窗
   // 交接状态: leaf_id → box_key (供 leaf 行显示阶段标签, 与开发进度拖拽同步)
   const [handoffMap, setHandoffMap] = useState({});
@@ -2877,37 +2878,58 @@ function Shelf() {
                                             </div>
                                             <Branch title="产品">
                                               {detail && detail.products.length ? detail.products.map((p, pi) => {
-                                                const colors = Array.isArray(p.variant_colors) ? p.variant_colors : [];
-                                                const sizes = Array.isArray(p.variant_sizes) ? p.variant_sizes : [];
+                                                const variants = Array.isArray(p.variants) ? p.variants : [];
+                                                const pOpen = !!openPV[p.id];
                                                 return (
                                                   <div key={pi} style={{ fontSize: 12, padding: "6px 0", color: C.ink }}>
+                                                    {/* 主行: 状态点 + 产品名 + 状态词 + (有变体: SPU·N变体 / 无变体: ASIN) */}
                                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                      {variants.length > 0 && (
+                                                        <span onClick={(e) => { e.stopPropagation(); setOpenPV(st => ({ ...st, [p.id]: !st[p.id] })); }}
+                                                          style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", color: C.sub }}>
+                                                          <Caret open={pOpen} small />
+                                                        </span>
+                                                      )}
                                                       <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
                                                         style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
                                                         title="点击修改状态" />{p.name}
                                                       <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
-                                                      {p.spu && <span style={{ color: C.faint, fontSize: 11 }}>· SPU: <span style={{ fontFamily: "monospace" }}>{p.spu}</span></span>}
-                                                      {(p.variant_count || 0) > 0 && <span style={{ color: C.faint, fontSize: 11 }}>· {p.variant_count}个变体</span>}
+                                                      {variants.length > 0 ? (
+                                                        <span style={{ color: C.faint, fontSize: 11 }}>
+                                                          · {p.spu && <>SPU: <span style={{ fontFamily: "monospace" }}>{p.spu}</span> · </>}
+                                                          {variants.length}个变体
+                                                        </span>
+                                                      ) : (
+                                                        p.asin && (
+                                                          <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            style={{ color: C.brand, fontSize: 11, textDecoration: "none" }}>
+                                                            · ASIN <span style={{ fontFamily: "monospace" }}>{p.asin}</span>
+                                                          </a>
+                                                        )
+                                                      )}
                                                     </div>
-                                                    {(colors.length > 0 || sizes.length > 0) && (
-                                                      <div style={{ marginLeft: 18, marginTop: 4, fontSize: 11, color: C.sub, lineHeight: 1.8 }}>
-                                                        {colors.length > 0 && (
-                                                          <div>
-                                                            <span style={{ marginRight: 4 }}>颜色：</span>
-                                                            {colors.map((c, i) => (
-                                                              <span key={i} style={{ display: "inline-flex", alignItems: "center", marginRight: 10 }}>
-                                                                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: c.hex || "#888", marginRight: 4, border: `1px solid ${C.line}` }} />
-                                                                {c.name}
+                                                    {/* 变体下拉: 列出每个变体 (颜色+尺寸+ASIN) */}
+                                                    {variants.length > 0 && pOpen && (
+                                                      <div style={{ marginLeft: 28, marginTop: 6, padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11, color: C.sub }}>
+                                                        {variants.map((v, vi) => (
+                                                          <div key={vi} style={{ display: "flex", alignItems: "center", gap: 12, padding: "3px 0" }}>
+                                                            {v.color && (
+                                                              <span style={{ display: "inline-flex", alignItems: "center", minWidth: 50 }}>
+                                                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: (p.variant_colors || []).find(c => c.name === v.color)?.hex || "#888", marginRight: 4, border: `1px solid ${C.line}` }} />
+                                                                {v.color}
                                                               </span>
-                                                            ))}
+                                                            )}
+                                                            {v.size && <span style={{ fontFamily: "monospace", minWidth: 24 }}>{v.size}</span>}
+                                                            {v.asin ? (
+                                                              <a href={`https://amazon.fr/dp/${v.asin}`} target="_blank" rel="noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                style={{ color: C.brand, textDecoration: "none", fontFamily: "monospace" }}>
+                                                                {v.asin}
+                                                              </a>
+                                                            ) : <span style={{ color: C.faint, fontStyle: "italic" }}>ASIN 待填</span>}
                                                           </div>
-                                                        )}
-                                                        {sizes.length > 0 && (
-                                                          <div>
-                                                            <span style={{ marginRight: 4 }}>尺寸：</span>
-                                                            {sizes.map((s, i) => <span key={i} style={{ marginRight: 10, fontFamily: "monospace" }}>{s}</span>)}
-                                                          </div>
-                                                        )}
+                                                        ))}
                                                       </div>
                                                     )}
                                                   </div>

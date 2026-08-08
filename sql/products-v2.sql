@@ -32,8 +32,29 @@ WHERE name = '电子围栏-紫黑';
 UPDATE products SET variant_count = jsonb_array_length(variant_sizes)
 WHERE variant_sizes IS NOT NULL AND (variant_count IS NULL OR variant_count = 0);
 
+-- =============================================================
+-- products v3 · 2026-08-08 加变体数组 (KK 模板: 有变体则展开)
+--   variants jsonb  每个变体含 {color, size, asin}
+--   现有 variant_count = 3 表示 3 个变体, 数据用占位 ASIN
+-- =============================================================
+ALTER TABLE products ADD COLUMN IF NOT EXISTS variants jsonb DEFAULT '[]'::jsonb;
+
+-- 示例: 电子围栏橙黑 (颜色橙黑, 尺寸 S/M/L = 3 个变体)
+UPDATE products SET variants = '[
+  {"color":"橙黑","size":"S","asin":"B0HGJ26G-S"},
+  {"color":"橙黑","size":"M","asin":"B0HGJ26G-M"},
+  {"color":"橙黑","size":"L","asin":"B0HGJ26G-L"}
+]'::jsonb WHERE name = '电子围栏-橙黑';
+
+-- 示例: 电子围栏紫黑 (3 个变体)
+UPDATE products SET variants = '[
+  {"color":"紫黑","size":"S","asin":"B0GHDF8F-S"},
+  {"color":"紫黑","size":"M","asin":"B0GHDF8F-M"},
+  {"color":"紫黑","size":"L","asin":"B0GHDF8F-L"}
+]'::jsonb WHERE name = '电子围栏-紫黑';
+
 -- 校验
-SELECT name, spu, variant_count, variant_sizes, variant_colors FROM products WHERE name LIKE '%电子围栏%';
+SELECT name, variants FROM products WHERE name LIKE '%电子围栏%';
 
 -- =============================================================
 -- 自动生成所有 leaf 的完整路径 (品牌 > 大类 > 二级 > 末端)
