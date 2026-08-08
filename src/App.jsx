@@ -528,7 +528,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["overview", "开发进度"], ["shelf", "类目货架"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "类目明细"], ["catdash", "类目货架"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -542,6 +542,8 @@ export default function App() {
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
         {tab === "progress" && <LinkProgress />}
+        {tab === "shelf" && <Shelf />}
+        {tab === "catdash" && <CatDash />}
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
         {tab === "score" && <LinkScore />}
@@ -1761,6 +1763,139 @@ function InventoryStats() {
       <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
         库存统计模块 · 待 KK 确认维度 (店铺/类目/ASIN) 与数据源 (SP-API 库存/采购记录)
       </div>
+    </div>
+  );
+}
+
+// ---------------- 类目货架 (简版概览, 只读, 无展开产品) ----------------
+function CatDash() {
+  const [openB, setOpenB] = useState({});
+  const [openG, setOpenG] = useState({});
+  const [openC, setOpenC] = useState({});
+  const [openL, setOpenL] = useState({});
+  const [handoffMap, setHandoffMap] = useState({});
+  const [shReady, setShReady] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await fetchShelfData();
+        const { data } = await supabase.from("monitor_handoff").select("leaf_id, box_key");
+        const m = {};
+        (data || []).forEach(r => { m[r.leaf_id] = r.box_key; });
+        setHandoffMap(m);
+        setShReady(true);
+      } catch (e) { console.error(e); }
+    })();
+  }, []);
+
+  if (!shReady) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
+
+  const PhaseTag = ({ lid }) => {
+    const b = handoffMap[lid];
+    if (!b) return null;
+    const hc = HANDOFF_BOXES.find(x => x.id === b);
+    if (!hc) return null;
+    return <span style={{ fontSize: 10, color: hc.color, fontWeight: 600, marginLeft: 6 }}>· {hc.label}</span>;
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>类目货架</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            品牌 → 大类 → 类目 → 末端 · 实时状态 · 只读概览
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+          数据取自 Supabase · 实时
+        </div>
+      </div>
+
+      {Object.entries(BRAND_SHELF).map(([b, info]) => {
+        const bOpen = !!openB[b];
+        return (
+          <div key={b} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
+            <div onClick={() => setOpenB(s => ({ ...s, [b]: !s[b] }))}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer", background: C.bg }}>
+              <Caret open={bOpen} />
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: info.fullName ? SHELF_ST.idle.color : C.faint, display: "inline-block" }} />
+              <span style={{ fontSize: 15, fontWeight: 700 }}>{info.fullName || b}</span>
+              <span style={{ fontSize: 11, color: C.faint }}>{info.store}</span>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>
+                {info.groups.length} 大类 · {info.groups.reduce((s, g) => s + (g.cats ? g.cats.length : 0), 0)} 类目
+              </span>
+            </div>
+            {bOpen && info.groups.map((g, gi) => {
+              const gkey = `${b}|${gi}`;
+              const gOpen = !!openG[gkey];
+              const allRootCats = (g.cats || []).filter(c => !c.children || c.children.length === 0);
+              const nestedCats = (g.cats || []).filter(c => c.children && c.children.length > 0);
+              return (
+                <div key={gkey} style={{ borderTop: `1px solid ${C.line}` }}>
+                  <div onClick={() => setOpenG(s => ({ ...s, [gkey]: !s[gkey] }))}
+                    style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer" }}>
+                    <Caret open={gOpen} small />
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+                      {allRootCats.length + nestedCats.length} 项
+                    </span>
+                  </div>
+                  {gOpen && (
+                    <div style={{ background: C.bg, borderTop: `1px solid ${C.line}`, padding: "10px 16px 14px 50px" }}>
+                      {allRootCats.map((c, ci) => {
+                        const detail = CAT_DETAIL[c.id];
+                        const leafCount = detail ? detail.leaves.length : 0;
+                        return (
+                          <div key={ci} style={{ marginBottom: 6, fontSize: 12, color: C.ink }}>
+                            <span style={{ width: 7, height: 7, borderRadius: 2, background: SHELF_ST[c.st] ? SHELF_ST[c.st].color : C.faint, display: "inline-block", marginRight: 6 }} />
+                            <span style={{ fontWeight: 600 }}>{c.name}</span>
+                            <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {SHELF_ST[c.st] ? SHELF_ST[c.st].label : c.st} · {leafCount} 叶端</span>
+                          </div>
+                        );
+                      })}
+                      {nestedCats.map((c, ci) => {
+                        const ckey = `${gkey}|nest${ci}`;
+                        const cOpen = !!openC[ckey];
+                        const detail = CAT_DETAIL[c.id];
+                        const leafCount = detail ? detail.leaves.length : 0;
+                        return (
+                          <div key={ci} style={{ marginBottom: 4 }}>
+                            <div style={{ fontSize: 12, color: C.ink }}>
+                              <span onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+                                <Caret open={cOpen} small />
+                              </span>
+                              <span style={{ width: 7, height: 7, borderRadius: 2, background: SHELF_ST[c.st] ? SHELF_ST[c.st].color : C.faint, display: "inline-block", marginLeft: 4, marginRight: 6 }} />
+                              <span style={{ fontWeight: 600 }}>{c.name}</span>
+                              <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {leafCount} 叶端</span>
+                            </div>
+                            {cOpen && (
+                              <div style={{ marginLeft: 32, marginTop: 4 }}>
+                                {(c.children || []).map((sub, si) => {
+                                  const subDetail = CAT_DETAIL[sub.id];
+                                  const subLeafCount = subDetail ? subDetail.leaves.length : 0;
+                                  return (
+                                    <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>
+                                      <span style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[sub.st] ? SHELF_ST[sub.st].color : C.faint, display: "inline-block", marginRight: 4 }} />
+                                      {sub.name}
+                                      <span style={{ color: C.faint, marginLeft: 6 }}>· {subLeafCount} 叶端</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
