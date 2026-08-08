@@ -282,16 +282,33 @@ async function fetchShelfData() {
 
   // BRAND_SHELF: flat 品牌把所有组的类目拍平进一个 __flat__ 组
   BRAND_SHELF = {};
+  // cat 嵌套树: parent_cat_id → children
+  const catsByParent = {};
+  cats.forEach(c => {
+    if (c.parent_cat_id) (catsByParent[c.parent_cat_id] = catsByParent[c.parent_cat_id] || []).push(c);
+  });
+  const buildCatTree = (parentId) => (catsByParent[parentId] || [])
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    .map(c => ({
+      id: c.id, name: c.name, st: c.st || "idle",
+      chatName: c.chat_name || null, chatUrl: c.chat_url || null,
+      children: buildCatTree(c.id),
+    }));
+  const mapRootCat = (c) => ({
+    id: c.id, name: c.name, st: c.st || "idle",
+    chatName: c.chat_name || null, chatUrl: c.chat_url || null,
+    children: buildCatTree(c.id),
+  });
   brands.forEach(b => {
     const bs = { store: b.store, fullName: b.full_name, flat: !!b.flat, groups: [] };
     const myGroups = groupsByBrand[b.code] || [];
     if (b.flat) {
-      const allCats = myGroups.flatMap(g => (catsByGroup[g.id] || []).map(c => ({ id: c.id, name: c.name, st: c.st || "idle", chatName: c.chat_name || null })));
+      const allCats = myGroups.flatMap(g => (catsByGroup[g.id] || []).filter(c => !c.parent_cat_id).map(mapRootCat));
       bs.groups = [{ name: "__flat__", cats: allCats }];
     } else {
       bs.groups = myGroups.map(g => ({
         name: g.name,
-        cats: (catsByGroup[g.id] || []).map(c => ({ id: c.id, name: c.name, st: c.st || "idle", chatName: c.chat_name || null, chatUrl: c.chat_url || null })),
+        cats: (catsByGroup[g.id] || []).filter(c => !c.parent_cat_id).map(mapRootCat),
       }));
     }
     BRAND_SHELF[b.code] = bs;
@@ -2632,6 +2649,43 @@ function Shelf() {
     );
   };
 
+  // 子类目递归渲染 (cat 嵌套: Transport et voyages > Accessoires voiture > leaves)
+  const renderCatTree = (children, parentKey, depth) => children && children.length ? children.map((sub, si) => {
+    const subKey = `${parentKey}|sub${si}`;
+    const subOpen = !!openC[subKey];
+    const subDetail = catDetail(sub.name, g.name);
+    const pad = 58 + depth * 18;
+    return (
+      <div key={si} style={{ borderTop: si ? `1px solid ${C.line}` : "none" }}>
+        <div onClick={() => setOpenC(s => ({ ...s, [subKey]: !s[subKey] }))}
+          style={{ display: "flex", alignItems: "center", gap: 9, padding: `10px 16px 10px ${pad}px`, cursor: "pointer", background: C.panel2 }}>
+          <Caret open={subOpen} small />
+          {stDot(sub.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: sub.id, st: sub.st, label: sub.name }); })}
+          <span style={{ fontSize: 13, color: C.ink }}>{sub.name}</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+            {subDetail && subDetail.leaves ? `${subDetail.leaves.length} 项` : ""}
+          </span>
+        </div>
+        {subOpen && (
+          <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
+            {sub.children && sub.children.length > 0 && renderCatTree(sub.children, subKey, depth + 1)}
+            {subDetail && subDetail.leaves ? subDetail.leaves.map((lf, li) => (
+              <div key={li} style={{ display: "flex", alignItems: "center", gap: 9, padding: `10px 16px 10px ${pad + 24}px`, borderTop: li ? `1px solid ${C.line}` : "none" }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[lf.st] ? SHELF_ST[lf.st].color : C.faint, display: "inline-block" }} />
+                <span style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>{lf.leaf}</span>
+                <span style={{ fontSize: 10, color: C.faint }}>{lf.path || ""}</span>
+              </div>
+            )) : <div style={{ padding: `10px 16px 10px ${pad + 24}px`, fontSize: 11, color: C.faint }}>暂无末端类目</div>}
+            <div onClick={(e) => { e.stopPropagation(); setAddLeaf({ catId: sub.id, catName: sub.name }); }}
+              style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: `8px 16px 10px ${pad + 24}px` }}>
+              + 新增末端类目
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }) : null;
+
   return (
     <div>
       <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
@@ -2765,6 +2819,8 @@ function Shelf() {
                                     </div>
                                     {cOpen && (
                                       <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
+                                        {/* 子类目 (cat 嵌套) */}
+                                        {c.children && c.children.length > 0 && renderCatTree(c.children, ckey, 1)}
                                         {detail && detail.leaves ? (
                                           <React.Fragment>
                                           {detail.leaves.filter(lf => {
