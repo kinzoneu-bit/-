@@ -2819,8 +2819,10 @@ function Shelf() {
                                     </div>
                                     {cOpen && (
                                       <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
-                                        {/* 子类目 (cat 嵌套) */}
-                                        {c.children && c.children.length > 0 && renderCatTree(c.children, ckey, 1)}
+                                        {/* 子类目 (cat 嵌套, 包 try-catch 防止渲染报错) */}
+                                        {c.children && c.children.length > 0 && (() => {
+                                          try { return renderCatTree(c.children, ckey, 1); } catch (e) { console.error("cat nested render err:", e); return null; }
+                                        })()}
                                         {detail && detail.leaves ? (
                                           <React.Fragment>
                                           {detail.leaves.filter(lf => {
