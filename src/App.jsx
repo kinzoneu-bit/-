@@ -2641,6 +2641,13 @@ function Finance() {
 
 // ---------------- 品牌货架 (三层展开: 品牌 → 大类 → 类目) ----------------
 function Shelf() {
+  const [shelfErr, setShelfErr] = useState(null);
+  useEffect(() => {
+    (async () => {
+      try { await fetchShelfData(); }
+      catch (e) { console.error("Shelf fetch err:", e); setShelfErr(String(e)); }
+    })();
+  }, []);
   const brands = Object.keys(BRAND_SHELF);
   // 改状态权限: 按拖拽权限框住 (KK: 货架改状态与进度拖拽同权限)
   //   sFull (admin/fr) 全改; 角色只能改自己负责阶段的 leaf/product 状态
