@@ -1791,6 +1791,25 @@ function CatDash() {
 
   if (!shReady) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
 
+  // 递归算 cat (含子 cat) 的 chip 统计 (在售/在调研/已调研不做)
+  const tallyCatDeep = (c) => {
+    let sell = 0, idleP = 0, skip = 0;
+    const collect = (catId) => {
+      const d = CAT_DETAIL[catId];
+      if (d && d.leaves) d.leaves.forEach(lf => {
+        if (lf.st === "researched_skip") skip++;
+        else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
+        else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
+      });
+    };
+    const walk = (cat) => {
+      collect(cat.id);
+      if (cat.children) cat.children.forEach(s => walk(s));
+    };
+    walk(c);
+    return { sell, idleP, skip };
+  };
+
   const PhaseTag = ({ lid }) => {
     const b = handoffMap[lid];
     if (!b) return null;
@@ -1845,33 +1864,67 @@ function CatDash() {
                   {gOpen && (
                     <div style={{ background: C.bg, borderTop: `1px solid ${C.line}`, padding: "10px 16px 14px 50px" }}>
                       {allRootCats.map((c, ci) => {
-                        const detail = CAT_DETAIL[c.id];
+                        const ckey = `${gkey}|root${ci}`;
+                        const cOpen = !!openC[ckey];
+                        const t = tallyCatDeep(c);
                         return (
-                          <div key={ci} style={{ marginBottom: 6, fontSize: 12, color: C.ink }}>
-                            <span style={{ fontWeight: 600 }}>{c.name}</span>
+                          <div key={ci} style={{ marginBottom: 6 }}>
+                            <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
+                              <Caret open={cOpen} small />
+                              <span style={{ fontWeight: 600 }}>{c.name}</span>
+                              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11 }}>
+                                <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
+                                <span style={{ color: C.sub }}>在调研 {t.idleP}</span>
+                                <span style={{ color: C.faint }}>已调研不做 {t.skip}</span>
+                              </span>
+                            </div>
+                            {cOpen && c.children && c.children.length > 0 && (
+                              <div style={{ marginLeft: 28, marginTop: 4 }}>
+                                {c.children.map((sub, si) => {
+                                  const st = tallyCatDeep(sub);
+                                  return (
+                                    <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                                      <span>· {sub.name}</span>
+                                      <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11 }}>
+                                        <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {st.sell}</span>
+                                        <span style={{ color: C.sub }}>在调研 {st.idleP}</span>
+                                        <span style={{ color: C.faint }}>已调研不做 {st.skip}</span>
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                       {nestedCats.map((c, ci) => {
                         const ckey = `${gkey}|nest${ci}`;
                         const cOpen = !!openC[ckey];
-                        const detail = CAT_DETAIL[c.id];
+                        const t = tallyCatDeep(c);
                         return (
                           <div key={ci} style={{ marginBottom: 4 }}>
-                            <div style={{ fontSize: 12, color: C.ink }}>
-                              <span onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
-                                <Caret open={cOpen} small />
-                              </span>
+                            <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
+                              <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600, marginLeft: 4 }}>{c.name}</span>
+                              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11 }}>
+                                <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
+                                <span style={{ color: C.sub }}>在调研 {t.idleP}</span>
+                                <span style={{ color: C.faint }}>已调研不做 {t.skip}</span>
+                              </span>
                             </div>
                             {cOpen && (
                               <div style={{ marginLeft: 32, marginTop: 4 }}>
                                 {(c.children || []).map((sub, si) => {
-                                  const subDetail = CAT_DETAIL[sub.id];
-                                  const subLeafCount = subDetail ? subDetail.leaves.length : 0;
+                                  const st = tallyCatDeep(sub);
                                   return (
-                                    <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>
-                                      ({sub.name}
+                                    <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                                      <span>· {sub.name}</span>
+                                      <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11 }}>
+                                        <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {st.sell}</span>
+                                        <span style={{ color: C.sub }}>在调研 {st.idleP}</span>
+                                        <span style={{ color: C.faint }}>已调研不做 {st.skip}</span>
+                                      </span>
                                     </div>
                                   );
                                 })}
