@@ -2949,7 +2949,8 @@ function Shelf() {
 
   return (
     <div>
-      <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
+{false && (<>
+            <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
 
       {/* 图例 */}
       <div style={{ display: "flex", gap: 16, marginBottom: 18 }}>
@@ -2959,6 +2960,7 @@ function Shelf() {
           </div>
         ))}
       </div>
+      </>)}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {brands.map(b => {
