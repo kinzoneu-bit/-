@@ -22,9 +22,9 @@ INSERT INTO monitor_handoff (leaf_id, box_key, start_at)
 SELECT id, 'h1', now() FROM shelf_leaves WHERE leaf_name = 'Harnais pour voiture'
 ON CONFLICT (leaf_id) DO UPDATE SET box_key = 'h1', start_at = now();
 
--- 4. log 留历史
-INSERT INTO monitor_handoff_log (leaf_id, from_box, to_box, moved_at, moved_by)
-SELECT id, NULL, 'h1', now(), 'cd_supplier' FROM shelf_leaves WHERE leaf_name = 'Harnais pour voiture';
+-- 4. log 留历史 (不加 moved_by 列, schema 可能没有)
+INSERT INTO monitor_handoff_log (leaf_id, from_box, to_box, moved_at)
+SELECT id, NULL, 'h1', now() FROM shelf_leaves WHERE leaf_name = 'Harnais pour voiture';
 
 -- 5. 校验
 SELECT '叶端' AS tbl, b.code AS 品牌, g.name AS 大类, l.leaf_name, l.st, l.phase, l.path
