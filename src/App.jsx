@@ -1827,12 +1827,13 @@ function CatDash({ setProjectFor }) {
         const m = {};
         (data || []).forEach(r => { m[r.leaf_id] = r.box_key; });
         setHandoffMap(m);
-        setShReady(true);
-      } catch (e) { console.error(e); }
+      } catch (e) { console.error("CatDash load err:", e); }
+      setShReady(true);  // 无论成败都解锁, 不卡"加载中"
     })();
   }, []);
 
-  if (!shReady) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
+  if (!shReady && Object.keys(BRAND_SHELF).length === 0) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
+  if (Object.keys(BRAND_SHELF).length === 0) return <div style={{ color: C.faint, padding: 40 }}>暂无货架数据, 检查 fetchShelfData</div>;
 
   // 递归算 cat (含子 cat) 的 chip 统计 (在售/在调研/已调研不做)
   const tallyCatDeep = (c) => {
