@@ -109,6 +109,7 @@ const ROLE_PERMISSIONS = {
   cd_supplier:  { from: ["h1"], to: ["h2"], label: "成都·供应链" },
   cd_link:      { from: ["h2"], to: ["h3"], label: "成都·链接" },
   cd_promotion: { from: ["h3"], to: ["h4"], label: "成都·推广" },
+  cd_procurement: { from: [], to: [], label: "成都·采购" },
 };
 // 邮箱 → 角色
 const EMAIL_TO_ROLE = {
@@ -117,7 +118,7 @@ const EMAIL_TO_ROLE = {
   "503279601@qq.com":     "cd_promotion",   // 成都·推广 (已确认)
   "2386332469@qq.com":    "cd_link",        // 成都·链接 (2026-08-07 确认)
   "2990206556@qq.com":    "cd_supplier",    // 成都·供应链 (2026-08-07 确认)
-  // "915126059@qq.com": "?",               // 此前误映射为法国, 实际不是, 用途待 KK 确认
+  "yellowdashi@sina.com": "cd_procurement", // 成都·采购 (财务核对, 2026-08-08 确认)
 };
 const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
 const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (role ? "未授权" : "未登录");
@@ -1484,7 +1485,7 @@ function Shipments() {
     });
   }, []);
   const isAdmin = shipRole === "admin";
-  const canEdit = shipRole === "admin" || shipRole === "cd_promotion";
+  const canEdit = shipRole === "admin" || shipRole === "cd_promotion" || shipRole === "cd_procurement";
 
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");
