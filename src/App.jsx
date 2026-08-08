@@ -585,6 +585,21 @@ function Overview({ siteEvals, onPick }) {
   // leaf → 一级类目 (group 名) - 用于聚合显示
   const [lToGroup, setLToGroup] = useState({});
 
+  // 在调研的类目 (st=idle 的 cat, 从类目明细同步到开发进度) - KK 2026-08-08
+  const idleCats = useMemo(() => {
+    const list = [];
+    Object.entries(BRAND_SHELF).forEach(([b, info]) => {
+      (info.groups || []).forEach(g => {
+        const walk = (cat) => {
+          if (cat.st === "idle") list.push({ id: cat.id, name: cat.name, group: g.name, brand: info.fullName || b });
+          if (cat.children) cat.children.forEach(walk);
+        };
+        (g.cats || []).forEach(walk);
+      });
+    });
+    return list;
+  }, [tick2]);
+
   const loadHandoffs = async () => {
     const { data, error } = await supabase.from("monitor_handoff").select("*");
     if (!error) setHandoffs(data || []);
@@ -933,6 +948,34 @@ function Overview({ siteEvals, onPick }) {
           );
         })}
       </div>
+
+      {/* 在调研的类目 (从类目明细同步, KK 2026-08-08) */}
+      {idleCats.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>在调研的类目</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>类目明细里标记"在调研"(idle) 的类目 · 按大类聚合</div>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+            {Object.entries(idleCats.reduce((m, c) => {
+              (m[c.group] = m[c.group] || []).push(c);
+              return m;
+            }, {})).sort((a, b) => b[1].length - a[1].length).map(([group, items]) => (
+              <details key={group} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px" }}>
+                <summary style={{ fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>{group}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length} 个类目</span>
+                </summary>
+                <div style={{ marginTop: 6, paddingLeft: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {items.map(c => (
+                    <span key={c.id} style={{ fontSize: 11, color: C.ink, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 14, padding: "3px 10px" }}>
+                      {c.brand} · {c.name}
+                    </span>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 作业交接框: 5 个阶段 4 个交接点, 按品牌聚合 + 下拉查看具体 leaf */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
