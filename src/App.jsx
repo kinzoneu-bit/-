@@ -543,7 +543,7 @@ export default function App() {
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
         {tab === "progress" && <LinkProgress />}
         {tab === "shelf" && <Shelf />}
-        {tab === "catdash" && <CatDash />}
+        {tab === "catdash" && <CatDash setProjectFor={setProjectFor} />}
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
         {tab === "score" && <LinkScore />}
@@ -1768,7 +1768,7 @@ function InventoryStats() {
 }
 
 // ---------------- 类目货架 (简版概览, 只读, 无展开产品) ----------------
-function CatDash() {
+function CatDash({ setProjectFor }) {
   const [openB, setOpenB] = useState({});
   const [openG, setOpenG] = useState({});
   const [openC, setOpenC] = useState({});
@@ -1878,10 +1878,14 @@ function CatDash() {
                             <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600 }}>{c.name}</span>
-                              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11 }}>
+                              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
                                 <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
                                 <span style={{ color: C.sub }}>在调研 {t.idleP}</span>
                                 <span style={{ color: C.faint }}>已调研不做 {t.skip}</span>
+                                <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: c.name, path: c.name, chatName: null }); }}
+                                  style={{ color: C.brand, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                                  · 进入分析 →
+                                </span>
                               </span>
                             </div>
                             {cOpen && c.children && c.children.length > 0 && (
@@ -1891,10 +1895,14 @@ function CatDash() {
                                   return (
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
                                       <span>· {sub.name}</span>
-                                      <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11 }}>
+                                      <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11, alignItems: "center" }}>
                                         <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {st.sell}</span>
                                         <span style={{ color: C.sub }}>在调研 {st.idleP}</span>
                                         <span style={{ color: C.faint }}>已调研不做 {st.skip}</span>
+                                        <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: sub.name, path: sub.name, chatName: null }); }}
+                                          style={{ color: C.brand, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                                          · 进入分析 →
+                                        </span>
                                       </span>
                                     </div>
                                   );
@@ -1913,10 +1921,14 @@ function CatDash() {
                             <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600, marginLeft: 4 }}>{c.name}</span>
-                              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11 }}>
+                              <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
                                 <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
                                 <span style={{ color: C.sub }}>在调研 {t.idleP}</span>
                                 <span style={{ color: C.faint }}>已调研不做 {t.skip}</span>
+                                <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: c.name, path: c.name, chatName: null }); }}
+                                  style={{ color: C.brand, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                                  · 进入分析 →
+                                </span>
                               </span>
                             </div>
                             {cOpen && (
@@ -1926,10 +1938,14 @@ function CatDash() {
                                   return (
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
                                       <span>· {sub.name}</span>
-                                      <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11 }}>
+                                      <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11, alignItems: "center" }}>
                                         <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {st.sell}</span>
                                         <span style={{ color: C.sub }}>在调研 {st.idleP}</span>
                                         <span style={{ color: C.faint }}>已调研不做 {st.skip}</span>
+                                        <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: sub.name, path: sub.name, chatName: null }); }}
+                                          style={{ color: C.brand, cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
+                                          · 进入分析 →
+                                        </span>
                                       </span>
                                     </div>
                                   );
