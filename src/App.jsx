@@ -2653,7 +2653,7 @@ function Shelf() {
   const renderCatTree = (children, parentKey, depth) => children && children.length ? children.map((sub, si) => {
     const subKey = `${parentKey}|sub${si}`;
     const subOpen = !!openC[subKey];
-    const subDetail = catDetail(sub.name, g.name);
+    const subDetail = catDetail(sub.name);  // 单参数查找 (不依赖 g, 避免 ReferenceError)
     const pad = 58 + depth * 18;
     return (
       <div key={si} style={{ borderTop: si ? `1px solid ${C.line}` : "none" }}>
