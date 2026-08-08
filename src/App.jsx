@@ -2686,6 +2686,67 @@ function Shelf() {
     );
   }) : null;
 
+  // 产品行渲染 (含变体下拉) · 复用 shownProducts 分支和 detail 分支
+  const renderProductRow = (p, leafId) => {
+    const variants = Array.isArray(p.variants) ? p.variants : [];
+    const pOpen = !!openPV[p.id];
+    const canEditThis = canEditSt(leafId);
+    return (
+      <div key={p.id} style={{ fontSize: 12, padding: "6px 0", color: C.ink }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {variants.length > 0 && (
+            <span onClick={(e) => { e.stopPropagation(); setOpenPV(st => ({ ...st, [p.id]: !st[p.id] })); }}
+              style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", color: C.sub }}>
+              <Caret open={pOpen} small />
+            </span>
+          )}
+          <span onClick={canEditThis ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name, leafId }); } : undefined}
+            style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: canEditThis ? "pointer" : "default", opacity: canEditThis ? 1 : 0.45 }}
+            title={canEditThis ? "点击修改状态" : "仅管理员/法国或本阶段负责人可修改"} />
+          {p.name}
+          <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st] ? SHELF_ST[p.st].label : p.st}</span>
+          {variants.length > 0 ? (
+            <span style={{ color: C.faint, fontSize: 11 }}>
+              · {p.spu && <>SPU: <span style={{ fontFamily: "monospace" }}>{p.spu}</span> · </>}
+              {variants.length}个变体
+            </span>
+          ) : (
+            p.asin && (
+              <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{ color: C.brand, fontSize: 11, textDecoration: "none" }}>
+                · ASIN <span style={{ fontFamily: "monospace" }}>{p.asin}</span>
+              </a>
+            )
+          )}
+        </div>
+        {/* 变体下拉 (默认全部展开) */}
+        {variants.length > 0 && (
+          <div style={{ marginLeft: 28, marginTop: 6, padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11, color: C.sub }}>
+            {variants.map((v, vi) => (
+              <div key={vi} style={{ display: "flex", alignItems: "center", gap: 12, padding: "3px 0" }}>
+                {v.color && (
+                  <span style={{ display: "inline-flex", alignItems: "center", minWidth: 50 }}>
+                    <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: (p.variant_colors || []).find(c => c.name === v.color)?.hex || "#888", marginRight: 4, border: `1px solid ${C.line}` }} />
+                    {v.color}
+                  </span>
+                )}
+                {v.size && <span style={{ fontFamily: "monospace", minWidth: 24 }}>{v.size}</span>}
+                {v.asin ? (
+                  <a href={`https://amazon.fr/dp/${v.asin}`} target="_blank" rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ color: C.brand, textDecoration: "none", fontFamily: "monospace" }}>
+                    {v.asin}
+                  </a>
+                ) : <span style={{ color: C.faint, fontStyle: "italic" }}>ASIN 待填</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div>
       <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
@@ -2891,21 +2952,7 @@ function Shelf() {
                                                 {lOpen && (
                                                   <div style={{ padding: "4px 16px 14px 116px", background: C.panel }}>
                                                     <Branch title="产品">
-                                                      {shownProducts.length ? shownProducts.map((p, pi) => (
-                                                        <div key={pi} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "5px 0", color: C.ink }}>
-                                                          <span onClick={canEditSt(lf.id) ? (e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name, leafId: lf.id }); } : undefined}
-                                                            style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: canEditSt(lf.id) ? "pointer" : "default", opacity: canEditSt(lf.id) ? 1 : 0.45 }}
-                                                            title={canEditSt(lf.id) ? "点击修改状态" : "仅管理员/法国或本阶段负责人可修改"} />{p.name}
-                                                          <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
-                                                          {p.asin && (
-                                                            <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"
-                                                              onClick={(e) => e.stopPropagation()}
-                                                              style={{ color: C.brand, fontSize: 11, textDecoration: "none" }}>
-                                                              · {p.asin}
-                                                            </a>
-                                                          )}
-                                                        </div>
-                                                      )) : <Empty t="暂无产品" />}
+                                                      {shownProducts.length ? shownProducts.map((p) => renderProductRow(p, lf.id)) : <Empty t="暂无产品" />}
                                                       <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
                                                         style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
                                                         + 新增产品
