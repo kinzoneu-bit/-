@@ -1846,11 +1846,9 @@ function CatDash() {
                     <div style={{ background: C.bg, borderTop: `1px solid ${C.line}`, padding: "10px 16px 14px 50px" }}>
                       {allRootCats.map((c, ci) => {
                         const detail = CAT_DETAIL[c.id];
-                        const leafCount = detail ? detail.leaves.length : 0;
                         return (
                           <div key={ci} style={{ marginBottom: 6, fontSize: 12, color: C.ink }}>
                             <span style={{ fontWeight: 600 }}>{c.name}</span>
-                            <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {leafCount} 叶端</span>
                           </div>
                         );
                       })}
@@ -1858,7 +1856,6 @@ function CatDash() {
                         const ckey = `${gkey}|nest${ci}`;
                         const cOpen = !!openC[ckey];
                         const detail = CAT_DETAIL[c.id];
-                        const leafCount = detail ? detail.leaves.length : 0;
                         return (
                           <div key={ci} style={{ marginBottom: 4 }}>
                             <div style={{ fontSize: 12, color: C.ink }}>
@@ -1866,7 +1863,6 @@ function CatDash() {
                                 <Caret open={cOpen} small />
                               </span>
                               <span style={{ fontWeight: 600, marginLeft: 4 }}>{c.name}</span>
-                              <span style={{ color: C.faint, fontSize: 11, marginLeft: 8 }}>· {leafCount} 叶端</span>
                             </div>
                             {cOpen && (
                               <div style={{ marginLeft: 32, marginTop: 4 }}>
@@ -1876,7 +1872,6 @@ function CatDash() {
                                   return (
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2 }}>
                                       ({sub.name}
-                                      <span style={{ color: C.faint, marginLeft: 6 }}>· {subLeafCount} 叶端</span>
                                     </div>
                                   );
                                 })}
