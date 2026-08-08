@@ -2949,18 +2949,7 @@ function Shelf() {
 
   return (
     <div>
-{false && (<>
-            <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
 
-      {/* 图例 */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 18 }}>
-        {Object.entries(SHELF_ST).map(([k, v]) => (
-          <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.sub }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />{v.label}
-          </div>
-        ))}
-      </div>
-      </>)}
 
       
 
