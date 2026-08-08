@@ -1857,8 +1857,10 @@ function CatDash() {
                     style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer" }}>
                     <Caret open={gOpen} small />
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
-                    <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
-                      {allRootCats.length + nestedCats.length} 项
+                    <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11 }}>
+                      <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {gTally.sell}</span>
+                      <span style={{ color: C.sub }}>在调研 {gTally.idleP}</span>
+                      <span style={{ color: C.faint }}>已调研不做 {gTally.skip}</span>
                     </span>
                   </div>
                   {gOpen && (
