@@ -257,7 +257,15 @@ async function fetchShelfData() {
   const suppliersByLeaf = {};
   suppliers.forEach(s => { (suppliersByLeaf[s.leaf_id] = suppliersByLeaf[s.leaf_id] || []).push(s); });
 
-  const buildProducts = (leafId) => (productsByLeaf[leafId] || []).map(p => ({ id: p.id, name: p.name, st: p.st || "idle", asin: p.asin || null }));
+  const buildProducts = (leafId) => (productsByLeaf[leafId] || []).map(p => ({
+    id: p.id, name: p.name, st: p.st || "idle", asin: p.asin || null,
+    spu: p.spu || null,
+    variant_count: p.variant_count || 0,
+    variants: p.variants || [],
+    variant_colors: p.variant_colors || [],
+    variant_sizes: p.variant_sizes || [],
+    phase: p.phase || null,
+  }));
   const buildSuppliers = (leafId) => (suppliersByLeaf[leafId] || []).map(s => ({ id: s.id, factory: s.factory, contact: s.contact, products: s.main_products }));
   const buildLeaves = (catId) => (leavesByCat[catId] || []).map(l => ({ id: l.id, leaf: l.leaf_name, path: l.path, st: l.st || "idle", phase: l.phase || null, chatName: l.chat_name || null, chatUrl: l.chat_url || null, products: buildProducts(l.id), suppliers: buildSuppliers(l.id) }));
 
