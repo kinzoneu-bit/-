@@ -3096,8 +3096,11 @@ function Shelf() {
                                 }
                                 if (c.st === "skip" || c.st === "researched_skip") {
                                   return (
-                                    <div key={ci} style={{ display: "flex", alignItems: "center", padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
-                                      <span style={{ fontSize: 13, color: C.faint }}>{c.name} - 不做</span>
+                                    <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
+                                      <span style={{ fontSize: 13, color: C.faint }}>{c.name}</span>
+                                      <span style={{ marginLeft: "auto", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600, background: "#5a3030", color: "#ff9090", border: "1px solid #7a4040" }}>
+                                        不做
+                                      </span>
                                     </div>
                                   );
                                 }
