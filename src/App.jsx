@@ -974,7 +974,7 @@ function Overview({ siteEvals, onPick }) {
             <div key={k}
               onDragOver={(e) => { e.preventDefault(); setPhaseDrag(true); }}
               onDragLeave={() => setPhaseDrag(false)}
-              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); const data = e.dataTransfer.getData("text/plain"); if (data) { const parts = data.split(":"); const kind = parts[0]; const id = parts.slice(1).join(":"); if (id) movePhase(id, k, kind === "cat"); } }}
+              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId.id, k, dragId.isCat); }}
               style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
@@ -993,7 +993,7 @@ function Overview({ siteEvals, onPick }) {
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
                         {items.map(l => (
                           <div key={l.id} draggable
-                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", (l.isCat ? "cat:" : "leaf:") + l.id); setDragId(l.isCat ? { id: l.id, isCat: true } : { id: l.id, isCat: false }); }}
+                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId({ id: l.id, isCat: !!l.isCat }); }}
                             onDragEnd={() => setDragId(null)}
                             style={{ padding: "3px 0", fontSize: 12, cursor: "grab" }}>
                             <div style={{ color: C.ink }}>{l.name}{l.isCat && <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>· 类目</span>}</div>
