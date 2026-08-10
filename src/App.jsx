@@ -1751,7 +1751,7 @@ function LinkProgress() {
       if (data && data.user) {
         const r = getUserRole(data.user.email || "");
         setRoleLabel(getRoleLabel(r));
-        setCanEdit(r === "fr" || r === "cd_link");
+        setCanEdit(r === "fr" || r === "cd_link" || r === "admin");
       }
     });
     loadRows();
