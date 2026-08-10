@@ -230,19 +230,23 @@ const MONITOR_CATEGORIES = [
 // 从 Supabase 并行拉取 6 张表, 组装成 BRAND_SHELF / CAT_DETAIL
 // 形状与旧硬编码一致, 货架/跨站组件无需改动
 // 顶层: 新模型递归统计 (KK 2026-08-10, 必须放在顶层, 防 Vite mangle)
-function tallyCatDeepV2(c) {
+function tallyCatDeepV2(cat) {
   let sell = 0, idle = 0;
-  const visit = (cc) => {
-    const d = CAT_DETAIL[cc.id];
+  const visit = (c) => {
+    const d = CAT_DETAIL[c.id];
     if (d && d.products) for (let i = 0; i < d.products.length; i++) {
       const p = d.products[i];
       if (p.st === "selling") sell++;
       else if (p.st === "idle") idle++;
     }
-    if (cc.children) for (let j = 0; j < cc.children.length; j++) visit(cc.children[j]);
+    // cat 自身的 st 也计入 (KK 2026-08-10, 之前只算 products 漏了 cat 自身)
+    if (c.st === "selling") sell++;
+    else if (c.st === "idle") idle++;
+    if (c.children) for (let j = 0; j < c.children.length; j++) visit(c.children[j]);
   };
-  visit(c);
+  visit(cat);
   return { sell, idle };
+}
 }
 
 async function fetchShelfData() {
