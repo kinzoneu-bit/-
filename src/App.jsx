@@ -2947,6 +2947,14 @@ function Shelf() {
     const payload = edit.type === "leaf" && newSt !== "idle" ? { st: newSt, phase: null } : { st: newSt };
     const { error } = await supabase.from(edit.table).update(payload).eq("id", edit.id);
     if (error) { alert("保存失败: " + error.message); return; }
+    // 自动入框: cat 状态改为 idle 时, 同步加进 monitor_handoff h1 框 (KK 2026-08-10)
+    if (edit.type === "cat" && newSt === "idle") {
+      await supabase.from("monitor_handoff").insert({
+        cat_id: edit.id,
+        box_key: "h1",
+        start_at: new Date().toISOString(),
+      });
+    }
     setEdit(null);
     await refreshShelf();
   };
