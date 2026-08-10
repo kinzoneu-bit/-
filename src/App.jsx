@@ -745,7 +745,7 @@ function Overview({ siteEvals, onPick }) {
     const payload = isCatItem
       ? { cat_id: itemId, leaf_id: null, box_key: targetBox, start_at: now }
       : { leaf_id: itemId, box_key: targetBox, start_at: now };
-    const { error } = await supabase.from("monitor_handoff").upsert(payload);
+    const { error } = await supabase.from("monitor_handoff").upsert(payload, { onConflict: isCatItem ? "cat_id" : "leaf_id" });
     if (error) { alert("保存失败: " + error.message); return; }
     // 联动: cat 拖到 h4 → 类目明细变在售; h2/h3 → 在调研 (KK 2026-08-10)
     if (isCatItem) {
