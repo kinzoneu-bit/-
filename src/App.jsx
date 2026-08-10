@@ -732,9 +732,10 @@ function Overview({ siteEvals, onPick }) {
       return;
     }
     // 一致性校验: 目标框要求的状态与类目当前状态匹配 (KK: 不一致弹报错框)
+    // cat 跳过校验: 拖到 h4 自动变在售, 拖到 h2/h3 自动在调研 (KK 2026-08-10)
     const curSt = info2 ? info2.st : null;
     const allowedSt = BOX_ALLOWED_ST[targetBox];
-    if (allowedSt && curSt && !allowedSt.includes(curSt)) {
+    if (!isCatItem && allowedSt && curSt && !allowedSt.includes(curSt)) {
       const boxTitle = (HANDOFF_BOXES.find(b => b.id === targetBox) || {}).title || targetBox;
       const stLabel = SHELF_ST[curSt] ? SHELF_ST[curSt].label : curSt;
       const needLabel = allowedSt.map(s => (SHELF_ST[s] || {}).label || s).join(" / ");
@@ -784,7 +785,7 @@ function Overview({ siteEvals, onPick }) {
     if (e1) { alert("保存失败: " + e1.message); return; }
     try {
       const { error: e2 } = await supabase.from("monitor_research_progress")
-        .upsert({ leaf_id: leafId, phase: targetPhase, start_at: new Date().toISOString() }, { onConflict: "leaf_id, phase" });
+        .upsert({ leaf_id: itemId, phase: targetPhase, start_at: new Date().toISOString() }, { onConflict: "leaf_id, phase" });
       if (e2) alert("进度记录失败(请确认已建表 monitor_research_progress): " + e2.message);
     } catch (err) {
       alert("进度记录失败(请确认已建表 monitor_research_progress): " + err.message);
