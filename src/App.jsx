@@ -3151,97 +3151,18 @@ function Shelf() {
                                         {c.children && c.children.length > 0 && (() => {
                                           try { return renderCatTree(c.children, ckey, 1); } catch (e) { console.error("cat nested render err:", e); return null; }
                                         })()}
-                                        {detail && detail.leaves ? (
-                                          <React.Fragment>
-                                          {detail.leaves.filter(lf => {
-                                            const f = filterC[ckey];
-                                            if (!f) return true;
-                                            if (f === "selling") return lf.products.some(p => p.st === "selling");
-                                            if (f === "researched_skip") return lf.st === "researched_skip";
-                                            return (lf.st === "idle" && (!lf.products || !lf.products.length)) || lf.products.some(p => p.st === "idle");
-                                          }).map((lf, li) => {
-                                            const f = filterC[ckey];
-                                            const shownProducts = f === "selling" ? lf.products.filter(p => p.st === "selling")
-                                              : f === "idle" ? lf.products.filter(p => p.st === "idle") : lf.products;
-                                            const lkey = `${ckey}|${li}`;
-                                            const lOpen = !!openL[lkey];
-                                            return (
-                                              <div key={li} style={{ borderTop: li ? `1px solid ${C.line}` : "none" }}>
-                                                {/* 末端类目行 */}
-                                                <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 82px" }}>
-                                                  <span onClick={() => setOpenL(st => ({ ...st, [lkey]: !st[lkey] }))} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
-                                                    <Caret open={lOpen} small />
-                                                    {stDot(lf.st === "idle" && lf.phase ? lf.phase : lf.st,
-                                                      (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, phase: lf.phase, label: lf.leaf }); }, undefined, canEditSt(lf.id))}
-                                                  </span>
-                                                  <span onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })} style={{ fontSize: 13, color: C.ink, fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted", textDecorationColor: C.faint, textUnderlineOffset: 3 }}>
-                                                    {lf.leaf}
-                                                  </span>
-                                                  {(() => {
-                                                    const hbox = handoffMap[lf.id];
-                                                    if (hbox && HANDOFF_STEP_LABEL[hbox]) {
-                                                      const hc = HANDOFF_BOXES.find(b => b.id === hbox);
-                                                      return (
-                                                        <span style={{ fontSize: 11, color: hc ? hc.color : C.brand, fontWeight: 600 }}>
-                                                          · {HANDOFF_STEP_LABEL[hbox]}
-                                                        </span>
-                                                      );
-                                                    }
-                                                    return null;
-                                                  })()}
-                                                  {lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
-                                                    <select
-                                                      value={lf.phase || ""}
-                                                      onChange={(e) => {
-                                                        e.stopPropagation();
-                                                        const v = e.target.value;
-                                                        if (v) savePhaseFor(lf.id, v); else clearPhaseFor(lf.id);
-                                                      }}
-                                                      onClick={(e) => e.stopPropagation()}
-                                                      style={{ fontSize: 11, padding: "2px 6px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, cursor: "pointer", outline: "none" }}>
-                                                      <option value="">未细分</option>
-                                                      {Object.entries(LEAF_PHASE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                                    </select>
-                                                  )}
-                                                  {lf.st === "researched_skip" && (
-                                                    <span style={{ fontSize: 11, color: C.faint }}>· 已调研不做</span>
-                                                  )}
-                                                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.brand, cursor: "pointer" }}
-                                                    onClick={() => {
-                                                      if (lf.chatUrl) { window.open(lf.chatUrl, "_blank", "noopener,noreferrer"); return; }
-                                                      setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName });
-                                                    }}>
-                                                    进入分析 →
-                                                  </span>
-                                                </div>
-                                                <div style={{ fontSize: 11, color: C.faint, padding: "0 16px 8px 116px" }}>{lf.path}</div>
-                                                {/* 末端点开后显示 产品 / 供应商 */}
-                                                {lOpen && (
-                                                  <div style={{ padding: "4px 16px 14px 116px", background: C.panel }}>
-                                                    <Branch title="产品">
-                                                      {shownProducts.length ? shownProducts.map((p) => renderProductRow(p, lf.id)) : <Empty t="暂无产品" />}
-                                                      <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
-                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                        + 新增产品
-                                                      </div>
-                                                      {/* 供应商内嵌产品 Branch 末尾 (KK 2026-08-08 模板) */}
-                                                      {lf.suppliers.length ? lf.suppliers.map((sp, si) => (
-                                                        <div key={si} style={{ fontSize: 12, padding: "5px 0", lineHeight: 1.6 }}>
-                                                          <span style={{ color: C.ink, fontWeight: 600 }}>{sp.factory}</span>
-                                                          <span style={{ color: C.sub }}> · {sp.contact}</span>
-                                                          <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
-                                                        </div>
-                                                      )) : null}
-                                                      {/* 规则未定, 暂不显示新增供应商按钮 */}
-                                                    </Branch>
-                                                  </div>
-                                                )}
-                                              </div>
-                                            );
-                                          })}
-                                        {/* 规则未定, 暂不显示新增末端类目按钮 */}
-                                          </React.Fragment>
+                                        {detail && detail.products && detail.products.length > 0 ? (
+                                          <div style={{ padding: '6px 16px 14px 82px', background: C.panel }}>
+                                            <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, letterSpacing: '.04em', marginBottom: 4 }}>产品</div>
+                                            {detail.products.map((p) => renderProductRow(p, c.id))}
+                                          </div>
                                         ) : (
+                                          <div style={{ padding: '8px 16px 14px 82px', fontSize: 12, color: C.faint }}>暂无产品</div>
+                                        )}
+                                        <div onClick={(e) => { e.stopPropagation(); setAddProd({ catId: c.id }); }}
+                                          style={{ fontSize: 11, color: C.brand, cursor: 'pointer', padding: '5px 16px 10px 82px' }}>
+                                          + 新增产品
+                                        </div>: (
                                           <div style={{ padding: "10px 16px 14px 82px" }}>
                                             {/* 顶部统计: 产品 · 变体 · 供应商 */}
                                             <div style={{ display: "flex", gap: 14, fontSize: 11, color: C.sub, marginBottom: 8, padding: "6px 8px", background: C.bg, borderRadius: 6 }}>
