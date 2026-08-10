@@ -3083,7 +3083,7 @@ function Shelf() {
                         {gOpen && (
                           g.cats.length ? (
                             <div>
-                              {g.cats.map((c, ci) => {
+                              {g.cats.filter(c => c.parent_cat_id !== null && c.parent_cat_id !== undefined).map((c, ci) => {
                                 if (c.st === "skip" || c.st === "researched_skip") {
                                   return (
                                     <div key={ci} style={{ display: "flex", alignItems: "center", padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
