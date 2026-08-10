@@ -2924,14 +2924,18 @@ function Shelf() {
         {subOpen && (
           <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
             {sub.children && sub.children.length > 0 && renderCatTree(sub.children, subKey, depth + 1)}
-            {subDetail && subDetail.leaves ? subDetail.leaves.map((lf, li) => (
-              <div key={li} style={{ display: "flex", alignItems: "center", gap: 9, padding: `10px 16px 10px ${pad + 24}px`, borderTop: li ? `1px solid ${C.line}` : "none" }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[lf.st] ? SHELF_ST[lf.st].color : C.faint, display: "inline-block" }} />
-                <span style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>{lf.leaf}</span>
-                <span style={{ fontSize: 10, color: C.faint }}>{lf.path || ""}</span>
+            {subDetail && subDetail.products && subDetail.products.length > 0 ? (
+              <div style={{ padding: `8px 16px 14px ${pad + 24}px`, background: C.panel }}>
+                <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, letterSpacing: ".04em", marginBottom: 4 }}>产品</div>
+                {subDetail.products.map((p) => renderProductRow(p, sub.id))}
               </div>
-            )) : <div style={{ padding: `10px 16px 10px ${pad + 24}px`, fontSize: 11, color: C.faint }}>暂无末端类目</div>}
-            {/* 规则未定, 暂不显示新增末端类目按钮 */}
+            ) : (!sub.children || sub.children.length === 0) && (
+              <div style={{ padding: `10px 16px 10px ${pad + 24}px`, fontSize: 11, color: C.faint }}>暂无产品</div>
+            )}
+            <div onClick={(e) => { e.stopPropagation(); setAddProd({ catId: sub.id }); }}
+              style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 16px 8px " + (pad + 24) + "px" }}>
+              + 新增产品
+            </div>
           </div>
         )}
       </div>
