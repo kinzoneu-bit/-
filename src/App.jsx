@@ -248,6 +248,14 @@ function tallyCatDeepV2(cat) {
   return { sell, idle };
 }
 
+// 子类目排序: 在售 → 在调研 → 还没动 → 不做 (KK 2026-08-10)
+const CAT_ST_ORDER = { selling: 0, idle: 1, ready: 2, skip: 3, researched_skip: 3 };
+const sortCatsBySt = (cats) => {
+  const arr = [...(cats || [])];
+  arr.sort((a, b) => (CAT_ST_ORDER[a.st] !== undefined ? CAT_ST_ORDER[a.st] : 1) - (CAT_ST_ORDER[b.st] !== undefined ? CAT_ST_ORDER[b.st] : 1) || (a.sort_order || 0) - (b.sort_order || 0));
+  return arr;
+};
+
 async function fetchShelfData() {
   const [br, gr, ca, le, pr, su] = await Promise.all([
     supabase.from("brands").select("*").order("sort_order"),
@@ -2026,8 +2034,8 @@ function CatDash({ setProjectFor }) {
             {bOpen && info.groups.map((g, gi) => {
               const gkey = `${b}|${gi}`;
               const gOpen = !!openG[gkey];
-              const allRootCats = (g.cats || []).filter(c => !c.children || c.children.length === 0);
-              const nestedCats = (g.cats || []).filter(c => c.children && c.children.length > 0);
+              const allRootCats = sortCatsBySt((g.cats || []).filter(c => !c.children || c.children.length === 0));
+              const nestedCats = sortCatsBySt((g.cats || []).filter(c => c.children && c.children.length > 0));
               const gTally = (g.cats || []).reduce((s, c) => {
                 const t = tallyCatDeep(c);
                 return { sell: s.sell + t.sell, idleP: s.idleP + t.idleP, skip: s.skip + t.skip };
@@ -2067,7 +2075,7 @@ function CatDash({ setProjectFor }) {
                             </div>
                             {cOpen && c.children && c.children.length > 0 && (
                               <div style={{ marginLeft: 28, marginTop: 4 }}>
-                                {c.children.map((sub, si) => {
+                                {sortCatsBySt(c.children).map((sub, si) => {
                                   const st = tallyCatDeep(sub);
                                   return (
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
@@ -3036,7 +3044,7 @@ function Shelf() {
   };
 
   // 子类目递归渲染 (cat 嵌套: Transport et voyages > Accessoires voiture > leaves)
-  const renderCatTree = (children, parentKey, depth) => children && children.length ? children.map((sub, si) => {
+  const renderCatTree = (children, parentKey, depth) => children && children.length ? sortCatsBySt(children).map((sub, si) => {
     const subKey = `${parentKey}|sub${si}`;
     const subOpen = !!openC[subKey];
     const subDetail = catDetail(sub.name);  // 单参数查找 (不依赖 g, 避免 ReferenceError)
@@ -3230,12 +3238,12 @@ function Shelf() {
                         {gOpen && (
                           g.cats.length ? (
                             <div>
-                              {g.cats.map((c, ci) => {
+                              {sortCatsBySt(g.cats).map((c, ci) => {
                                 // 根 cat (parent_cat_id = NULL): 自动展开其 children, 隐藏名字行 (避免与大类名重复)
                                 if (c.parent_cat_id === null || c.parent_cat_id === undefined) {
                                   return c.children && c.children.length > 0 ? (
                                     <div key={ci} style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
-                                            {c.children.map((sub, si) => {
+                                            {sortCatsBySt(c.children).map((sub, si) => {
                                         try { return renderCatTree([sub], `${gkey}|root${ci}`, 1); } catch (e) { console.error("root cat nested err:", e); return null; }
                                       })}
                                     </div>
