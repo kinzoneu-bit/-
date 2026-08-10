@@ -767,9 +767,18 @@ function Overview({ siteEvals, onPick }) {
 
   // 拖拽换调研阶段: 更新 shelf_leaves.phase + 记录 monitor_research_progress + 刷新
   // 权限: 默认全部登录用户可操作 (KK: 除交接拖拽外其他全开)
-  const movePhase = async (leafId, targetPhase) => {
-    if (!leafId || !targetPhase) return;
-    const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", leafId);
+  const movePhase = async (itemId, targetPhase, isCat) => {
+    if (!itemId || !targetPhase) return;
+    if (isCat) {
+      // 类目: 更新 shelf_cats.phase (类目明细不显示 phase, 只影响开发进度)
+      const { error: e1 } = await supabase.from("shelf_cats").update({ phase: targetPhase }).eq("id", itemId);
+      if (e1) { alert("保存失败: " + e1.message); return; }
+      await loadHandoffs();
+      try { await fetchShelfData(); } catch (e) {}
+      setTick2(t => t + 1);
+      return;
+    }
+    const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", itemId);
     if (e1) { alert("保存失败: " + e1.message); return; }
     try {
       const { error: e2 } = await supabase.from("monitor_research_progress")
@@ -887,8 +896,25 @@ function Overview({ siteEvals, onPick }) {
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
       if (!m[k].byGroup[group]) m[k].byGroup[group] = [];
-      m[k].byGroup[group].push({ ...l, enterAt: prog ? prog.start_at : null, duration: durText });
+      m[k].byGroup[group].push({ ...l, isCat: false, enterAt: prog ? prog.start_at : null, duration: durText });
       m[k].total++;
+    });
+    // 类目 (st=idle 的 cat): 默认 phase=planning (在调研-立项), 拖到其他阶段则 phase 同步 (KK 2026-08-10)
+    Object.entries(BRAND_SHELF).forEach(([b, info]) => {
+      (info.groups || []).forEach(g => {
+        const walk = (c) => {
+          if (c.st === "idle") {
+            const k = c.phase || "planning";
+            if (!m[k]) m[k] = { total: 0, byGroup: {} };
+            const group = g.name || "未分类";
+            if (!m[k].byGroup[group]) m[k].byGroup[group] = [];
+            m[k].byGroup[group].push({ id: c.id, name: c.name, isCat: true, phase: k, enterAt: null, duration: "—" });
+            m[k].total++;
+          }
+          (c.children || []).forEach(s => walk(s));
+        };
+        (g.cats || []).forEach(c => walk(c));
+      });
     });
     return m;
   }, [lToGroup, progress, tick2]);
@@ -940,7 +966,7 @@ function Overview({ siteEvals, onPick }) {
             <div key={k}
               onDragOver={(e) => { e.preventDefault(); setPhaseDrag(true); }}
               onDragLeave={() => setPhaseDrag(false)}
-              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId, k); }}
+              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId.id, k, dragId.isCat); }}
               style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
@@ -959,10 +985,10 @@ function Overview({ siteEvals, onPick }) {
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
                         {items.map(l => (
                           <div key={l.id} draggable
-                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId(l.id); }}
+                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId({ id: l.id, isCat: !!l.isCat }); }}
                             onDragEnd={() => setDragId(null)}
                             style={{ padding: "3px 0", fontSize: 12, cursor: "grab" }}>
-                            <div style={{ color: C.ink }}>{l.name}</div>
+                            <div style={{ color: C.ink }}>{l.name}{l.isCat && <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>· 类目</span>}</div>
                             <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
                               <span>{l.enterAt ? "入: " + new Date(l.enterAt).toLocaleDateString("zh-CN") : "入: —"}</span>
                               <span>· {l.duration}</span>
