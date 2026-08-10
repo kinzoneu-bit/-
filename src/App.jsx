@@ -670,7 +670,9 @@ function Overview({ siteEvals, onPick }) {
       const start = h.start_at ? new Date(h.start_at) : null;
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
-      const lg = h.cat_id ? {} : (lToGroup[h.leaf_id] || {});
+      // cat 卡的 group: 用 ID_NAME 查 path 拼出大类名, 否则 "未分类"
+      const catInfo = h.cat_id ? ID_NAME[h.cat_id] : null;
+      const lg = h.cat_id ? { group: (catInfo && catInfo.path) ? catInfo.path.split("/")[0].trim() : "未分类" } : (lToGroup[h.leaf_id] || {});
       const group = lg.group || "未分类";
       if (!m[h.box_key].byGroup[group]) m[h.box_key].byGroup[group] = [];
       m[h.box_key].byGroup[group].push({
@@ -899,14 +901,14 @@ function Overview({ siteEvals, onPick }) {
       m[k].byGroup[group].push({ ...l, isCat: false, enterAt: prog ? prog.start_at : null, duration: durText });
       m[k].total++;
     });
-    // 类目 (st=idle 的 cat): 默认 phase=planning (在调研-立项), 拖到其他阶段则 phase 同步 (KK 2026-08-10)
+    // 类目 (st=idle 的 cat): 默认 phase=planning, group=大类名 (KK 2026-08-10)
     Object.entries(BRAND_SHELF).forEach(([b, info]) => {
       (info.groups || []).forEach(g => {
         const walk = (c) => {
           if (c.st === "idle") {
             const k = c.phase || "planning";
             if (!m[k]) m[k] = { total: 0, byGroup: {} };
-            const group = g.name || "未分类";
+            const group = (g.name && g.name !== "__flat__") ? g.name : ((info.fullName || b) + " / 未分类");
             if (!m[k].byGroup[group]) m[k].byGroup[group] = [];
             m[k].byGroup[group].push({ id: c.id, name: c.name, isCat: true, phase: k, enterAt: null, duration: "—" });
             m[k].total++;
@@ -917,7 +919,7 @@ function Overview({ siteEvals, onPick }) {
       });
     });
     return m;
-  }, [lToGroup, progress, tick2]);
+  }, [lToGroup, progress, tick2, BRAND_SHELF]);
 
   // 阶段转化统计: 时间段内进入某 phase 的 leaf, 按最终 phase 分布
   const phaseTrans = useMemo(() => {
