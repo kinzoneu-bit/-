@@ -3010,7 +3010,7 @@ function Shelf() {
       cat_id: addLeaf.catId,
       leaf_name: leafName.trim(),
       path: leafPath.trim() || null,
-      st: "idle",
+      st: "ready",
     }).select().single();
     if (error) { alert("添加失败: " + error.message); return; }
     // 仅 phase=planning 的 leaf 才同步进 h1 框 (立项期间)
