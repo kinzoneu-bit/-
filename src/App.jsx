@@ -742,6 +742,12 @@ function Overview({ siteEvals, onPick }) {
       alert(`状态不一致：该类目当前是「${stLabel}」，不能拖到「${boxTitle}」（此阶段要求「${needLabel}」）。\n请先在类目明细把状态改为「${needLabel}」（或由管理员操作）。`);
       return;
     }
+    // 规则: 类目必须完成调研闭环(定款 spec) 才能从调研期间(h1)拖到作业交接 (KK 2026-08-10)
+    if (isCatItem && fromBox === "h1" && targetBox !== "h1" && info2 && info2.phase !== "spec") {
+      alert("该类目还在调研阶段，未到「定款」，不能进入作业交接。
+请先在「在调研」4 阶段中拖到「定款」后再交接。");
+      return;
+    }
     // 写主表
     const payload = isCatItem
       ? { cat_id: itemId, leaf_id: null, box_key: targetBox, start_at: now }
