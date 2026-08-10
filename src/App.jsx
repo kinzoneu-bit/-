@@ -1744,11 +1744,23 @@ function Shipments() {
 // ---------------- 链接制作进度 (空骨架, 待 KK 定义维度) ----------------
 function LinkProgress() {
   const [rows, setRows] = useState([]);
+  const [canEdit, setCanEdit] = useState(false);
+  const [roleLabel, setRoleLabel] = useState("");
   useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) {
+        const r = getUserRole(data.user.email || "");
+        setRoleLabel(getRoleLabel(r));
+        setCanEdit(r === "fr" || r === "cd_link");
+      }
+    });
+    loadRows();
+  }, []);
+  const loadRows = () => {
     supabase.from("link_progress").select("*").order("created_at", { ascending: false })
       .then(({ data }) => { if (data) setRows(data); })
       .catch(e => console.error("LinkProgress fetch err:", e));
-  }, []);
+  };
   const cols = [
     { key: "product_name",   label: "产品" },
     { key: "receive_date",   label: "接收日期" },
@@ -1762,16 +1774,52 @@ function LinkProgress() {
     { key: "fba_conversion", label: "fba转化" },
     { key: "deliver_date",   label: "交付日期" },
   ];
+  // 编辑弹窗状态
+  const [editRow, setEditRow] = useState(null);   // null 或 { id, form }
+  const [form, setForm] = useState({});
+  const openEdit = (row) => {
+    const f = {};
+    cols.forEach(c => f[c.key] = row[c.key] || "");
+    setForm(f); setEditRow(row ? { id: row.id } : { id: null });
+  };
+  const saveRow = async () => {
+    const clean = {};
+    cols.forEach(c => clean[c.key] = (form[c.key] || "").trim() || null);
+    if (!clean.product_name) { alert("产品名必填"); return; }
+    if (editRow.id) {
+      const { error } = await supabase.from("link_progress").update(clean).eq("id", editRow.id);
+      if (error) { alert("保存失败: " + error.message); return; }
+    } else {
+      const { error } = await supabase.from("link_progress").insert(clean);
+      if (error) { alert("保存失败: " + error.message); return; }
+    }
+    setEditRow(null); loadRows();
+  };
+  const delRow = async (id) => {
+    if (!confirm("确认删除该记录？")) return;
+    const { error } = await supabase.from("link_progress").delete().eq("id", id);
+    if (error) { alert("删除失败: " + error.message); return; }
+    loadRows();
+  };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>链接制作进度</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            链接制作各阶段跟踪 · 11 列 · 全员可见 · 待录入
+            链接制作各阶段跟踪 · 11 列 · {canEdit ? "法国/成都链接 可编辑" : "只读（法国/成都链接可编辑）"}
           </div>
         </div>
-        <div style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>共 {rows.length} 行</div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, color: C.faint }}>当前角色: {roleLabel || "未登录"}</span>
+          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 行</span>
+          {canEdit && (
+            <button onClick={() => openEdit(null)}
+              style={{ padding: "6px 14px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+              + 新增记录
+            </button>
+          )}
+        </div>
       </div>
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -1782,12 +1830,13 @@ function LinkProgress() {
                   {c.label}
                 </th>
               ))}
+              {canEdit && <th style={{ padding: "10px 8px", borderBottom: `1px solid ${C.line}`, width: 90 }}>操作</th>}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={cols.length} style={{ padding: 40, textAlign: "center", color: C.faint, fontStyle: "italic" }}>
+                <td colSpan={cols.length + (canEdit ? 1 : 0)} style={{ padding: 40, textAlign: "center", color: C.faint, fontStyle: "italic" }}>
                   暂无数据 · 等待录入
                 </td>
               </tr>
@@ -1795,14 +1844,54 @@ function LinkProgress() {
               <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
                 {cols.map(c => (
                   <td key={c.key} style={{ padding: "10px 8px", color: C.sub }}>
-                    {c.key.endsWith("_date") ? (r[c.key] || "—") : (r[c.key] || "—")}
+                    {r[c.key] || "—"}
                   </td>
                 ))}
+                {canEdit && (
+                  <td style={{ padding: "10px 8px" }}>
+                    <span onClick={() => openEdit(r)} style={{ color: C.brand, cursor: "pointer", fontSize: 11, marginRight: 8 }}>编辑</span>
+                    <span onClick={() => delRow(r.id)} style={{ color: "#ff9090", cursor: "pointer", fontSize: 11 }}>删除</span>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* 新增/编辑 弹窗 */}
+      {editRow && (
+        <div onClick={() => setEditRow(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 560, maxHeight: "85vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>{editRow.id ? "编辑记录" : "新增记录"}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {cols.map(c => (
+                <div key={c.key}>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>{c.label}</div>
+                  {c.key.endsWith("_date") ? (
+                    <input type="date" value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
+                      style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                  ) : (
+                    <input value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
+                      placeholder={c.label}
+                      style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button onClick={() => setEditRow(null)}
+                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+                取消
+              </button>
+              <button onClick={saveRow}
+                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
