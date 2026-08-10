@@ -2037,9 +2037,9 @@ function CatDash({ setProjectFor }) {
               const allRootCats = sortCatsBySt((g.cats || []).filter(c => !c.children || c.children.length === 0));
               const nestedCats = sortCatsBySt((g.cats || []).filter(c => c.children && c.children.length > 0));
               const gTally = (g.cats || []).reduce((s, c) => {
-                const t = tallyCatDeep(c);
-                return { sell: s.sell + t.sell, idleP: s.idleP + t.idleP, skip: s.skip + t.skip };
-              }, { sell: 0, idleP: 0, skip: 0 });
+                const t = tallyCatDeepV2(c);
+                return { sell: s.sell + t.sell, idle: s.idle + t.idle };
+              }, { sell: 0, idle: 0 });
               return (
                 <div key={gkey} style={{ borderTop: `1px solid ${C.line}` }}>
                   <div onClick={() => { setOpenG(s => ({ ...s, [gkey]: !s[gkey] })); setOpenC(s => { const ns = {...s}; Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; }); return ns; }); }}
