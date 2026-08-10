@@ -3007,6 +3007,10 @@ function Shelf() {
         start_at: new Date().toISOString(),
       });
     }
+    // 自动出框: cat 改为不做时, 从两个闭环消失 (KK 2026-08-10)
+    if (edit.type === "cat" && (newSt === "skip" || newSt === "researched_skip")) {
+      await supabase.from("monitor_handoff").delete().eq("cat_id", edit.id);
+    }
     setEdit(null);
     await refreshShelf();
   };
