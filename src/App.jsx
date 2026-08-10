@@ -229,6 +229,22 @@ const MONITOR_CATEGORIES = [
 
 // 从 Supabase 并行拉取 6 张表, 组装成 BRAND_SHELF / CAT_DETAIL
 // 形状与旧硬编码一致, 货架/跨站组件无需改动
+// 顶层: 新模型递归统计 (KK 2026-08-10, 必须放在顶层, 防 Vite mangle)
+function tallyCatDeepV2(c) {
+  let sell = 0, idle = 0;
+  const visit = (cc) => {
+    const d = CAT_DETAIL[cc.id];
+    if (d && d.products) for (let i = 0; i < d.products.length; i++) {
+      const p = d.products[i];
+      if (p.st === "selling") sell++;
+      else if (p.st === "idle") idle++;
+    }
+    if (cc.children) for (let j = 0; j < cc.children.length; j++) visit(cc.children[j]);
+  };
+  visit(c);
+  return { sell, idle };
+}
+
 async function fetchShelfData() {
   const [br, gr, ca, le, pr, su] = await Promise.all([
     supabase.from("brands").select("*").order("sort_order"),
@@ -1870,24 +1886,6 @@ function CatDash({ setProjectFor }) {
     };
     walk(c);
     return { sell, idleP, skip };
-
-  // 新模型递归统计 (基于 cat_id, KK 2026-08-10) - 在 Shelf 函数作用域内可被 renderCatTree 访问
-  const tallyCatDeepV2 = (c) => {
-    let sell = 0, idle = 0;
-    const collect = (catId) => {
-      const d = CAT_DETAIL[catId];
-      if (d && d.products) d.products.forEach(p => {
-        if (p.st === 'selling') sell++;
-        else if (p.st === 'idle') idle++;
-      });
-    };
-    const walk = (cat) => {
-      collect(cat.id);
-      if (cat.children) cat.children.forEach(s => walk(s));
-    };
-    walk(c);
-    return { sell, idle };
-  };
   };
 
   // 新模型递归统计: cat + 子 cat + 产品 (基于 cat_id, KK 2026-08-10)
