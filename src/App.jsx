@@ -290,7 +290,7 @@ async function fetchShelfData() {
   cats.forEach(c => {
     if (c.parent_cat_id) (catsByParent[c.parent_cat_id] = catsByParent[c.parent_cat_id] || []).push(c);
   });
-  const buildCatTree = (parentId) => (catsByParent[parentId] || [])
+  const buildCatTree = (parentId) => { const r = (catsByParent[parentId] || []); if (parentId && parentId.startsWith("0da6f")) console.log("DEBUG buildCatTree Animalerie root", parentId, r.length, r.slice(0,2).map(x=>x.name)); return r; }
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     .map(c => ({
       id: c.id, name: c.name, st: c.st || "idle",
