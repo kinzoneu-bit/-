@@ -3042,6 +3042,7 @@ function Shelf() {
           <Caret open={subOpen} small />
           {stDot(sub.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: sub.id, st: sub.st, label: sub.name }); })}
           <span style={{ fontSize: 13, color: C.ink }}>{sub.name}</span>
+          {(sub.st === "skip" || sub.st === "researched_skip") && (<span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#dc2626", color: "#fff", marginLeft: 8 }}>不做</span>)}
           <span style={{ marginLeft: "auto", fontSize: 11, display: "inline-flex", gap: 10 }}>
             {(() => {
               const t = tallyCatDeepV2(sub);
