@@ -254,6 +254,9 @@ async function fetchShelfData() {
   leaves.forEach(l => { (leavesByCat[l.cat_id] = leavesByCat[l.cat_id] || []).push(l); });
   const productsByLeaf = {};
   products.forEach(p => { (productsByLeaf[p.leaf_id] = productsByLeaf[p.leaf_id] || []).push(p); });
+  // 产品直接挂 cat (新模型, KK 2026-08-10)
+  const productsByCat = {};
+  products.forEach(p => { if (p.cat_id) (productsByCat[p.cat_id] = productsByCat[p.cat_id] || []).push(p); });
   const suppliersByLeaf = {};
   suppliers.forEach(s => { (suppliersByLeaf[s.leaf_id] = suppliersByLeaf[s.leaf_id] || []).push(s); });
 
@@ -274,7 +277,7 @@ async function fetchShelfData() {
   cats.forEach(c => {
     const g = groups.find(x => x.id === c.group_id);
     const gName = g ? g.name : "";
-    const entry = { leaves: buildLeaves(c.id) };
+    const entry = { leaves: buildLeaves(c.id), products: (productsByCat[c.id] || []).map(p => ({ id: p.id, name: p.name, st: p.st || "idle", asin: p.asin || null, spu: p.spu || null, variant_count: p.variant_count || 0, variants: p.variants || [], variant_colors: p.variant_colors || [], variant_sizes: p.variant_sizes || [] })) };
     CAT_DETAIL[gName + " || " + c.name] = entry;
     CAT_DETAIL[c.id] = entry;
     if (!CAT_DETAIL[c.name]) CAT_DETAIL[c.name] = entry;
