@@ -1856,6 +1856,24 @@ function CatDash({ setProjectFor }) {
     return { sell, idleP, skip };
   };
 
+  // 新模型递归统计: cat + 子 cat + 产品 (基于 cat_id, KK 2026-08-10)
+  const tallyCatDeepV2 = (c) => {
+    let sell = 0, idle = 0;
+    const collect = (catId) => {
+      const d = CAT_DETAIL[catId];
+      if (d && d.products) d.products.forEach(p => {
+        if (p.st === "selling") sell++;
+        else if (p.st === "idle") idle++;
+      });
+    };
+    const walk = (cat) => {
+      collect(cat.id);
+      if (cat.children) cat.children.forEach(s => walk(s));
+    };
+    walk(c);
+    return { sell, idle };
+  };
+
   const PhaseTag = ({ lid }) => {
     const b = handoffMap[lid];
     if (!b) return null;
@@ -2917,8 +2935,16 @@ function Shelf() {
           <Caret open={subOpen} small />
           {stDot(sub.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: sub.id, st: sub.st, label: sub.name }); })}
           <span style={{ fontSize: 13, color: C.ink }}>{sub.name}</span>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
-            {subDetail && subDetail.leaves ? `${subDetail.leaves.length} 项` : ""}
+          <span style={{ marginLeft: "auto", fontSize: 11, display: "inline-flex", gap: 10 }}>
+            {(() => {
+              const t = tallyCatDeepV2(sub);
+              return (
+                <>
+                  <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
+                  <span style={{ color: C.sub }}>在调研 {t.idle}</span>
+                </>
+              );
+            })()}
           </span>
         </div>
         {subOpen && (
