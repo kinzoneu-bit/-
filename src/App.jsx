@@ -3083,7 +3083,17 @@ function Shelf() {
                         {gOpen && (
                           g.cats.length ? (
                             <div>
-                              {g.cats.filter(c => c.parent_cat_id !== null && c.parent_cat_id !== undefined).map((c, ci) => {
+                              {g.cats.map((c, ci) => {
+                                // 根 cat (parent_cat_id = NULL): 自动展开其 children, 隐藏名字行 (避免与大类名重复)
+                                if (c.parent_cat_id === null || c.parent_cat_id === undefined) {
+                                  return c.children && c.children.length > 0 ? (
+                                    <div key={ci} style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
+                                      {c.children.map((sub, si) => {
+                                        try { return renderCatTree([sub], `${gkey}|root${ci}`, 1); } catch (e) { console.error("root cat nested err:", e); return null; }
+                                      })}
+                                    </div>
+                                  ) : null;
+                                }
                                 if (c.st === "skip" || c.st === "researched_skip") {
                                   return (
                                     <div key={ci} style={{ display: "flex", alignItems: "center", padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
