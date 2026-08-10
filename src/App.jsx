@@ -3228,8 +3228,7 @@ function Shelf() {
                                 if (c.parent_cat_id === null || c.parent_cat_id === undefined) {
                                   return c.children && c.children.length > 0 ? (
                                     <div key={ci} style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
-                                      <div style={{ padding: "6px 16px", fontSize: 11, color: "yellow" }}>DEBUG: 根 cat {c.name} 有 {c.children.length} 个子</div>
-                                      {c.children.map((sub, si) => {
+                                            {c.children.map((sub, si) => {
                                         try { return renderCatTree([sub], `${gkey}|root${ci}`, 1); } catch (e) { console.error("root cat nested err:", e); return null; }
                                       })}
                                     </div>
