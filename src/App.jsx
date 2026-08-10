@@ -1066,12 +1066,12 @@ function Overview({ siteEvals, onPick }) {
               {data.total ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {groupList.map(([group, items]) => (
-                    <details key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px" }}>
-                      <summary style={{ fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                    <div key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px", marginBottom: 4 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                         <span>{group}</span>
                         <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length} 项</span>
-                      </summary>
-                      <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
+                      </div>
+                      <div style={{ paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
                         {items.map((it, i) => (
                           <div key={it.catId || it.leafId} draggable={canDragFrom}
                             onDragStart={(e) => {
@@ -1082,7 +1082,7 @@ function Overview({ siteEvals, onPick }) {
                             }}
                             onDragEnd={() => setDragId(null)}
                             style={{ padding: "5px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: canDragFrom ? "grab" : "not-allowed" }}>
-                            <div style={{ color: canDragFrom ? C.ink : C.faint, fontWeight: 600 }}>{it.name}{!canDragFrom && <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>🔒</span>}</div>
+                            <div style={{ color: canDragFrom ? C.ink : C.faint, fontWeight: 600 }}>{it.name}{it.catId && <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>· 类目</span>}{!canDragFrom && <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>🔒</span>}</div>
                             <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
                               <span>起: {it.start}</span>
                               <span>· 时长: {it.duration}</span>
@@ -1090,7 +1090,7 @@ function Overview({ siteEvals, onPick }) {
                           </div>
                         ))}
                       </div>
-                    </details>
+                    </div>
                   ))}
                 </div>
               ) : <div style={{ fontSize: 11, color: C.faint }}>暂无交接中</div>}
