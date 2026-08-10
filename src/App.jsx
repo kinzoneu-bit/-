@@ -2107,7 +2107,7 @@ function CatDash({ setProjectFor }) {
                   {gOpen && (
                     <div style={{ background: C.bg, borderTop: `1px solid ${C.line}`, padding: "10px 16px 14px 50px" }}>
                       {allRootCats.map((c, ci) => {
-                        const ckey = `${gkey}|root${ci}`;
+                        const ckey = `${gkey}|root${c.id}`;
                         const cOpen = !!openC[ckey];
                         const t = tallyCatDeep(c);
                         return (
@@ -2150,7 +2150,7 @@ function CatDash({ setProjectFor }) {
                         );
                       })}
                       {nestedCats.map((c, ci) => {
-                        const ckey = `${gkey}|nest${ci}`;
+                        const ckey = `${gkey}|nest${c.id}`;
                         const cOpen = !!openC[ckey];
                         const t = tallyCatDeep(c);
                         return (
@@ -3323,7 +3323,7 @@ function Shelf() {
                                     </div>
                                   );
                                 }
-                                const ckey = `${gkey}|${ci}`;
+                                const ckey = `${gkey}|${c.id}`;
                                 const cOpen = !!openC[ckey];
                                 const detail = catDetail(c.name, g.name);
                                 return (
