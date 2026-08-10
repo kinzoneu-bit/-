@@ -663,18 +663,19 @@ function Overview({ siteEvals, onPick }) {
     const m = {};
     HANDOFF_BOXES.forEach(b => { m[b.id] = { total: 0, byGroup: {} }; });
     (handoffs || []).forEach(h => {
-      const info = ID_NAME[h.leaf_id];
-      if (!info || info.kind !== "leaf") return;
-      // h1 框只显示 phase=planning (立项期间语义); 其他框接收任意 phase
-      if (h.box_key === "h1" && info.phase !== "planning") return;
+      const info = h.cat_id ? (ID_NAME[h.cat_id] || null) : (ID_NAME[h.leaf_id] || null);
+      if (!info) return;
+      // 旧 leaf: h1 只显示 phase=planning; 新 cat: 全部显示
+      if (h.box_key === "h1" && !h.cat_id && info.phase !== "planning") return;
       const start = h.start_at ? new Date(h.start_at) : null;
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
-      const lg = lToGroup[h.leaf_id] || {};
+      const lg = h.cat_id ? {} : (lToGroup[h.leaf_id] || {});
       const group = lg.group || "未分类";
       if (!m[h.box_key].byGroup[group]) m[h.box_key].byGroup[group] = [];
       m[h.box_key].byGroup[group].push({
         leafId: h.leaf_id,
+        catId: h.cat_id,
         name: info.name,
         start: start ? start.toLocaleDateString("zh-CN") : "—",
         duration: durText,
@@ -691,10 +692,11 @@ function Overview({ siteEvals, onPick }) {
   //   h3 → h4: 仅 成都推广 + admin/fr
   //   admin/fr: 任意方向; 拖出 h1 → 其他框 (非 h2) 移出流程并标 researched_skip
   //   一致性: 目标框要求的状态与类目当前状态必须匹配 (BOX_ALLOWED_ST), 否则报错
-  const moveTo = async (leafId, targetBox) => {
-    if (!leafId || !targetBox) return;
+  const moveTo = async (itemId, targetBox, isCat) => {
+    if (!itemId || !targetBox) return;
+    const isCatItem = !!isCat;
     // 找当前 box
-    const cur = (handoffs || []).find(h => h.leaf_id === leafId);
+    const cur = (handoffs || []).find(h => isCatItem ? h.cat_id === itemId : h.leaf_id === itemId);
     const fromBox = cur ? cur.box_key : null;
     // 权限检查
     if (!canDrop(fromBox, targetBox, userRole)) {
@@ -704,17 +706,22 @@ function Overview({ siteEvals, onPick }) {
       return;
     }
     const now = new Date().toISOString();
-    const info2 = ID_NAME[leafId];
+    const info2 = ID_NAME[itemId];
     // admin/fr 拖出 h1 (到非 h2 框) → 移出交接流程 + 标 researched_skip
     if (isFullAccess && fromBox === "h1" && targetBox !== "h2") {
-      const ok = confirm(`放弃此调研：将 "${info2 ? info2.name : leafId}" 标记为「已调研不做」并移出交接流程？`);
+      const ok = confirm(`放弃此调研：将 "${info2 ? info2.name : itemId}" 标记为「已调研不做」并移出交接流程？`);
       if (!ok) return;
-      const { error: e1 } = await supabase.from("shelf_leaves").update({ st: "researched_skip", phase: null }).eq("id", leafId);
-      if (e1) { alert("标记失败: " + e1.message); return; }
-      await supabase.from("monitor_handoff").delete().eq("leaf_id", leafId);
+      if (isCatItem) {
+        await supabase.from("shelf_cats").update({ st: "researched_skip" }).eq("id", itemId);
+        await supabase.from("monitor_handoff").delete().eq("cat_id", itemId);
+      } else {
+        await supabase.from("shelf_leaves").update({ st: "researched_skip", phase: null }).eq("id", itemId);
+        await supabase.from("monitor_handoff").delete().eq("leaf_id", itemId);
+      }
       try {
         await supabase.from("monitor_handoff_log").insert({
-          leaf_id: leafId, from_box: fromBox, to_box: null, moved_at: now,
+          leaf_id: isCatItem ? null : itemId, cat_id: isCatItem ? itemId : null,
+          from_box: fromBox, to_box: null, moved_at: now,
           moved_by_email: currentEmail, note: "researched_skip",
         });
       } catch (e) { /* 表可能未建 */ }
@@ -733,13 +740,21 @@ function Overview({ siteEvals, onPick }) {
       return;
     }
     // 写主表
-    const { error } = await supabase.from("monitor_handoff")
-      .upsert({ leaf_id: leafId, box_key: targetBox, start_at: now }, { onConflict: "leaf_id" });
+    const payload = isCatItem
+      ? { cat_id: itemId, leaf_id: null, box_key: targetBox, start_at: now }
+      : { leaf_id: itemId, box_key: targetBox, start_at: now };
+    const { error } = await supabase.from("monitor_handoff").upsert(payload);
     if (error) { alert("保存失败: " + error.message); return; }
-    // 写历史 log (KK 需先建表 monitor_handoff_log; 建表前静默失败)
+    // 联动: cat 拖到 h4 → 类目明细变在售; h2/h3 → 在调研 (KK 2026-08-10)
+    if (isCatItem) {
+      if (targetBox === "h4") await supabase.from("shelf_cats").update({ st: "selling" }).eq("id", itemId);
+      else if (targetBox === "h2" || targetBox === "h3") await supabase.from("shelf_cats").update({ st: "idle" }).eq("id", itemId);
+    }
+    // 写历史 log
     try {
       await supabase.from("monitor_handoff_log").insert({
-        leaf_id: leafId,
+        leaf_id: isCatItem ? null : itemId,
+        cat_id: isCatItem ? itemId : null,
         from_box: fromBox,
         to_box: targetBox,
         moved_at: now,
@@ -747,6 +762,7 @@ function Overview({ siteEvals, onPick }) {
       });
     } catch (e) { /* 表可能未建, 不影响主流程 */ }
     await Promise.all([loadHandoffs(), loadHandoffLog()]);
+    try { await fetchShelfData(); } catch (e) {}
   };
 
   // 拖拽换调研阶段: 更新 shelf_leaves.phase + 记录 monitor_research_progress + 刷新
@@ -787,7 +803,7 @@ function Overview({ siteEvals, onPick }) {
   // 拖动源 box (用于视觉提示哪些目标框可放置)
   const dragFromBox = useMemo(() => {
     if (!dragId) return null;
-    const h = (handoffs || []).find(x => x.leaf_id === dragId);
+    const h = (handoffs || []).find(x => dragId.isCat ? x.cat_id === dragId.id : x.leaf_id === dragId.id);
     return h ? h.box_key : null;
   }, [dragId, handoffs]);
 
@@ -1010,7 +1026,7 @@ function Overview({ siteEvals, onPick }) {
                 else setHoverBox("__denied__");
               }}
               onDragLeave={() => setHoverBox(null)}
-              onDrop={(e) => { e.preventDefault(); setHoverBox(null); if (dragId) moveTo(dragId, box.id); }}
+              onDrop={(e) => { e.preventDefault(); setHoverBox(null); if (dragId) moveTo(dragId.id, box.id, dragId.isCat); }}
               style={{ background: C.panel, border: `1px solid ${borderColor}`, borderRadius: 12, padding: "16px 18px", minHeight: 180, transition: "border .15s", opacity: (isDragging && !canDragFrom && !dropAllowed) ? 0.55 : 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
@@ -1029,10 +1045,12 @@ function Overview({ siteEvals, onPick }) {
                       </summary>
                       <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
                         {items.map((it, i) => (
-                          <div key={it.leafId} draggable={canDragFrom}
+                          <div key={it.catId || it.leafId} draggable={canDragFrom}
                             onDragStart={(e) => {
                               if (!canDragFrom) { e.preventDefault(); return; }
-                              e.dataTransfer.setData("text/plain", it.leafId); setDragId(it.leafId);
+                              const did = it.catId || it.leafId;
+                              e.dataTransfer.setData("text/plain", did);
+                              setDragId({ id: did, isCat: !!it.catId });
                             }}
                             onDragEnd={() => setDragId(null)}
                             style={{ padding: "5px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: canDragFrom ? "grab" : "not-allowed" }}>
