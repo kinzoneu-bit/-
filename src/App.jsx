@@ -2028,7 +2028,7 @@ function CatDash({ setProjectFor }) {
               }, { sell: 0, idleP: 0, skip: 0 });
               return (
                 <div key={gkey} style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div onClick={() => setOpenG(s => ({ ...s, [gkey]: !s[gkey] }))}
+                  <div onClick={() => { setOpenG(s => ({ ...s, [gkey]: !s[gkey] })); setOpenC(s => { const ns = {...s}; Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; }); return ns; }); }}
                     style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer" }}>
                     <Caret open={gOpen} small />
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
@@ -3203,7 +3203,7 @@ function Shelf() {
                     g.cats.forEach(c => gn[c.st]++);
                     return (
                       <div key={gi} style={{ borderTop: gi ? `1px solid ${C.line}` : "none" }}>
-                        <div onClick={() => setOpenG(s => ({ ...s, [gkey]: !s[gkey] }))}
+                        <div onClick={() => { setOpenG(s => ({ ...s, [gkey]: !s[gkey] })); setOpenC(s => { const ns = {...s}; Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; }); return ns; }); }}
                           style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer", background: C.panel2 }}>
                           <Caret open={gOpen} small />
                           <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
