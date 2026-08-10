@@ -1923,7 +1923,10 @@ function CatDash({ setProjectFor }) {
   const [openB, setOpenB] = useState({});
   const [openG, setOpenG] = useState({});
   const [openC, setOpenC] = useState({});
-  const [openL, setOpenL] = useState({});
+  
+
+  // 大类/二级 cat 默认全部折叠 (重置历史 state)
+  useEffect(() => { setOpenC({}); setOpenG({}); setOpenL({}); }, []);
   const [handoffMap, setHandoffMap] = useState({});
   const [shReady, setShReady] = useState(false);
 
