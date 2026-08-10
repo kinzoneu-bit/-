@@ -349,11 +349,11 @@ async function fetchShelfData() {
   }));
 }
 const SHELF_ST = {
-  selling:  { label: "在售",     color: "#4db6a4" },
-  ready:    { label: "还没动",   color: "#5b6670" },
-  idle:     { label: "在调研",   color: "#d9a441" },
-  skip:     { label: "不做",     color: "#7a5b52" },
-  researched_skip: { label: "不做", color: "#7a5b52" },
+  selling:  { label: "在售",     color: "#22c55e" },
+  ready:    { label: "还没动",   color: "#94a3b8" },
+  idle:     { label: "在调研",   color: "#f97316" },
+  skip:     { label: "不做",     color: "#dc2626" },
+  researched_skip: { label: "不做", color: "#dc2626" },
 };
 
 // 交接框 ↔ 允许的类目状态 (KK 确认 2026-08-07: 状态与阶段必须一致, 否则报错)
