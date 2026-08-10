@@ -3143,7 +3143,7 @@ function Shelf() {
 
       {/* 图例 */}
       <div style={{ display: "flex", gap: 16, marginBottom: 18 }}>
-        {Object.entries(SHELF_ST).map(([k, v]) => (
+        {Object.entries(SHELF_ST).filter(([k], i, arr) => arr.findIndex(x => x[0] === k) === i).map(([k, v]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.sub }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />{v.label}
           </div>
@@ -3410,7 +3410,7 @@ function Shelf() {
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>修改状态</div>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>{edit.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {Object.entries(SHELF_ST).map(([k, v]) => (
+              {Object.entries(SHELF_ST).filter(([k], i, arr) => arr.findIndex(x => x[0] === k) === i).map(([k, v]) => (
                 <div key={k} onClick={() => saveSt(k)}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
                     border: `1px solid ${edit.st === k ? v.color : C.line}`, background: edit.st === k ? `${v.color}22` : "transparent", color: C.ink, fontSize: 13 }}>
