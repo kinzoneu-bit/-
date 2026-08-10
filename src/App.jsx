@@ -346,7 +346,7 @@ async function fetchShelfData() {
 
   // ID_NAME: 全量 id → 名称映射
   ID_NAME = {};
-  cats.forEach(c => { ID_NAME[c.id] = { kind: "cat", name: c.name, path: c.name }; });
+  cats.forEach(c => { const g = groups.find(x => x.id === c.group_id); ID_NAME[c.id] = { kind: "cat", name: c.name, path: (g ? g.name : "") + " / " + c.name }; });
   leaves.forEach(l => { ID_NAME[l.id] = { kind: "leaf", name: l.leaf_name, path: l.path || l.leaf_name, phase: l.phase || null, st: l.st || "idle" }; });
   products.forEach(p => { ID_NAME[p.id] = { kind: "product", name: p.name, path: p.name }; });
 
