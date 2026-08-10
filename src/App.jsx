@@ -247,7 +247,6 @@ function tallyCatDeepV2(cat) {
   visit(cat);
   return { sell, idle };
 }
-}
 
 async function fetchShelfData() {
   const [br, gr, ca, le, pr, su] = await Promise.all([
