@@ -1854,17 +1854,31 @@ function CatDash({ setProjectFor }) {
       if (cat.children) cat.children.forEach(s => walk(s));
     };
     walk(c);
+    return { sell, idleP, skip };const tallyCatDeep = (c) => {
+    let sell = 0, idleP = 0, skip = 0;
+    const collect = (catId) => {
+      const d = CAT_DETAIL[catId];
+      if (d && d.leaves) d.leaves.forEach(lf => {
+        if (lf.st === "researched_skip") skip++;
+        else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
+        else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
+      });
+    };
+    const walk = (cat) => {
+      collect(cat.id);
+      if (cat.children) cat.children.forEach(s => walk(s));
+    };
+    walk(c);
     return { sell, idleP, skip };
-  };
 
-  // 新模型递归统计: cat + 子 cat + 产品 (基于 cat_id, KK 2026-08-10)
+  // 新模型递归统计 (基于 cat_id, KK 2026-08-10) - 在 Shelf 函数作用域内可被 renderCatTree 访问
   const tallyCatDeepV2 = (c) => {
     let sell = 0, idle = 0;
     const collect = (catId) => {
       const d = CAT_DETAIL[catId];
       if (d && d.products) d.products.forEach(p => {
-        if (p.st === "selling") sell++;
-        else if (p.st === "idle") idle++;
+        if (p.st === 'selling') sell++;
+        else if (p.st === 'idle') idle++;
       });
     };
     const walk = (cat) => {
@@ -1873,6 +1887,11 @@ function CatDash({ setProjectFor }) {
     };
     walk(c);
     return { sell, idle };
+  };
+  };
+
+  // 新模型递归统计: cat + 子 cat + 产品 (基于 cat_id, KK 2026-08-10)
+  
   };
 
   const PhaseTag = ({ lid }) => {
