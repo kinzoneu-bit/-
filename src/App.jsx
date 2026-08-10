@@ -1723,21 +1723,65 @@ function Shipments() {
 
 // ---------------- 链接制作进度 (空骨架, 待 KK 定义维度) ----------------
 function LinkProgress() {
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    supabase.from("link_progress").select("*").order("created_at", { ascending: false })
+      .then(({ data }) => { if (data) setRows(data); })
+      .catch(e => console.error("LinkProgress fetch err:", e));
+  }, []);
+  const cols = [
+    { key: "product_name",   label: "产品" },
+    { key: "receive_date",   label: "接收日期" },
+    { key: "sku",            label: "确定sku" },
+    { key: "title",          label: "标题" },
+    { key: "five_points",    label: "五点" },
+    { key: "kit_image",      label: "套图" },
+    { key: "a_plus",         label: "a+" },
+    { key: "video",          label: "视频" },
+    { key: "qa",             label: "q&a" },
+    { key: "fba_conversion", label: "fba转化" },
+    { key: "deliver_date",   label: "交付日期" },
+  ];
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>链接制作进度</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            链接制作各阶段进度跟踪 · 全员可见 · 待 KK 定义维度与数据源
+            链接制作各阶段跟踪 · 11 列 · 全员可见 · 待录入
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
-        </div>
+        <div style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>共 {rows.length} 行</div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        链接制作进度模块 · 待 KK 确认进度维度(拍摄/作图/翻译/上架/优化等)与数据源
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: C.bg }}>
+              {cols.map(c => (
+                <th key={c.key} style={{ padding: "10px 8px", textAlign: "left", fontWeight: 600, color: C.ink, borderBottom: `1px solid ${C.line}`, minWidth: 110 }}>
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={cols.length} style={{ padding: 40, textAlign: "center", color: C.faint, fontStyle: "italic" }}>
+                  暂无数据 · 等待录入
+                </td>
+              </tr>
+            ) : rows.map(r => (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
+                {cols.map(c => (
+                  <td key={c.key} style={{ padding: "10px 8px", color: C.sub }}>
+                    {c.key.endsWith("_date") ? (r[c.key] || "—") : (r[c.key] || "—")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
