@@ -777,7 +777,7 @@ function Overview({ siteEvals, onPick }) {
   // 权限: 默认全部登录用户可操作 (KK: 除交接拖拽外其他全开)
   const movePhase = async (itemId, targetPhase, isCat) => {
     if (!itemId || !targetPhase) return;
-    if (isCat) {
+    if (isCat) { console.log("[movePhase] cat=", itemId, "→", targetPhase);
       // 类目: 更新 shelf_cats.phase (类目明细不显示 phase, 只影响开发进度)
       const { error: e1 } = await supabase.from("shelf_cats").update({ phase: targetPhase }).eq("id", itemId);
       if (e1) { alert("保存失败: " + e1.message); return; }
