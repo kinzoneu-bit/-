@@ -2954,9 +2954,335 @@ function Shelf() {
 
   return (
     <div>
+{false && (<>
+            <SectionTitle t="品牌货架" sub="品牌 → 大类 → 类目，逐层点开。在售 / 还没动 / 不做 / 已调研不做" />
 
+      {/* 图例 */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 18 }}>
+        {Object.entries(SHELF_ST).map(([k, v]) => (
+          <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.sub }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />{v.label}
+          </div>
+        ))}
+      </div>
+      </>)}
 
-      
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {brands.map(b => {
+          const info = BRAND_SHELF[b];
+          const n = countCats(info.groups);
+          const isOpen = !!openB[b];
+          return (
+            <div key={b} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+              {/* 品牌行 */}
+              <div onClick={() => setOpenB(s => ({ ...s, [b]: !s[b] }))}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}>
+                <Caret open={isOpen} />
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{info.fullName || b}</span>
+                <span style={{ fontSize: 11, color: C.faint }}>{info.store}</span>
+                <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                  <span style={{ color: C.sub }}>
+                    {info.flat ? `${n.total} 类目` : `${info.groups.length} 大类 · ${n.total} 二级类目`}
+                  </span>
+                  {(() => {
+                    const t = tallyScope(info.flat ? info.groups[0].cats : info.groups.flatMap(g => g.cats));
+                    return (
+                      <>
+                        <span style={{ color: SHELF_ST.selling.color, fontWeight: 600 }}>在售 {t.sell}</span>
+                        <span style={{ color: C.sub }}>在调研 {t.idle}</span>
+                      </>
+                    );
+                  })()}
+                </span>
+              </div>
+
+              {/* 大类层 (flat 品牌: 类目竖向单列排列, 每行一项) */}
+              {isOpen && info.flat && (
+                <div style={{ borderTop: `1px solid ${C.line}` }}>
+                  {info.groups[0].cats.map((c, ci) => {
+                    return (
+                      <div key={ci} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", borderTop: ci ? `1px solid ${C.line}` : "none" }}>
+                        {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
+                        <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {isOpen && !info.flat && (
+                <div style={{ borderTop: `1px solid ${C.line}` }}>
+                  {info.groups.map((g, gi) => {
+                    const gkey = `${b}|${gi}`;
+                    const gOpen = !!openG[gkey];
+                    const gn = { selling: 0, ready: 0, idle: 0, skip: 0 };
+                    g.cats.forEach(c => gn[c.st]++);
+                    return (
+                      <div key={gi} style={{ borderTop: gi ? `1px solid ${C.line}` : "none" }}>
+                        <div onClick={() => setOpenG(s => ({ ...s, [gkey]: !s[gkey] }))}
+                          style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer", background: C.panel2 }}>
+                          <Caret open={gOpen} small />
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
+                          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                            <span style={{ color: C.faint }}>{g.cats.length} 项</span>
+                            {(() => {
+                              const t = tallyScope(g.cats);
+                              return (
+                                <>
+                                  <span style={{ color: SHELF_ST.selling.color, fontWeight: 600 }}>在售 {t.sell}</span>
+                                  <span style={{ color: C.sub }}>在调研 {t.idle}</span>
+                                </>
+                              );
+                            })()}
+                          </span>
+                        </div>
+                        {/* 类目层 (竖向单列, 可点开看 产品/供应商) */}
+                        {gOpen && (
+                          g.cats.length ? (
+                            <div>
+                              {g.cats.map((c, ci) => {
+                                if (c.st === "skip" || c.st === "researched_skip") {
+                                  return (
+                                    <div key={ci} style={{ display: "flex", alignItems: "center", padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
+                                      <span style={{ fontSize: 13, color: C.faint }}>{c.name} - 不做</span>
+                                    </div>
+                                  );
+                                }
+                                const ckey = `${gkey}|${ci}`;
+                                const cOpen = !!openC[ckey];
+                                const detail = catDetail(c.name, g.name);
+                                return (
+                                  <div key={ci} style={{ borderTop: `1px solid ${C.line}` }}>
+                                    <div onClick={() => setOpenC(st => ({ ...st, [ckey]: !st[ckey] }))}
+                                      style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 58px", cursor: "pointer" }}>
+                                      <Caret open={cOpen} small />
+                                      {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
+                                      <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
+                                      <span onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (c.chatUrl) { window.open(c.chatUrl, "_blank", "noopener,noreferrer"); return; }
+                                          setProjectFor({ name: c.name, path: `${g.name} › ${c.name}`, chatName: c.chatName });
+                                        }}
+                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", marginLeft: 6 }}>
+                                        · 进入分析 →
+                                      </span>
+                                      {(() => {
+                                        const prods = detail ? (detail.leaves ? detail.leaves.flatMap(l => l.products) : (detail.products || [])) : [];
+                                        const leaves = detail && detail.leaves ? detail.leaves : [];
+                                        const researchLeaves = leaves.filter(l => l.st === "idle" && (!l.products || !l.products.length)).length;
+                                        const doneSkipLeaves = leaves.filter(l => l.st === "researched_skip").length;
+                                        const sell = prods.filter(p => p.st === "selling").length;
+                                        const res = prods.filter(p => p.st === "idle").length + researchLeaves;
+                                        if (!prods.length && !researchLeaves && !doneSkipLeaves) return null;
+                                        const cur = filterC[ckey];
+                                        const toggle = (v, e) => { e.stopPropagation(); setFilterC(st => ({ ...st, [ckey]: st[ckey] === v ? undefined : v })); if (!openC[ckey]) setOpenC(st => ({ ...st, [ckey]: true })); };
+                                        const chip = (active, color) => ({ cursor: "pointer", padding: "1px 7px", borderRadius: 10, border: `1px solid ${active ? color : "transparent"}`, background: active ? `${color}22` : "transparent", color });
+                                        return (
+                                          <span style={{ marginLeft: "auto", fontSize: 11, display: "flex", gap: 4 }}>
+                                            <span onClick={(e) => toggle("selling", e)} style={chip(cur === "selling", SHELF_ST.selling.color)}>在售 {sell}</span>
+                                            <span onClick={(e) => toggle("idle", e)} style={chip(cur === "idle", C.sub)}>在调研 {res}</span>
+                                            <span onClick={(e) => toggle("researched_skip", e)} style={chip(cur === "researched_skip", C.faint)}>已调研不做 {doneSkipLeaves}</span>
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
+                                    {cOpen && (
+                                      <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
+                                        {/* 子类目 (cat 嵌套, 包 try-catch 防止渲染报错) */}
+                                        {c.children && c.children.length > 0 && (() => {
+                                          try { return renderCatTree(c.children, ckey, 1); } catch (e) { console.error("cat nested render err:", e); return null; }
+                                        })()}
+                                        {detail && detail.leaves ? (
+                                          <React.Fragment>
+                                          {detail.leaves.filter(lf => {
+                                            const f = filterC[ckey];
+                                            if (!f) return true;
+                                            if (f === "selling") return lf.products.some(p => p.st === "selling");
+                                            if (f === "researched_skip") return lf.st === "researched_skip";
+                                            return (lf.st === "idle" && (!lf.products || !lf.products.length)) || lf.products.some(p => p.st === "idle");
+                                          }).map((lf, li) => {
+                                            const f = filterC[ckey];
+                                            const shownProducts = f === "selling" ? lf.products.filter(p => p.st === "selling")
+                                              : f === "idle" ? lf.products.filter(p => p.st === "idle") : lf.products;
+                                            const lkey = `${ckey}|${li}`;
+                                            const lOpen = !!openL[lkey];
+                                            return (
+                                              <div key={li} style={{ borderTop: li ? `1px solid ${C.line}` : "none" }}>
+                                                {/* 末端类目行 */}
+                                                <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 82px" }}>
+                                                  <span onClick={() => setOpenL(st => ({ ...st, [lkey]: !st[lkey] }))} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
+                                                    <Caret open={lOpen} small />
+                                                    {stDot(lf.st === "idle" && lf.phase ? lf.phase : lf.st,
+                                                      (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, phase: lf.phase, label: lf.leaf }); }, undefined, canEditSt(lf.id))}
+                                                  </span>
+                                                  <span onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })} style={{ fontSize: 13, color: C.ink, fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted", textDecorationColor: C.faint, textUnderlineOffset: 3 }}>
+                                                    {lf.leaf}
+                                                  </span>
+                                                  {(() => {
+                                                    const hbox = handoffMap[lf.id];
+                                                    if (hbox && HANDOFF_STEP_LABEL[hbox]) {
+                                                      const hc = HANDOFF_BOXES.find(b => b.id === hbox);
+                                                      return (
+                                                        <span style={{ fontSize: 11, color: hc ? hc.color : C.brand, fontWeight: 600 }}>
+                                                          · {HANDOFF_STEP_LABEL[hbox]}
+                                                        </span>
+                                                      );
+                                                    }
+                                                    return null;
+                                                  })()}
+                                                  {lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
+                                                    <select
+                                                      value={lf.phase || ""}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const v = e.target.value;
+                                                        if (v) savePhaseFor(lf.id, v); else clearPhaseFor(lf.id);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      style={{ fontSize: 11, padding: "2px 6px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, cursor: "pointer", outline: "none" }}>
+                                                      <option value="">未细分</option>
+                                                      {Object.entries(LEAF_PHASE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                                    </select>
+                                                  )}
+                                                  {lf.st === "researched_skip" && (
+                                                    <span style={{ fontSize: 11, color: C.faint }}>· 已调研不做</span>
+                                                  )}
+                                                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.brand, cursor: "pointer" }}
+                                                    onClick={() => {
+                                                      if (lf.chatUrl) { window.open(lf.chatUrl, "_blank", "noopener,noreferrer"); return; }
+                                                      setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName });
+                                                    }}>
+                                                    进入分析 →
+                                                  </span>
+                                                </div>
+                                                <div style={{ fontSize: 11, color: C.faint, padding: "0 16px 8px 116px" }}>{lf.path}</div>
+                                                {/* 末端点开后显示 产品 / 供应商 */}
+                                                {lOpen && (
+                                                  <div style={{ padding: "4px 16px 14px 116px", background: C.panel }}>
+                                                    <Branch title="产品">
+                                                      {shownProducts.length ? shownProducts.map((p) => renderProductRow(p, lf.id)) : <Empty t="暂无产品" />}
+                                                      <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
+                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                        + 新增产品
+                                                      </div>
+                                                      {/* 供应商内嵌产品 Branch 末尾 (KK 2026-08-08 模板) */}
+                                                      {lf.suppliers.length ? lf.suppliers.map((sp, si) => (
+                                                        <div key={si} style={{ fontSize: 12, padding: "5px 0", lineHeight: 1.6 }}>
+                                                          <span style={{ color: C.ink, fontWeight: 600 }}>{sp.factory}</span>
+                                                          <span style={{ color: C.sub }}> · {sp.contact}</span>
+                                                          <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
+                                                        </div>
+                                                      )) : null}
+                                                      {/* 规则未定, 暂不显示新增供应商按钮 */}
+                                                    </Branch>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        {/* 规则未定, 暂不显示新增末端类目按钮 */}
+                                          </React.Fragment>
+                                        ) : (
+                                          <div style={{ padding: "10px 16px 14px 82px" }}>
+                                            {/* 顶部统计: 产品 · 变体 · 供应商 */}
+                                            <div style={{ display: "flex", gap: 14, fontSize: 11, color: C.sub, marginBottom: 8, padding: "6px 8px", background: C.bg, borderRadius: 6 }}>
+                                              <span>产品 <b style={{ color: C.ink }}>{detail ? detail.products.length : 0}</b></span>
+                                              <span>变体 <b style={{ color: C.ink }}>{detail ? detail.products.reduce((s, p) => s + (p.variant_count || 0), 0) : 0}</b></span>
+                                              <span>供应商 <b style={{ color: C.ink }}>{detail ? detail.suppliers.length : 0}</b></span>
+                                            </div>
+                                            <Branch title="产品">
+                                              {detail && detail.products.length ? detail.products.map((p, pi) => {
+                                                const variants = Array.isArray(p.variants) ? p.variants : [];
+                                                const pOpen = !!openPV[p.id];
+                                                return (
+                                                  <div key={pi} style={{ fontSize: 12, padding: "6px 0", color: C.ink }}>
+                                                    {/* 主行: 状态点 + 产品名 + 状态词 + (有变体: SPU·N变体 / 无变体: ASIN) */}
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                      {variants.length > 0 && (
+                                                        <span onClick={(e) => { e.stopPropagation(); setOpenPV(st => ({ ...st, [p.id]: !st[p.id] })); }}
+                                                          style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", color: C.sub }}>
+                                                          <Caret open={pOpen} small />
+                                                        </span>
+                                                      )}
+                                                      <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
+                                                        style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
+                                                        title="点击修改状态" />{p.name}
+                                                      <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
+                                                      {variants.length > 0 ? (
+                                                        <span style={{ color: C.faint, fontSize: 11 }}>
+                                                          · {p.spu && <>SPU: <span style={{ fontFamily: "monospace" }}>{p.spu}</span> · </>}
+                                                          {variants.length}个变体
+                                                        </span>
+                                                      ) : (
+                                                        p.asin && (
+                                                          <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            style={{ color: C.brand, fontSize: 11, textDecoration: "none" }}>
+                                                            · ASIN <span style={{ fontFamily: "monospace" }}>{p.asin}</span>
+                                                          </a>
+                                                        )
+                                                      )}
+                                                    </div>
+                                                    {/* 变体下拉: 默认全部展开 (KK 2026-08-08 反馈默认展开可见) */}
+                                                    {variants.length > 0 && (
+                                                      <div style={{ marginLeft: 28, marginTop: 6, padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11, color: C.sub }}>
+                                                        {variants.map((v, vi) => (
+                                                          <div key={vi} style={{ display: "flex", alignItems: "center", gap: 12, padding: "3px 0" }}>
+                                                            {v.color && (
+                                                              <span style={{ display: "inline-flex", alignItems: "center", minWidth: 50 }}>
+                                                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: (p.variant_colors || []).find(c => c.name === v.color)?.hex || "#888", marginRight: 4, border: `1px solid ${C.line}` }} />
+                                                                {v.color}
+                                                              </span>
+                                                            )}
+                                                            {v.size && <span style={{ fontFamily: "monospace", minWidth: 24 }}>{v.size}</span>}
+                                                            {v.asin ? (
+                                                              <a href={`https://amazon.fr/dp/${v.asin}`} target="_blank" rel="noreferrer"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                                style={{ color: C.brand, textDecoration: "none", fontFamily: "monospace" }}>
+                                                                {v.asin}
+                                                              </a>
+                                                            ) : <span style={{ color: C.faint, fontStyle: "italic" }}>ASIN 待填</span>}
+                                                          </div>
+                                                        ))}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                );
+                                              }) : <Empty t="暂无产品" />}
+                                              <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
+                                                style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                + 新增产品
+                                              </div>
+                                              {/* 供应商: 叶端共享, 显示在产品列表后 (按 KK 2026-08-08 模板) */}
+                                              {detail && detail.suppliers.length ? detail.suppliers.map((sp, si) => (
+                                                <div key={si} style={{ fontSize: 12, padding: "5px 0", lineHeight: 1.6 }}>
+                                                  <span style={{ color: C.ink, fontWeight: 600 }}>{sp.factory}</span>
+                                                  <span style={{ color: C.sub }}> · {sp.contact}</span>
+                                                  <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
+                                                </div>
+                                              )) : null}
+                                              {/* 规则未定, 暂不显示新增供应商按钮 */}
+                                            </Branch>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 12, color: C.faint, padding: "10px 16px 14px 58px", borderTop: `1px solid ${C.line}` }}>待录入</div>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* 改状态浮层 */}
       {edit && (
