@@ -1846,7 +1846,7 @@ function LinkProgress() {
   const [form, setForm] = useState({});
   const openEdit = (row) => {
     const f = {};
-    cols.forEach(c => f[c.key] = row[c.key] || "");
+    cols.forEach(c => f[c.key] = row ? (row[c.key] || "") : "");
     setForm(f); setEditRow(row ? { id: row.id } : { id: null });
   };
   const saveRow = async () => {
