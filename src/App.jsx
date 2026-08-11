@@ -2124,7 +2124,13 @@ function CatDash({ setProjectFor }) {
                         const t = tallyCatDeep(c);
                         return (
                           <div key={ci} style={{ marginBottom: 6 }}>
-                            <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
+                            <div onClick={() => setOpenC(s => {
+                              const willOpen = !s[ckey];
+                              const ns = { ...s };
+                              Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; });
+                              if (willOpen) ns[ckey] = true;
+                              return ns;
+                            })} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600 }}>{c.name}</span>
                               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
@@ -2167,7 +2173,13 @@ function CatDash({ setProjectFor }) {
                         const t = tallyCatDeep(c);
                         return (
                           <div key={ci} style={{ marginBottom: 4 }}>
-                            <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
+                            <div onClick={() => setOpenC(s => {
+                              const willOpen = !s[ckey];
+                              const ns = { ...s };
+                              Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; });
+                              if (willOpen) ns[ckey] = true;
+                              return ns;
+                            })} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600, marginLeft: 4 }}>{c.name}</span>
                               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
@@ -3340,7 +3352,13 @@ function Shelf() {
                                 const detail = catDetail(c.name, g.name);
                                 return (
                                   <div key={ci} style={{ borderTop: `1px solid ${C.line}` }}>
-                                    <div onClick={() => setOpenC(st => ({ ...st, [ckey]: !st[ckey] }))}
+                                    <div onClick={() => setOpenC(st => {
+                                      const willOpen = !st[ckey];
+                                      const ns = { ...st };
+                                      Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; });
+                                      if (willOpen) ns[ckey] = true;
+                                      return ns;
+                                    })}
                                       style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 58px", cursor: "pointer" }}>
                                       <Caret open={cOpen} small />
                                       {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
