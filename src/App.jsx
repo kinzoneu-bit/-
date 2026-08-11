@@ -1831,6 +1831,8 @@ function LinkProgress() {
   const cols = [
     { key: "product_name",   label: "产品" },
     { key: "receive_date",   label: "接收日期" },
+    { key: "asin",           label: "asin" },
+    { key: "country",        label: "国家", kind: "country" },
     { key: "sku",            label: "确定sku" },
     { key: "title",          label: "标题" },
     { key: "five_points",    label: "五点" },
@@ -1841,6 +1843,7 @@ function LinkProgress() {
     { key: "fba_conversion", label: "fba转化" },
     { key: "deliver_date",   label: "交付日期" },
   ];
+  const COUNTRIES = ["", "FR", "DE", "UK", "IT", "ES", "NL", "PL", "SE"];
   // 编辑弹窗状态
   const [editRow, setEditRow] = useState(null);   // null 或 { id, form }
   const [form, setForm] = useState({});
@@ -1938,6 +1941,11 @@ function LinkProgress() {
                   {c.key.endsWith("_date") ? (
                     <input type="date" value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
                       style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                  ) : c.kind === "country" ? (
+                    <select value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
+                      style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }}>
+                      {COUNTRIES.map(x => <option key={x} value={x}>{x || "选择国家"}</option>)}
+                    </select>
                   ) : (
                     <input value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
                       placeholder={c.label}
