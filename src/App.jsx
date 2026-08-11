@@ -321,11 +321,13 @@ async function fetchShelfData() {
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     .map(c => ({
       id: c.id, name: c.name, st: c.st || "idle",
+      phase: c.phase || null,
       chatName: c.chat_name || null, chatUrl: c.chat_url || null,
       children: buildCatTree(c.id),
     }));
   const mapRootCat = (c) => ({
     id: c.id, name: c.name, st: c.st || "idle",
+    phase: c.phase || null,
     chatName: c.chat_name || null, chatUrl: c.chat_url || null,
     children: buildCatTree(c.id),
   });
