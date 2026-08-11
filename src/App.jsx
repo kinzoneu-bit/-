@@ -603,6 +603,8 @@ function Overview({ siteEvals, onPick }) {
   const isAdmin = userRole === "admin";
   const isFullAccess = userRole === "admin" || userRole === "fr";
   const [openPhases, setOpenPhases] = useState({});
+  // 调研 4 阶段框的拖拽高亮 (按 phase key 索引, 修复前误用 useState-in-map 导致 hooks 违规)
+  const [phaseDrag, setPhaseDrag] = useState({});
   // 调研阶段顺序 (拖拽流转: planning → pre_research → supplier → spec)
   const PHASE_ORDER = ["planning", "pre_research", "supplier", "spec"];
   // 调研阶段进度 (leaf_id+phase → start_at) - 显示进入时间 + 持续时长
@@ -969,13 +971,13 @@ function Overview({ siteEvals, onPick }) {
         {Object.entries(LEAF_PHASE).map(([k, v]) => {
           const data = phaseMap[k] || { total: 0, byBrand: {} };
           const isOpen = !!openPhases[k];
-          const [phaseDrag, setPhaseDrag] = useState(false);
+          const isPhaseDragging = !!phaseDrag[k];
           return (
             <div key={k}
-              onDragOver={(e) => { e.preventDefault(); setPhaseDrag(true); }}
-              onDragLeave={() => setPhaseDrag(false)}
-              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId.id, k, dragId.isCat); }}
-              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
+              onDragOver={(e) => { e.preventDefault(); setPhaseDrag(s => ({ ...s, [k]: true })); }}
+              onDragLeave={() => setPhaseDrag(s => ({ ...s, [k]: false }))}
+              onDrop={(e) => { e.preventDefault(); setPhaseDrag(s => ({ ...s, [k]: false })); if (dragId) movePhase(dragId.id, k, dragId.isCat); }}
+              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: isPhaseDragging ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
