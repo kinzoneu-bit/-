@@ -2224,12 +2224,11 @@ function InventoryStats() {
               {canEditInv && <div style={{ padding: "9px 8px" }}>操作</div>}
             </div>
             {rows.map((r, i) => {
-              const outOfStock = (r.stock_qty ?? r.listed_qty ?? 0) <= 0 && r.sold_date;
-              const bg = outOfStock ? "#c05b5218" : (i % 2 ? C.bg : "transparent");
+              const bg = i % 2 ? C.bg : "transparent";
               return (
                 <div key={r.id} style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bg }}>
                   {COLS.map(c => (
-                    <div key={c.k} style={{ padding: "8px", fontWeight: c.bold ? 600 : 400, color: outOfStock && (c.k === "stock_qty" || c.k === "sold_date") ? "#c05b52" : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(c, r[c.k], r)}</div>
+                    <div key={c.k} style={{ padding: "8px", fontWeight: c.bold ? 600 : 400, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(c, r[c.k], r)}</div>
                   ))}
                   {canEditInv && <div style={{ padding: "8px", textAlign: "center" }}>
                     <span onClick={() => openEditInv(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
