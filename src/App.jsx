@@ -2139,6 +2139,7 @@ function InventoryStats() {
   };
   const totalQty = rows.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
   const totalStock = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
+  const totalAmount = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0) * Number(r.landed_cost || 0), 0);
   const daysBetween = (a, b) => {
     if (!a || !b) return null;
     const ms = new Date(b).getTime() - new Date(a).getTime();
@@ -2211,6 +2212,9 @@ function InventoryStats() {
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{filterStore ? `已筛选: ${filterStore}` : `共 ${rows.length} 条`}</span>
+          <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
+            库存金额 ¥{totalAmount.toFixed(2)}
+          </span>
         </div>
       </div>
 
