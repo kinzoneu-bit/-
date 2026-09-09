@@ -1628,6 +1628,42 @@ function Shipments() {
     setRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: !current } : r));
   };
 
+  // —— 编辑记录 (admin/cd_promotion) ——
+  const [editShip, setEditShip] = useState(null);   // { id } 或 null
+  const [shipForm, setShipForm] = useState({});
+  const SHIP_TEXT = ["store", "ship_warehouse", "ship_batch", "product_name", "asin", "logistics_provider", "channel", "last_mile_no", "insurance_no", "note"];
+  const SHIP_DATE = ["ship_date", "listed_date"];
+  const SHIP_NUM  = ["qty", "listed_qty", "loss_qty", "purchase_price", "goods_value", "total_value", "freight", "misc_fee", "duty", "insurance_fee", "share_fee", "landed_cost", "unit_price", "compensation_eur", "loss_amount", "insured_amount"];
+  const SHIP_LABEL = {
+    store: "店铺", ship_date: "发货日期", ship_warehouse: "发货仓库", ship_batch: "发货批次",
+    product_name: "名称", asin: "ASIN", qty: "数量", purchase_price: "采购价", goods_value: "货值",
+    total_value: "总值", freight: "头程", misc_fee: "杂费", duty: "关税", insurance_fee: "保险费",
+    share_fee: "分摊费", landed_cost: "到仓价", logistics_provider: "物流商", channel: "渠道",
+    unit_price: "单价", last_mile_no: "尾程单号", listed_date: "上架日期", listed_qty: "上架数量",
+    loss_qty: "损耗", compensation_eur: "赔付(€)", loss_amount: "亏损", insurance_no: "保险单号",
+    insured_amount: "投保金额", note: "备注",
+  };
+  const openEditShip = (row) => {
+    const f = {};
+    SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).forEach(k => f[k] = row[k] != null ? String(row[k]) : "");
+    setShipForm(f); setEditShip({ id: row.id });
+  };
+  const saveShip = async () => {
+    if (!editShip) return;
+    const clean = {};
+    SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).forEach(k => {
+      const v = (shipForm[k] || "").trim();
+      if (k === "product_name" && !v) { alert("名称必填"); return; }
+      if (v === "") { clean[k] = null; return; }
+      if (SHIP_DATE.includes(k)) { clean[k] = v; return; }
+      if (SHIP_NUM.includes(k)) { clean[k] = Number(v); return; }
+      clean[k] = v;
+    });
+    const { error } = await supabase.from("shipments").update(clean).eq("id", editShip.id);
+    if (error) { alert("保存失败: " + error.message); return; }
+    setEditShip(null); load();
+  };
+
   // 批次着色: 同一批次 (ship_batch 为空继承上一个非空) 同色, 不同批次不同颜色
   const batchColorOf = useMemo(() => {
     const PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
@@ -1739,8 +1775,8 @@ function Shipments() {
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
           <div style={{ minWidth: 2260 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
-              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "累计天数", "账单核对", "运费已付", "备注"].map(h => (
+            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px 80px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "累计天数", "账单核对", "运费已付", "备注", "操作"].map(h => (
                 <div key={h} style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>{h}</div>
               ))}
             </div>
@@ -1794,6 +1830,11 @@ function Shipments() {
                   {r.freight_paid ? "✓ 已付" : "✗ 未付"}
                 </div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
+                <div style={{ padding: "6px", textAlign: "center" }}>
+                  {canEdit && (
+                    <span onClick={() => openEditShip(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap" }}>✎ 编辑</span>
+                  )}
+                </div>
               </div>
               );
             })}
@@ -1802,6 +1843,43 @@ function Shipments() {
       ) : (
         <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>
           暂无发货记录 · Excel 导入: node scripts/import-shipments.mjs {"<文件>"} --store=店铺名
+        </div>
+      )}
+
+      {/* 编辑弹窗 */}
+      {editShip && (
+        <div onClick={() => setEditShip(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 620, maxHeight: "85vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>编辑发货记录</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>带 * 为必填 · 数值留空会清空 · 保存后表格即时更新</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              {SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).map(k => (
+                <div key={k}>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>
+                    {SHIP_LABEL[k] || k}{k === "product_name" || k === "qty" || k === "ship_date" ? " *" : ""}
+                  </div>
+                  {SHIP_DATE.includes(k) ? (
+                    <input type="date" value={shipForm[k] || ""} onChange={(e) => setShipForm(s => ({ ...s, [k]: e.target.value }))}
+                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                  ) : (
+                    <input value={shipForm[k] || ""} onChange={(e) => setShipForm(s => ({ ...s, [k]: e.target.value }))}
+                      placeholder={SHIP_LABEL[k] || k}
+                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button onClick={() => setEditShip(null)}
+                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+                取消
+              </button>
+              <button onClick={saveShip}
+                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                保存修改
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
