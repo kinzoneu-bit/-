@@ -1665,13 +1665,13 @@ function Shipments() {
       if (!r.ship_date) return;
       const days = (today - new Date(r.ship_date).getTime()) / 86400000;
       if (days > 65) {
-        const missing = FIELDS_65.filter(f => f === "listed_date" ? !r[f] : (r[f] == null || Number(r[f]) === 0));
+        const missing = FIELDS_65.filter(f => f === "listed_date" ? !r[f] : (r[f] == null || r[f] === ""));
         if (missing.length) r65.push({ row: r, days: Math.floor(days), missing });
       }
       if (days > 14) {
         const missing = FIELDS_14.filter(f => {
           if (["logistics_provider", "channel", "last_mile_no"].includes(f)) return !r[f];
-          return r[f] == null || Number(r[f]) === 0;
+          return r[f] == null || r[f] === "";
         });
         if (missing.length) r14.push({ row: r, days: Math.floor(days), missing });
       }
