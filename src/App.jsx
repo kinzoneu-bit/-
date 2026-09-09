@@ -2782,22 +2782,137 @@ function OrderSummary() {
 
 // ---------------- 店铺运维费用 (空骨架, 待 KK 填充) ----------------
 function OpsFee() {
+  const SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
+  const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租"];
+  const cur = new Date();
+  const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
+  const [rows, setRows] = useState([]);
+  const [edCell, setEdCell] = useState(null);
+  const [edAmount, setEdAmount] = useState("");
+  const [edStore, setEdStore] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [opsRole, setOpsRole] = useState(null);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) setOpsRole(getUserRole(data.user.email || ""));
+    });
+  }, []);
+  const canEdit = opsRole === "admin";
+  const load = () => {
+    supabase.from("opsfee_monthly").select("*").eq("month", month).order("site, category")
+      .then(({ data, error }) => {
+        if (error) { alert("读取失败(请先建表 opsfee_monthly): " + error.message); setRows([]); return; }
+        setRows(data || []); setLoaded(true);
+      });
+  };
+  useEffect(() => { load(); }, [month]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (opsRole) load(); }, [opsRole]);
+  const getVal = (site, category) => {
+    const r = rows.find(x => x.site === site && x.category === category && (!edStore || x.store === edStore));
+    return r ? Number(r.amount || 0) : 0;
+  };
+  const total = (category) => SITES.reduce((s, site) => s + getVal(site, category), 0);
+  const totalSite = (site) => CATS.reduce((s, cat) => s + getVal(site, cat), 0);
+  const openCell = (site, category) => {
+    if (!canEdit) return;
+    setEdCell({ site, category });
+    setEdAmount(String(getVal(site, category)));
+    const r = rows.find(x => x.site === site && x.category === category);
+    setEdStore(r?.store || "");
+  };
+  const saveCell = async () => {
+    if (!edCell) return;
+    const amount = Number(edAmount);
+    if (isNaN(amount)) { alert("金额必须是数字"); return; }
+    const existing = rows.find(x => x.site === edCell.site && x.category === edCell.category);
+    let err;
+    if (existing) {
+      ({ error: err } = await supabase.from("opsfee_monthly").update({ amount, store: edStore || null }).eq("id", existing.id));
+    } else {
+      ({ error: err } = await supabase.from("opsfee_monthly").insert({ month, store: edStore || null, site: edCell.site, category: edCell.category, amount }));
+    }
+    if (err) { alert("保存失败: " + err.message); return; }
+    setEdCell(null); load();
+  };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            各店铺运维费用记录 (月租/工具/广告/杂费) · 仅管理员可见 · 待 KK 确认口径与数据源
+            月份 × 站点 × 费用类别 · 矩阵录入 · 单元格点击改金额 · {canEdit ? "可编辑" : "只读"}
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
+          <input type="month" value={month.slice(0, 7)} onChange={e => setMonth(e.target.value + "-01")}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        店铺运维费用 · 待 KK 确认费用项 (月租/工具订阅/广告/杂费) 与数据源 (Excel导入/手动录)
-      </div>
+      {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
+      {loaded && (
+        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+          <div style={{ minWidth: 880 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
+              <div style={{ padding: "10px 12px", borderRight: `1px solid #2a4a78` }}>月份 {month.slice(0, 7)}</div>
+              {SITES.map(s => <div key={s} style={{ padding: "10px 8px", textAlign: "right", borderRight: `1px solid #2a4a78` }}>{s}</div>)}
+              <div style={{ padding: "10px 12px", textAlign: "right" }}>合计</div>
+            </div>
+            {CATS.map(cat => (
+              <div key={cat} style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
+                <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>{cat}</div>
+                {SITES.map(site => {
+                  const v = getVal(site, cat);
+                  return (
+                    <div key={site} onClick={() => openCell(site, cat)}
+                      style={{ padding: "8px 10px", textAlign: "right", cursor: canEdit ? "pointer" : "default", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>
+                      {v ? v.toFixed(2) : "—"}
+                    </div>
+                  );
+                })}
+                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: C.brand, background: C.bg }}>
+                  {total(cat).toFixed(2)}
+                </div>
+              </div>
+            ))}
+            <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
+              <div style={{ padding: "10px 12px", fontWeight: 700, color: C.brand }}>站点合计</div>
+              {SITES.map(site => (
+                <div key={site} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: C.brand }}>
+                  {totalSite(site).toFixed(2)}
+                </div>
+              ))}
+              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#c05b52", background: "#c05b5210" }}>
+                {CATS.reduce((s, c) => s + total(c), 0).toFixed(2)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {edCell && (
+        <div onClick={() => setEdCell(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 380 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>编辑运维费用</div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>{month.slice(0, 7)} · {edCell.category} · {edCell.site}</div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>金额 (€)</div>
+              <input type="number" step="0.01" value={edAmount} onChange={(e) => setEdAmount(e.target.value)} autoFocus
+                style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 14 }} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>店铺 (可选, 留空=跨店通用)</div>
+              <input value={edStore} onChange={(e) => setEdStore(e.target.value)} placeholder="如 野趣"
+                style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setEdCell(null)} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
+              <button onClick={saveCell} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
