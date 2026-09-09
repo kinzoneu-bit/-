@@ -1671,8 +1671,12 @@ function Shipments() {
     const today = new Date().toISOString().slice(0, 10);
     if (!confirm(`确认将「${r.product_name}」标记为已上架？\n\n上架数量 = 发货 ${r.qty} − 损耗 ${r.loss_qty || 0} = ${avail}\n上架日期 = ${today}（可之后编辑修改）`)) return;
     const rec = {
-      store: r.store || null, asin: r.asin || null, product_name: r.product_name,
-      listed_date: today, listed_qty: avail, loss_qty: r.loss_qty || 0,
+      store: r.store || null,
+      ship_date: r.ship_date || null,
+      ship_warehouse: r.ship_warehouse || null,
+      ship_batch: r.ship_batch || null,
+      asin: r.asin || null, product_name: r.product_name,
+      listed_date: today, listed_qty: avail,
       landed_cost: r.landed_cost != null ? Number(r.landed_cost) : null,
     };
     const { error: e1 } = await supabase.from("inventory").upsert({ shipment_id: r.id, ...rec }, { onConflict: "shipment_id" });
@@ -2087,17 +2091,55 @@ function InventoryStats() {
   };
   useEffect(() => { load(); }, []);
   const totalQty = rows.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
+  const totalStock = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
+  const daysBetween = (a, b) => {
+    if (!a || !b) return null;
+    const ms = new Date(b).getTime() - new Date(a).getTime();
+    return Math.round(ms / 86400000);
+  };
+  const COLS = [
+    { k: "ship_date",      l: "货发日期" },
+    { k: "ship_warehouse", l: "仓库" },
+    { k: "ship_batch",     l: "发货批次" },
+    { k: "product_name",   l: "款式" },
+    { k: "asin",           l: "ASIN" },
+    { k: "listed_qty",     l: "上架数量", bold: true },
+    { k: "stock_qty",      l: "库存数量", bold: true },
+    { k: "landed_cost",    l: "盈亏价", fmt: "money" },
+    { k: "purchase_date",  l: "采购时间" },
+    { k: "ship_date_disp", l: "发货时间", disp: r => r.ship_date },
+    { k: "prep_days",      l: "准备周期", calc: r => daysBetween(r.purchase_date, r.ship_date) },
+    { k: "listed_date",    l: "上架时间" },
+    { k: "logistics_days", l: "物流周期", calc: r => daysBetween(r.ship_date, r.listed_date) },
+    { k: "sold_date",      l: "售完时间" },
+    { k: "sales_days",     l: "销售周期", calc: r => daysBetween(r.listed_date, r.sold_date) },
+    { k: "total_days",     l: "全局期次", calc: r => daysBetween(r.ship_date, r.sold_date) },
+    { k: "cycle_rate",     l: "全周次率", calc: r => {
+        const total = daysBetween(r.ship_date, r.sold_date);
+        const sales = daysBetween(r.listed_date, r.sold_date);
+        if (!total || total <= 0) return null;
+        return Math.round((sales || 0) / total * 100) + "%";
+      }
+    },
+  ];
+  const fmt = (col, v, r) => {
+    if (col.calc) v = col.calc(r);
+    if (col.disp) v = col.disp(r);
+    if (v == null || v === "") return "—";
+    if (col.fmt === "money" && v != null) return "¥" + Number(v).toFixed(2);
+    return v;
+  };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>库存记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            发货记录标记「已上架」自动生成 · 每条发货一条 · 数量=发货−损耗 · 全员可见
+            发货记录标记「已上架」自动生成 · 每条发货一行 · 17 列同 Excel · 全员可见 · 红色=需关注 (周期异常/库存为0)
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 条 · 上架合计 {totalQty} 件</span>
+          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 条 · 上架合计 {totalQty} 件 · 当前库存 {totalStock}</span>
         </div>
       </div>
       {err && <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
@@ -2105,29 +2147,24 @@ function InventoryStats() {
       </div>}
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: "#1f3a68" }}>
-                {["店铺", "ASIN", "产品", "上架日期", "上架数量", "损耗", "到仓价", "金额"].map(h => (
-                  <th key={h} style={{ padding: "9px 10px", textAlign: "left", color: "#fff", fontWeight: 600, borderRight: `1px solid #2a4a78`, fontSize: 11 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
-                  <td style={{ padding: "8px 10px", color: C.sub }}>{r.store || "—"}</td>
-                  <td style={{ padding: "8px 10px", color: C.sub, fontFamily: "monospace" }}>{r.asin || "—"}</td>
-                  <td style={{ padding: "8px 10px", fontWeight: 600, color: C.ink }}>{r.product_name}</td>
-                  <td style={{ padding: "8px 10px" }}>{r.listed_date || "—"}</td>
-                  <td style={{ padding: "8px 10px", fontWeight: 700, color: C.ink }}>{r.listed_qty ?? "—"}</td>
-                  <td style={{ padding: "8px 10px", color: C.drop }}>{r.loss_qty ?? "—"}</td>
-                  <td style={{ padding: "8px 10px" }}>{r.landed_cost != null ? "¥" + Number(r.landed_cost).toFixed(2) : "—"}</td>
-                  <td style={{ padding: "8px 10px", color: C.brand, fontWeight: 600 }}>{(r.landed_cost != null && r.listed_qty) ? "¥" + (Number(r.landed_cost) * Number(r.listed_qty)).toFixed(2) : "—"}</td>
-                </tr>
+          <div style={{ minWidth: 1820 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+              {COLS.map(c => (
+                <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>
               ))}
-            </tbody>
-          </table>
+            </div>
+            {rows.map((r, i) => {
+              const outOfStock = (r.stock_qty ?? r.listed_qty ?? 0) <= 0 && r.sold_date;
+              const bg = outOfStock ? "#c05b5218" : (i % 2 ? C.bg : "transparent");
+              return (
+                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bg }}>
+                  {COLS.map(c => (
+                    <div key={c.k} style={{ padding: "8px", fontWeight: c.bold ? 600 : 400, color: outOfStock && (c.k === "stock_qty" || c.k === "sold_date") ? "#c05b52" : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(c, r[c.k], r)}</div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : (
         <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13 }}>
