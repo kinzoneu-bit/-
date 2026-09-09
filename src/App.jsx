@@ -2094,7 +2094,7 @@ function InventoryStats() {
   }, []);
   const canEditInv = invRole === "admin" || invRole === "cd_promotion";
   const load = () => {
-    let q = supabase.from("inventory").select("*").order("listed_date", { ascending: false });
+    let q = supabase.from("inventory").select("*").order("ship_date", { ascending: true });
     if (filterStore) q = q.eq("store", filterStore);
     q.then(({ data, error }) => {
       if (error) { setErr(error.message); setRows([]); return; }
