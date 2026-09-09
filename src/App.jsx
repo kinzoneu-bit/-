@@ -2085,6 +2085,8 @@ function InventoryStats() {
   const [invRole, setInvRole] = useState(null);
   const [edInv, setEdInv] = useState(null);       // { id } 编辑库存行
   const [invForm, setInvForm] = useState({});
+  const [filterStore, setFilterStore] = useState("");
+  const [storeOpts, setStoreOpts] = useState(["飞鸟","野趣","俊业","乾霖","屿阔","胤顺"]);
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data && data.user) setInvRole(getUserRole(data.user.email || ""));
@@ -2092,13 +2094,24 @@ function InventoryStats() {
   }, []);
   const canEditInv = invRole === "admin" || invRole === "cd_promotion";
   const load = () => {
-    supabase.from("inventory").select("*").order("listed_date", { ascending: false })
-      .then(({ data, error }) => {
-        if (error) { setErr(error.message); setRows([]); return; }
-        setRows(data || []); setErr("");
+    let q = supabase.from("inventory").select("*").order("listed_date", { ascending: false });
+    if (filterStore) q = q.eq("store", filterStore);
+    q.then(({ data, error }) => {
+      if (error) { setErr(error.message); setRows([]); return; }
+      setRows(data || []); setErr("");
+      // 拉 store 字段去重, 合并 KK 写死的 6 家
+      supabase.from("inventory").select("store").then(({ data: all }) => {
+        const fromDb = [...new Set((all || []).map(r => r.store).filter(Boolean))];
+        setStoreOpts(prev => {
+          const merged = [...new Set([...prev, ...fromDb])];
+          return merged.sort();
+        });
       });
+    });
   };
   useEffect(() => { load(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (invRole) load(); }, [filterStore]);
   const openEditInv = (r) => {
     const f = {
       store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
@@ -2187,6 +2200,20 @@ function InventoryStats() {
       {err && <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
         读取失败(请先建表 inventory): {err}
       </div>}
+
+      {/* 筛选: 店铺 */}
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 18px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
+          <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            <option value="">全部店铺</option>
+            {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{filterStore ? `已筛选: ${filterStore}` : `共 ${rows.length} 条`}</span>
+        </div>
+      </div>
+
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
           <div style={{ minWidth: 1820 }}>
