@@ -2082,6 +2082,15 @@ function LinkProgress() {
 function InventoryStats() {
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState("");
+  const [invRole, setInvRole] = useState(null);
+  const [edInv, setEdInv] = useState(null);       // { id } 编辑库存行
+  const [invForm, setInvForm] = useState({});
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) setInvRole(getUserRole(data.user.email || ""));
+    });
+  }, []);
+  const canEditInv = invRole === "admin" || invRole === "cd_promotion";
   const load = () => {
     supabase.from("inventory").select("*").order("listed_date", { ascending: false })
       .then(({ data, error }) => {
@@ -2090,6 +2099,31 @@ function InventoryStats() {
       });
   };
   useEffect(() => { load(); }, []);
+  const openEditInv = (r) => {
+    const f = {
+      store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
+      ship_batch: r.ship_batch || "", product_name: r.product_name || "", asin: r.asin || "",
+      listed_qty: r.listed_qty != null ? String(r.listed_qty) : "",
+      stock_qty: r.stock_qty != null ? String(r.stock_qty) : "",
+      landed_cost: r.landed_cost != null ? String(r.landed_cost) : "",
+      purchase_date: r.purchase_date || "", listed_date: r.listed_date || "", sold_date: r.sold_date || "",
+    };
+    setInvForm(f); setEdInv({ id: r.id });
+  };
+  const saveInv = async () => {
+    if (!edInv) return;
+    const clean = {};
+    Object.entries(invForm).forEach(([k, v]) => {
+      const s = (v || "").trim();
+      if (s === "") { clean[k] = null; return; }
+      if (["listed_qty", "stock_qty"].includes(k)) { clean[k] = parseInt(s, 10); return; }
+      if (["landed_cost"].includes(k)) { clean[k] = Number(s); return; }
+      clean[k] = s;
+    });
+    const { error } = await supabase.from("inventory").update(clean).eq("id", edInv.id);
+    if (error) { alert("保存失败: " + error.message); return; }
+    setEdInv(null); load();
+  };
   const totalQty = rows.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
   const totalStock = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
   const daysBetween = (a, b) => {
@@ -2097,6 +2131,14 @@ function InventoryStats() {
     const ms = new Date(b).getTime() - new Date(a).getTime();
     return Math.round(ms / 86400000);
   };
+  const INV_FIELDS = [
+    { k: "ship_date", l: "货发日期", t: "date" }, { k: "ship_warehouse", l: "仓库" },
+    { k: "ship_batch", l: "发货批次" }, { k: "product_name", l: "款式" },
+    { k: "asin", l: "ASIN" }, { k: "listed_qty", l: "上架数量", t: "num" },
+    { k: "stock_qty", l: "库存数量", t: "num" }, { k: "landed_cost", l: "盈亏价", t: "num" },
+    { k: "purchase_date", l: "采购时间", t: "date" }, { k: "listed_date", l: "上架时间", t: "date" },
+    { k: "sold_date", l: "售完时间", t: "date" },
+  ];
   const COLS = [
     { k: "ship_date",      l: "货发日期" },
     { k: "ship_warehouse", l: "仓库" },
@@ -2148,19 +2190,23 @@ function InventoryStats() {
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
           <div style={{ minWidth: 1820 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
               {COLS.map(c => (
                 <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>
               ))}
+              {canEditInv && <div style={{ padding: "9px 8px" }}>操作</div>}
             </div>
             {rows.map((r, i) => {
               const outOfStock = (r.stock_qty ?? r.listed_qty ?? 0) <= 0 && r.sold_date;
               const bg = outOfStock ? "#c05b5218" : (i % 2 ? C.bg : "transparent");
               return (
-                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bg }}>
+                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bg }}>
                   {COLS.map(c => (
                     <div key={c.k} style={{ padding: "8px", fontWeight: c.bold ? 600 : 400, color: outOfStock && (c.k === "stock_qty" || c.k === "sold_date") ? "#c05b52" : C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(c, r[c.k], r)}</div>
                   ))}
+                  {canEditInv && <div style={{ padding: "8px", textAlign: "center" }}>
+                    <span onClick={() => openEditInv(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
+                  </div>}
                 </div>
               );
             })}
@@ -2169,6 +2215,34 @@ function InventoryStats() {
       ) : (
         <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13 }}>
           暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录
+        </div>
+      )}
+
+      {/* 编辑库存弹窗 */}
+      {edInv && (
+        <div onClick={() => setEdInv(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 560, maxHeight: "85vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>编辑库存记录</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {INV_FIELDS.map(f => (
+                <div key={f.k}>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>{f.l}</div>
+                  <input type={f.t === "date" ? "date" : f.t === "num" ? "number" : "text"} value={invForm[f.k] || ""}
+                    onChange={(e) => setInvForm(s => ({ ...s, [f.k]: e.target.value }))}
+                    style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
+              采购时间 / 售完时间 / 库存数量 可手填；以后接订单后售完时间按批次自动更新
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button onClick={() => setEdInv(null)}
+                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
+              <button onClick={saveInv}
+                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>保存修改</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
