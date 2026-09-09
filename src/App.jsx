@@ -1664,6 +1664,24 @@ function Shipments() {
     setEditShip(null); load();
   };
 
+  // —— 标记已上架: 写库存表 inventory (每条发货一条) ——
+  const markListed = async (r) => {
+    if (!canEdit) return;
+    const avail = Math.max(0, Number(r.qty || 0) - Number(r.loss_qty || 0));
+    const today = new Date().toISOString().slice(0, 10);
+    if (!confirm(`确认将「${r.product_name}」标记为已上架？\n\n上架数量 = 发货 ${r.qty} − 损耗 ${r.loss_qty || 0} = ${avail}\n上架日期 = ${today}（可之后编辑修改）`)) return;
+    const rec = {
+      store: r.store || null, asin: r.asin || null, product_name: r.product_name,
+      listed_date: today, listed_qty: avail, loss_qty: r.loss_qty || 0,
+      landed_cost: r.landed_cost != null ? Number(r.landed_cost) : null,
+    };
+    const { error: e1 } = await supabase.from("inventory").upsert({ shipment_id: r.id, ...rec }, { onConflict: "shipment_id" });
+    if (e1) { alert("写入库存失败(请先建表 inventory): " + e1.message); return; }
+    const { error: e2 } = await supabase.from("shipments").update({ listed: true }).eq("id", r.id);
+    if (e2) { alert("更新发货标记失败: " + e2.message); return; }
+    load();
+  };
+
   // 批次着色: 同一批次 (ship_batch 为空继承上一个非空) 同色, 不同批次不同颜色
   const batchColorOf = useMemo(() => {
     const PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
@@ -1830,9 +1848,16 @@ function Shipments() {
                   {r.freight_paid ? "✓ 已付" : "✗ 未付"}
                 </div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
-                <div style={{ padding: "6px", textAlign: "center" }}>
+                <div style={{ padding: "6px", textAlign: "center", whiteSpace: "nowrap" }}>
+                  {canEdit && !r.listed && (
+                    <span onClick={() => markListed(r)} title="标记已上架 → 写入库存"
+                      style={{ color: "#3B6D11", cursor: "pointer", fontWeight: 600, fontSize: 11, marginRight: 6 }}>↑上架</span>
+                  )}
+                  {canEdit && r.listed && (
+                    <span title="已写入库存, 可点编辑改数量/日期" style={{ color: "#4db6a4", fontWeight: 600, fontSize: 11, marginRight: 6 }}>✓已上架</span>
+                  )}
                   {canEdit && (
-                    <span onClick={() => openEditShip(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap" }}>✎ 编辑</span>
+                    <span onClick={() => openEditShip(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎ 编辑</span>
                   )}
                 </div>
               </div>
@@ -2051,22 +2076,64 @@ function LinkProgress() {
 
 // ---------------- 库存统计 (空骨架, 待 KK 提供维度与数据源) ----------------
 function InventoryStats() {
+  const [rows, setRows] = useState([]);
+  const [err, setErr] = useState("");
+  const load = () => {
+    supabase.from("inventory").select("*").order("listed_date", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) { setErr(error.message); setRows([]); return; }
+        setRows(data || []); setErr("");
+      });
+  };
+  useEffect(() => { load(); }, []);
+  const totalQty = rows.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>库存统计</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>库存记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            各店铺 / 类目 / ASIN 维度的库存数据 · 全员可见 · 待 KK 提供维度与数据源
+            发货记录标记「已上架」自动生成 · 每条发货一条 · 数量=发货−损耗 · 全员可见
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 条 · 上架合计 {totalQty} 件</span>
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        库存统计模块 · 待 KK 确认维度 (店铺/类目/ASIN) 与数据源 (SP-API 库存/采购记录)
-      </div>
+      {err && <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+        读取失败(请先建表 inventory): {err}
+      </div>}
+      {rows.length ? (
+        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: "#1f3a68" }}>
+                {["店铺", "ASIN", "产品", "上架日期", "上架数量", "损耗", "到仓价", "金额"].map(h => (
+                  <th key={h} style={{ padding: "9px 10px", textAlign: "left", color: "#fff", fontWeight: 600, borderRight: `1px solid #2a4a78`, fontSize: 11 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
+                  <td style={{ padding: "8px 10px", color: C.sub }}>{r.store || "—"}</td>
+                  <td style={{ padding: "8px 10px", color: C.sub, fontFamily: "monospace" }}>{r.asin || "—"}</td>
+                  <td style={{ padding: "8px 10px", fontWeight: 600, color: C.ink }}>{r.product_name}</td>
+                  <td style={{ padding: "8px 10px" }}>{r.listed_date || "—"}</td>
+                  <td style={{ padding: "8px 10px", fontWeight: 700, color: C.ink }}>{r.listed_qty ?? "—"}</td>
+                  <td style={{ padding: "8px 10px", color: C.drop }}>{r.loss_qty ?? "—"}</td>
+                  <td style={{ padding: "8px 10px" }}>{r.landed_cost != null ? "¥" + Number(r.landed_cost).toFixed(2) : "—"}</td>
+                  <td style={{ padding: "8px 10px", color: C.brand, fontWeight: 600 }}>{(r.landed_cost != null && r.listed_qty) ? "¥" + (Number(r.landed_cost) * Number(r.listed_qty)).toFixed(2) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13 }}>
+          暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录
+        </div>
+      )}
     </div>
   );
 }
