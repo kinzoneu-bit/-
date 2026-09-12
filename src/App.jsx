@@ -2791,10 +2791,8 @@ function OpsFee() {
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
   const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
   const [rows, setRows] = useState([]);
-  const [filterStore, setFilterStore] = useState("");                      // "" = 全部店铺
+  const [filterStore, setFilterStore] = useState("飞鸟");                  // "" = 全部店铺汇总(只读)
   const [storeOpts, setStoreOpts] = useState(["飞鸟", "野趣", "俊业", "乾霖", "屿阔", "胤顺"]);
-  const [edCell, setEdCell] = useState(null);
-  const [edAmount, setEdAmount] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [opsRole, setOpsRole] = useState(null);
   useEffect(() => {
@@ -2818,7 +2816,7 @@ function OpsFee() {
   useEffect(() => { load(); }, [month]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (opsRole) load(); }, [opsRole]);
-  // 不选店铺 = 全部店铺汇总; 选店铺 = 只看该店铺
+  // 不选店铺 = 全部店铺汇总(只读); 选店铺 = 该店铺数据(单元格直接输入)
   const getVal = (site, category) => {
     const m = rows.filter(x => x.site === site && x.category === category);
     if (!filterStore) return m.reduce((s, x) => s + Number(x.amount || 0), 0);
@@ -2827,25 +2825,33 @@ function OpsFee() {
   };
   const total = (category) => SITES.reduce((s, site) => s + getVal(site, category), 0);
   const totalSite = (site) => CATS.reduce((s, cat) => s + getVal(site, cat), 0);
-  const canEditCell = canEdit && !!filterStore;      // 汇总视图不可直接录, 先选店铺
-  const openCell = (site, category) => {
-    if (!canEditCell) return;
-    setEdCell({ site, category });
-    setEdAmount(String(getVal(site, category)));
-  };
-  const saveCell = async () => {
-    if (!edCell) return;
-    const amount = Number(edAmount);
-    if (isNaN(amount)) { alert("金额必须是数字"); return; }
-    const existing = rows.find(x => x.site === edCell.site && x.category === edCell.category && x.store === filterStore);
-    let err;
+  const canEditCell = canEdit && !!filterStore;      // 汇总视图只读, 选店铺后直接录入
+  // 单元格草稿: 正在输入的值 (key = site|category), 回车/失焦即存
+  const [drafts, setDrafts] = useState({});
+  useEffect(() => { setDrafts({}); }, [filterStore, month]);
+  const setDraft = (site, category, v) => setDrafts(p => ({ ...p, [`${site}|${category}`]: v }));
+  const clearDraft = (site, category) => setDrafts(p => { const n = { ...p }; delete n[`${site}|${category}`]; return n; });
+  const commitCell = async (site, category) => {
+    const key = `${site}|${category}`;
+    const raw = drafts[key];
+    if (raw === undefined || !canEditCell) return;              // 没改过 → 不写库
+    const existing = rows.find(x => x.site === site && x.category === category && x.store === filterStore);
+    const oldV = existing ? Number(existing.amount || 0) : 0;
+    const amount = raw.trim() === "" ? 0 : Number(raw);
+    if (isNaN(amount)) { alert("金额必须是数字"); setDraft(site, category, oldV ? String(oldV) : ""); return; }
+    if (existing && oldV === amount) { clearDraft(site, category); return; }   // 值没变 → 不写库
+    if (!existing && amount === 0 && raw.trim() === "") { clearDraft(site, category); return; }
+    let err, saved;
     if (existing) {
       ({ error: err } = await supabase.from("opsfee_monthly").update({ amount }).eq("id", existing.id));
+      if (!err) setRows(prev => prev.map(r => r.id === existing.id ? { ...r, amount } : r));
     } else {
-      ({ error: err } = await supabase.from("opsfee_monthly").insert({ month, store: filterStore, site: edCell.site, category: edCell.category, amount }));
+      ({ data: saved, error: err } = await supabase.from("opsfee_monthly")
+        .insert({ month, store: filterStore, site, category, amount }).select().single());
+      if (!err && saved) setRows(prev => [...prev, saved]);
     }
     if (err) { alert("保存失败: " + err.message); return; }
-    setEdCell(null); load();
+    clearDraft(site, category);
   };
   return (
     <div>
@@ -2853,10 +2859,10 @@ function OpsFee() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            月份 × 店铺 × 站点 × 费用类别 · 单元格点击改金额 · {
+            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入, 回车或点空白处即存 · {
               !canEdit ? "只读"
-                : filterStore ? `已选店铺「${filterStore}」可编辑`
-                  : "全部店铺汇总(只读) · 选择店铺后录入"
+                : filterStore ? `当前店铺「${filterStore}」可直接录`
+                  : "全部店铺汇总(只读) · 选一个店铺即可录入"
             }
           </div>
         </div>
@@ -2864,7 +2870,7 @@ function OpsFee() {
           <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
           <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-            <option value="">全部店铺</option>
+            <option value="">全部店铺(汇总)</option>
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
@@ -2894,10 +2900,24 @@ function OpsFee() {
                 <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>{cat}</div>
                 {SITES.map(site => {
                   const v = getVal(site, cat);
+                  const k = `${site}|${cat}`;
+                  if (!canEditCell) {                       // 汇总视图 / 无权限 → 纯文本
+                    return (
+                      <div key={site} style={{ padding: "8px 10px", textAlign: "right", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>
+                        {v ? v.toFixed(2) : "—"}
+                      </div>
+                    );
+                  }
                   return (
-                    <div key={site} onClick={() => openCell(site, cat)} title={canEditCell ? "点击编辑" : ""}
-                      style={{ padding: "8px 10px", textAlign: "right", cursor: canEditCell ? "pointer" : "default", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>
-                      {v ? v.toFixed(2) : "—"}
+                    <div key={site} style={{ padding: "3px 5px" }}>
+                      <input
+                        value={drafts[k] !== undefined ? drafts[k] : (v ? String(v) : "")}
+                        onChange={e => setDraft(site, cat, e.target.value)}
+                        onFocus={e => e.target.select()}
+                        onBlur={() => commitCell(site, cat)}
+                        onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                        placeholder="—" inputMode="decimal"
+                        style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: v ? 600 : 400, outline: "none" }} />
                     </div>
                   );
                 })}
@@ -2916,33 +2936,6 @@ function OpsFee() {
               <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#c05b52", background: "#c05b5210" }}>
                 {CATS.reduce((s, c) => s + total(c), 0).toFixed(2)}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {edCell && (
-        <div onClick={() => setEdCell(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 380 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>编辑运维费用</div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>
-              {month.slice(0, 7)} · {filterStore} · {edCell.category} · {edCell.site}
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>金额 (€)</div>
-              <input type="number" step="0.01" value={edAmount} onChange={(e) => setEdAmount(e.target.value)} autoFocus
-                style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 14 }} />
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>店铺</div>
-              <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)}
-                style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-                {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setEdCell(null)} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
-              <button onClick={saveCell} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>保存</button>
             </div>
           </div>
         </div>
