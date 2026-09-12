@@ -229,33 +229,6 @@ const MONITOR_CATEGORIES = [
 
 // 从 Supabase 并行拉取 6 张表, 组装成 BRAND_SHELF / CAT_DETAIL
 // 形状与旧硬编码一致, 货架/跨站组件无需改动
-// 顶层: 新模型递归统计 (KK 2026-08-10, 必须放在顶层, 防 Vite mangle)
-function tallyCatDeepV2(cat) {
-  let sell = 0, idle = 0;
-  const visit = (c) => {
-    const d = CAT_DETAIL[c.id];
-    if (d && d.products) for (let i = 0; i < d.products.length; i++) {
-      const p = d.products[i];
-      if (p.st === "selling") sell++;
-      else if (p.st === "idle") idle++;
-    }
-    // cat 自身的 st 也计入 (KK 2026-08-10, 之前只算 products 漏了 cat 自身)
-    if (c.st === "selling") sell++;
-    else if (c.st === "idle") idle++;
-    if (c.children) for (let j = 0; j < c.children.length; j++) visit(c.children[j]);
-  };
-  visit(cat);
-  return { sell, idle };
-}
-
-// 子类目排序: 在售 → 在调研 → 还没动 → 不做 (KK 2026-08-10)
-const CAT_ST_ORDER = { selling: 0, idle: 1, ready: 2, skip: 3, researched_skip: 3 };
-const sortCatsBySt = (cats) => {
-  const arr = [...(cats || [])];
-  arr.sort((a, b) => (CAT_ST_ORDER[a.st] !== undefined ? CAT_ST_ORDER[a.st] : 1) - (CAT_ST_ORDER[b.st] !== undefined ? CAT_ST_ORDER[b.st] : 1) || (a.sort_order || 0) - (b.sort_order || 0));
-  return arr;
-};
-
 async function fetchShelfData() {
   const [br, gr, ca, le, pr, su] = await Promise.all([
     supabase.from("brands").select("*").order("sort_order"),
@@ -281,9 +254,6 @@ async function fetchShelfData() {
   leaves.forEach(l => { (leavesByCat[l.cat_id] = leavesByCat[l.cat_id] || []).push(l); });
   const productsByLeaf = {};
   products.forEach(p => { (productsByLeaf[p.leaf_id] = productsByLeaf[p.leaf_id] || []).push(p); });
-  // 产品直接挂 cat (新模型, KK 2026-08-10)
-  const productsByCat = {};
-  products.forEach(p => { if (p.cat_id) (productsByCat[p.cat_id] = productsByCat[p.cat_id] || []).push(p); });
   const suppliersByLeaf = {};
   suppliers.forEach(s => { (suppliersByLeaf[s.leaf_id] = suppliersByLeaf[s.leaf_id] || []).push(s); });
 
@@ -304,7 +274,7 @@ async function fetchShelfData() {
   cats.forEach(c => {
     const g = groups.find(x => x.id === c.group_id);
     const gName = g ? g.name : "";
-    const entry = { leaves: buildLeaves(c.id), products: (productsByCat[c.id] || []).map(p => ({ id: p.id, name: p.name, st: p.st || "idle", asin: p.asin || null, spu: p.spu || null, variant_count: p.variant_count || 0, variants: p.variants || [], variant_colors: p.variant_colors || [], variant_sizes: p.variant_sizes || [] })) };
+    const entry = { leaves: buildLeaves(c.id) };
     CAT_DETAIL[gName + " || " + c.name] = entry;
     CAT_DETAIL[c.id] = entry;
     if (!CAT_DETAIL[c.name]) CAT_DETAIL[c.name] = entry;
@@ -321,13 +291,11 @@ async function fetchShelfData() {
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     .map(c => ({
       id: c.id, name: c.name, st: c.st || "idle",
-      phase: c.phase || null,
       chatName: c.chat_name || null, chatUrl: c.chat_url || null,
       children: buildCatTree(c.id),
     }));
   const mapRootCat = (c) => ({
     id: c.id, name: c.name, st: c.st || "idle",
-    phase: c.phase || null,
     chatName: c.chat_name || null, chatUrl: c.chat_url || null,
     children: buildCatTree(c.id),
   });
@@ -348,7 +316,7 @@ async function fetchShelfData() {
 
   // ID_NAME: 全量 id → 名称映射
   ID_NAME = {};
-  cats.forEach(c => { const g = groups.find(x => x.id === c.group_id); ID_NAME[c.id] = { kind: "cat", name: c.name, path: (g ? g.name : "") + " / " + c.name }; });
+  cats.forEach(c => { ID_NAME[c.id] = { kind: "cat", name: c.name, path: c.name }; });
   leaves.forEach(l => { ID_NAME[l.id] = { kind: "leaf", name: l.leaf_name, path: l.path || l.leaf_name, phase: l.phase || null, st: l.st || "idle" }; });
   products.forEach(p => { ID_NAME[p.id] = { kind: "product", name: p.name, path: p.name }; });
 
@@ -362,11 +330,10 @@ async function fetchShelfData() {
   }));
 }
 const SHELF_ST = {
-  selling:  { label: "在售",     color: "#16A34A", bg: "#DCFCE7", fg: "#166534" },
-  ready:    { label: "还没动",   color: "#64748B", bg: "#F1F5F9", fg: "#334155" },
-  idle:     { label: "在调研",   color: "#2563EB", bg: "#DBEAFE", fg: "#1D4ED8" },
-  skip:     { label: "不做",     color: "#DC2626", bg: "#FEE2E2", fg: "#991B1B" },
-  researched_skip: { label: "不做", color: "#DC2626", bg: "#FEE2E2", fg: "#991B1B" },
+  selling:         { label: "在售", color: "#4db6a4" },
+  idle:            { label: "还没动", color: "#5b6670" },
+  skip:            { label: "不做", color: "#7a5b52" },
+  researched_skip: { label: "已调研不做", color: "#7a5b52" },
 };
 
 // 交接框 ↔ 允许的类目状态 (KK 确认 2026-08-07: 状态与阶段必须一致, 否则报错)
@@ -561,7 +528,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["overview", "开发进度"], ["shelf", "类目明细"], ["catdash", "类目货架"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -570,11 +537,13 @@ export default function App() {
       </div>
 
       <div style={{ padding: "20px 24px 60px" }}>
-        {tab === "shelf" && <Shelf />}
         {tab === "overview" && <Overview siteEvals={siteEvals} onPick={(p) => { setSel(p); setTab("cross"); }} />}
+        {tab === "shelf" && <Shelf />}
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
         {tab === "progress" && <LinkProgress />}
+        {tab === "shelf" && <Shelf />}
+        {tab === "catdash" && <CatDash setProjectFor={setProjectFor} />}
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
         {tab === "score" && <LinkScore />}
@@ -605,8 +574,6 @@ function Overview({ siteEvals, onPick }) {
   const isAdmin = userRole === "admin";
   const isFullAccess = userRole === "admin" || userRole === "fr";
   const [openPhases, setOpenPhases] = useState({});
-  // 调研 4 阶段框的拖拽高亮 (按 phase key 索引, 修复前误用 useState-in-map 导致 hooks 违规)
-  const [phaseDrag, setPhaseDrag] = useState({});
   // 调研阶段顺序 (拖拽流转: planning → pre_research → supplier → spec)
   const PHASE_ORDER = ["planning", "pre_research", "supplier", "spec"];
   // 调研阶段进度 (leaf_id+phase → start_at) - 显示进入时间 + 持续时长
@@ -667,21 +634,18 @@ function Overview({ siteEvals, onPick }) {
     const m = {};
     HANDOFF_BOXES.forEach(b => { m[b.id] = { total: 0, byGroup: {} }; });
     (handoffs || []).forEach(h => {
-      const info = h.cat_id ? (ID_NAME[h.cat_id] || null) : (ID_NAME[h.leaf_id] || null);
-      if (!info) return;
-      // 旧 leaf: h1 只显示 phase=planning; 新 cat: 全部显示
-      if (h.box_key === "h1" && !h.cat_id && info.phase !== "planning") return;
+      const info = ID_NAME[h.leaf_id];
+      if (!info || info.kind !== "leaf") return;
+      // h1 框只显示 phase=planning (立项期间语义); 其他框接收任意 phase
+      if (h.box_key === "h1" && info.phase !== "planning") return;
       const start = h.start_at ? new Date(h.start_at) : null;
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
-      // cat 卡的 group: 用 ID_NAME 查 path 拼出大类名, 否则 "未分类"
-      const catInfo = h.cat_id ? ID_NAME[h.cat_id] : null;
-      const lg = h.cat_id ? { group: (catInfo && catInfo.path) ? catInfo.path.split("/")[0].trim() : "未分类" } : (lToGroup[h.leaf_id] || {});
+      const lg = lToGroup[h.leaf_id] || {};
       const group = lg.group || "未分类";
       if (!m[h.box_key].byGroup[group]) m[h.box_key].byGroup[group] = [];
       m[h.box_key].byGroup[group].push({
         leafId: h.leaf_id,
-        catId: h.cat_id,
         name: info.name,
         start: start ? start.toLocaleDateString("zh-CN") : "—",
         duration: durText,
@@ -698,11 +662,10 @@ function Overview({ siteEvals, onPick }) {
   //   h3 → h4: 仅 成都推广 + admin/fr
   //   admin/fr: 任意方向; 拖出 h1 → 其他框 (非 h2) 移出流程并标 researched_skip
   //   一致性: 目标框要求的状态与类目当前状态必须匹配 (BOX_ALLOWED_ST), 否则报错
-  const moveTo = async (itemId, targetBox, isCat) => {
-    if (!itemId || !targetBox) return;
-    const isCatItem = !!isCat;
+  const moveTo = async (leafId, targetBox) => {
+    if (!leafId || !targetBox) return;
     // 找当前 box
-    const cur = (handoffs || []).find(h => isCatItem ? h.cat_id === itemId : h.leaf_id === itemId);
+    const cur = (handoffs || []).find(h => h.leaf_id === leafId);
     const fromBox = cur ? cur.box_key : null;
     // 权限检查
     if (!canDrop(fromBox, targetBox, userRole)) {
@@ -712,22 +675,17 @@ function Overview({ siteEvals, onPick }) {
       return;
     }
     const now = new Date().toISOString();
-    const info2 = ID_NAME[itemId];
+    const info2 = ID_NAME[leafId];
     // admin/fr 拖出 h1 (到非 h2 框) → 移出交接流程 + 标 researched_skip
     if (isFullAccess && fromBox === "h1" && targetBox !== "h2") {
-      const ok = confirm(`放弃此调研：将 "${info2 ? info2.name : itemId}" 标记为「已调研不做」并移出交接流程？`);
+      const ok = confirm(`放弃此调研：将 "${info2 ? info2.name : leafId}" 标记为「已调研不做」并移出交接流程？`);
       if (!ok) return;
-      if (isCatItem) {
-        await supabase.from("shelf_cats").update({ st: "researched_skip" }).eq("id", itemId);
-        await supabase.from("monitor_handoff").delete().eq("cat_id", itemId);
-      } else {
-        await supabase.from("shelf_leaves").update({ st: "researched_skip", phase: null }).eq("id", itemId);
-        await supabase.from("monitor_handoff").delete().eq("leaf_id", itemId);
-      }
+      const { error: e1 } = await supabase.from("shelf_leaves").update({ st: "researched_skip", phase: null }).eq("id", leafId);
+      if (e1) { alert("标记失败: " + e1.message); return; }
+      await supabase.from("monitor_handoff").delete().eq("leaf_id", leafId);
       try {
         await supabase.from("monitor_handoff_log").insert({
-          leaf_id: isCatItem ? null : itemId, cat_id: isCatItem ? itemId : null,
-          from_box: fromBox, to_box: null, moved_at: now,
+          leaf_id: leafId, from_box: fromBox, to_box: null, moved_at: now,
           moved_by_email: currentEmail, note: "researched_skip",
         });
       } catch (e) { /* 表可能未建 */ }
@@ -736,37 +694,23 @@ function Overview({ siteEvals, onPick }) {
       return;
     }
     // 一致性校验: 目标框要求的状态与类目当前状态匹配 (KK: 不一致弹报错框)
-    // cat 跳过校验: 拖到 h4 自动变在售, 拖到 h2/h3 自动在调研 (KK 2026-08-10)
     const curSt = info2 ? info2.st : null;
     const allowedSt = BOX_ALLOWED_ST[targetBox];
-    if (!isCatItem && allowedSt && curSt && !allowedSt.includes(curSt)) {
+    if (allowedSt && curSt && !allowedSt.includes(curSt)) {
       const boxTitle = (HANDOFF_BOXES.find(b => b.id === targetBox) || {}).title || targetBox;
       const stLabel = SHELF_ST[curSt] ? SHELF_ST[curSt].label : curSt;
       const needLabel = allowedSt.map(s => (SHELF_ST[s] || {}).label || s).join(" / ");
       alert(`状态不一致：该类目当前是「${stLabel}」，不能拖到「${boxTitle}」（此阶段要求「${needLabel}」）。\n请先在类目明细把状态改为「${needLabel}」（或由管理员操作）。`);
       return;
     }
-    // 规则: 类目必须完成调研闭环(定款 spec) 才能从调研期间(h1)拖到作业交接 (KK 2026-08-10)
-    if (isCatItem && fromBox === "h1" && targetBox !== "h1" && info2 && info2.phase !== "spec") {
-      alert("该类目还在调研阶段，未到「定款」，不能进入作业交接。请先在「在调研」4 阶段中拖到「定款」后再交接。");
-      return;
-    }
     // 写主表
-    const payload = isCatItem
-      ? { cat_id: itemId, leaf_id: null, box_key: targetBox, start_at: now }
-      : { leaf_id: itemId, box_key: targetBox, start_at: now };
-    const { error } = await supabase.from("monitor_handoff").upsert(payload, { onConflict: isCatItem ? "cat_id" : "leaf_id" });
+    const { error } = await supabase.from("monitor_handoff")
+      .upsert({ leaf_id: leafId, box_key: targetBox, start_at: now }, { onConflict: "leaf_id" });
     if (error) { alert("保存失败: " + error.message); return; }
-    // 联动: cat 拖到 h4 → 类目明细变在售; h2/h3 → 在调研 (KK 2026-08-10)
-    if (isCatItem) {
-      if (targetBox === "h4") await supabase.from("shelf_cats").update({ st: "selling" }).eq("id", itemId);
-      else if (targetBox === "h2" || targetBox === "h3") await supabase.from("shelf_cats").update({ st: "idle" }).eq("id", itemId);
-    }
-    // 写历史 log
+    // 写历史 log (KK 需先建表 monitor_handoff_log; 建表前静默失败)
     try {
       await supabase.from("monitor_handoff_log").insert({
-        leaf_id: isCatItem ? null : itemId,
-        cat_id: isCatItem ? itemId : null,
+        leaf_id: leafId,
         from_box: fromBox,
         to_box: targetBox,
         moved_at: now,
@@ -774,27 +718,17 @@ function Overview({ siteEvals, onPick }) {
       });
     } catch (e) { /* 表可能未建, 不影响主流程 */ }
     await Promise.all([loadHandoffs(), loadHandoffLog()]);
-    try { await fetchShelfData(); } catch (e) {}
   };
 
   // 拖拽换调研阶段: 更新 shelf_leaves.phase + 记录 monitor_research_progress + 刷新
   // 权限: 默认全部登录用户可操作 (KK: 除交接拖拽外其他全开)
-  const movePhase = async (itemId, targetPhase, isCat) => {
-    if (!itemId || !targetPhase) return;
-    if (isCat) { console.log("[movePhase] cat=", itemId, "→", targetPhase);
-      // 类目: 更新 shelf_cats.phase (类目明细不显示 phase, 只影响开发进度)
-      const { error: e1 } = await supabase.from("shelf_cats").update({ phase: targetPhase }).eq("id", itemId);
-      if (e1) { alert("保存失败: " + e1.message); return; }
-      await loadHandoffs();
-      try { await fetchShelfData(); } catch (e) {}
-      setTick2(t => t + 1);
-      return;
-    }
-    const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", itemId);
+  const movePhase = async (leafId, targetPhase) => {
+    if (!leafId || !targetPhase) return;
+    const { error: e1 } = await supabase.from("shelf_leaves").update({ phase: targetPhase }).eq("id", leafId);
     if (e1) { alert("保存失败: " + e1.message); return; }
     try {
       const { error: e2 } = await supabase.from("monitor_research_progress")
-        .upsert({ leaf_id: itemId, phase: targetPhase, start_at: new Date().toISOString() }, { onConflict: "leaf_id, phase" });
+        .upsert({ leaf_id: leafId, phase: targetPhase, start_at: new Date().toISOString() }, { onConflict: "leaf_id, phase" });
       if (e2) alert("进度记录失败(请确认已建表 monitor_research_progress): " + e2.message);
     } catch (err) {
       alert("进度记录失败(请确认已建表 monitor_research_progress): " + err.message);
@@ -824,7 +758,7 @@ function Overview({ siteEvals, onPick }) {
   // 拖动源 box (用于视觉提示哪些目标框可放置)
   const dragFromBox = useMemo(() => {
     if (!dragId) return null;
-    const h = (handoffs || []).find(x => dragId.isCat ? x.cat_id === dragId.id : x.leaf_id === dragId.id);
+    const h = (handoffs || []).find(x => x.leaf_id === dragId);
     return h ? h.box_key : null;
   }, [dragId, handoffs]);
 
@@ -908,28 +842,11 @@ function Overview({ siteEvals, onPick }) {
       const dur = start ? ((Date.now() - start.getTime()) / 86400000) : null;
       const durText = dur == null ? "—" : (dur < 1 ? `${Math.max(1, Math.round(dur * 24))} 小时` : `${Math.floor(dur)} 天 ${Math.round((dur % 1) * 24)} 小时`);
       if (!m[k].byGroup[group]) m[k].byGroup[group] = [];
-      m[k].byGroup[group].push({ ...l, isCat: false, enterAt: prog ? prog.start_at : null, duration: durText });
+      m[k].byGroup[group].push({ ...l, enterAt: prog ? prog.start_at : null, duration: durText });
       m[k].total++;
     });
-    // 类目 (st=idle 的 cat): 默认 phase=planning, group=大类名 (KK 2026-08-10)
-    Object.entries(BRAND_SHELF).forEach(([b, info]) => {
-      (info.groups || []).forEach(g => {
-        const walk = (c) => {
-          if (c.st === "idle") {
-            const k = c.phase || "planning";
-            if (!m[k]) m[k] = { total: 0, byGroup: {} };
-            const group = (g.name && g.name !== "__flat__") ? g.name : ((info.fullName || b) + " / 未分类");
-            if (!m[k].byGroup[group]) m[k].byGroup[group] = [];
-            m[k].byGroup[group].push({ id: c.id, name: c.name, isCat: true, phase: k, enterAt: null, duration: "—" });
-            m[k].total++;
-          }
-          (c.children || []).forEach(s => walk(s));
-        };
-        (g.cats || []).forEach(c => walk(c));
-      });
-    });
     return m;
-  }, [lToGroup, progress, tick2, BRAND_SHELF]);
+  }, [lToGroup, progress, tick2]);
 
   // 阶段转化统计: 时间段内进入某 phase 的 leaf, 按最终 phase 分布
   const phaseTrans = useMemo(() => {
@@ -973,13 +890,13 @@ function Overview({ siteEvals, onPick }) {
         {Object.entries(LEAF_PHASE).map(([k, v]) => {
           const data = phaseMap[k] || { total: 0, byBrand: {} };
           const isOpen = !!openPhases[k];
-          const isPhaseDragging = !!phaseDrag[k];
+          const [phaseDrag, setPhaseDrag] = useState(false);
           return (
             <div key={k}
-              onDragOver={(e) => { e.preventDefault(); setPhaseDrag(s => ({ ...s, [k]: true })); }}
-              onDragLeave={() => setPhaseDrag(s => ({ ...s, [k]: false }))}
-              onDrop={(e) => { e.preventDefault(); setPhaseDrag(s => ({ ...s, [k]: false })); if (dragId) movePhase(dragId.id, k, dragId.isCat); }}
-              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: isPhaseDragging ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
+              onDragOver={(e) => { e.preventDefault(); setPhaseDrag(true); }}
+              onDragLeave={() => setPhaseDrag(false)}
+              onDrop={(e) => { e.preventDefault(); setPhaseDrag(false); if (dragId) movePhase(dragId, k); }}
+              style={{ background: C.panel, padding: "14px 12px", minHeight: 60, border: phaseDrag ? `2px dashed ${v.color}` : "2px solid transparent", borderRadius: 6 }}>
               <div onClick={() => setOpenPhases(s => ({ ...s, [k]: !s[k] }))}
                 style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />
@@ -997,10 +914,10 @@ function Overview({ siteEvals, onPick }) {
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
                         {items.map(l => (
                           <div key={l.id} draggable
-                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId({ id: l.id, isCat: !!l.isCat }); }}
+                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); setDragId(l.id); }}
                             onDragEnd={() => setDragId(null)}
                             style={{ padding: "3px 0", fontSize: 12, cursor: "grab" }}>
-                            <div style={{ color: C.ink }}>{l.name}{l.isCat && <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>· 类目</span>}</div>
+                            <div style={{ color: C.ink }}>{l.name}</div>
                             <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
                               <span>{l.enterAt ? "入: " + new Date(l.enterAt).toLocaleDateString("zh-CN") : "入: —"}</span>
                               <span>· {l.duration}</span>
@@ -1064,7 +981,7 @@ function Overview({ siteEvals, onPick }) {
                 else setHoverBox("__denied__");
               }}
               onDragLeave={() => setHoverBox(null)}
-              onDrop={(e) => { e.preventDefault(); setHoverBox(null); if (dragId) moveTo(dragId.id, box.id, dragId.isCat); }}
+              onDrop={(e) => { e.preventDefault(); setHoverBox(null); if (dragId) moveTo(dragId, box.id); }}
               style={{ background: C.panel, border: `1px solid ${borderColor}`, borderRadius: 12, padding: "16px 18px", minHeight: 180, transition: "border .15s", opacity: (isDragging && !canDragFrom && !dropAllowed) ? 0.55 : 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: box.color, display: "inline-block" }} />
@@ -1076,23 +993,21 @@ function Overview({ siteEvals, onPick }) {
               {data.total ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {groupList.map(([group, items]) => (
-                    <div key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px", marginBottom: 4 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <details key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px" }}>
+                      <summary style={{ fontSize: 12, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                         <span>{group}</span>
                         <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length} 项</span>
-                      </div>
-                      <div style={{ paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
+                      </summary>
+                      <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
                         {items.map((it, i) => (
-                          <div key={it.catId || it.leafId} draggable={canDragFrom}
+                          <div key={it.leafId} draggable={canDragFrom}
                             onDragStart={(e) => {
                               if (!canDragFrom) { e.preventDefault(); return; }
-                              const did = it.catId || it.leafId;
-                              e.dataTransfer.setData("text/plain", did);
-                              setDragId({ id: did, isCat: !!it.catId });
+                              e.dataTransfer.setData("text/plain", it.leafId); setDragId(it.leafId);
                             }}
                             onDragEnd={() => setDragId(null)}
                             style={{ padding: "5px 0", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 12, cursor: canDragFrom ? "grab" : "not-allowed" }}>
-                            <div style={{ color: canDragFrom ? C.ink : C.faint, fontWeight: 600 }}>{it.name}{it.catId && <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>· 类目</span>}{!canDragFrom && <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>🔒</span>}</div>
+                            <div style={{ color: canDragFrom ? C.ink : C.faint, fontWeight: 600 }}>{it.name}{!canDragFrom && <span style={{ fontSize: 10, color: C.faint, marginLeft: 6 }}>🔒</span>}</div>
                             <div style={{ fontSize: 10, color: C.faint, marginTop: 2, display: "flex", gap: 8 }}>
                               <span>起: {it.start}</span>
                               <span>· 时长: {it.duration}</span>
@@ -1100,7 +1015,7 @@ function Overview({ siteEvals, onPick }) {
                           </div>
                         ))}
                       </div>
-                    </div>
+                    </details>
                   ))}
                 </div>
               ) : <div style={{ fontSize: 11, color: C.faint }}>暂无交接中</div>}
@@ -1628,64 +1543,6 @@ function Shipments() {
     setRows(prev => prev.map(r => r.id === rowId ? { ...r, [field]: !current } : r));
   };
 
-  // —— 编辑记录 (admin/cd_promotion) ——
-  const [editShip, setEditShip] = useState(null);   // { id } 或 null
-  const [shipForm, setShipForm] = useState({});
-  const SHIP_TEXT = ["store", "ship_warehouse", "ship_batch", "product_name", "asin", "logistics_provider", "channel", "last_mile_no", "insurance_no", "note"];
-  const SHIP_DATE = ["ship_date", "listed_date"];
-  const SHIP_NUM  = ["qty", "listed_qty", "loss_qty", "purchase_price", "goods_value", "total_value", "freight", "misc_fee", "duty", "insurance_fee", "share_fee", "landed_cost", "unit_price", "compensation_eur", "loss_amount", "insured_amount"];
-  const SHIP_LABEL = {
-    store: "店铺", ship_date: "发货日期", ship_warehouse: "发货仓库", ship_batch: "发货批次",
-    product_name: "名称", asin: "ASIN", qty: "数量", purchase_price: "采购价", goods_value: "货值",
-    total_value: "总值", freight: "头程", misc_fee: "杂费", duty: "关税", insurance_fee: "保险费",
-    share_fee: "分摊费", landed_cost: "到仓价", logistics_provider: "物流商", channel: "渠道",
-    unit_price: "单价", last_mile_no: "尾程单号", listed_date: "上架日期", listed_qty: "上架数量",
-    loss_qty: "损耗", compensation_eur: "赔付(€)", loss_amount: "亏损", insurance_no: "保险单号",
-    insured_amount: "投保金额", note: "备注",
-  };
-  const openEditShip = (row) => {
-    const f = {};
-    SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).forEach(k => f[k] = row[k] != null ? String(row[k]) : "");
-    setShipForm(f); setEditShip({ id: row.id });
-  };
-  const saveShip = async () => {
-    if (!editShip) return;
-    const clean = {};
-    SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).forEach(k => {
-      const v = (shipForm[k] || "").trim();
-      if (k === "product_name" && !v) { alert("名称必填"); return; }
-      if (v === "") { clean[k] = null; return; }
-      if (SHIP_DATE.includes(k)) { clean[k] = v; return; }
-      if (SHIP_NUM.includes(k)) { clean[k] = Number(v); return; }
-      clean[k] = v;
-    });
-    const { error } = await supabase.from("shipments").update(clean).eq("id", editShip.id);
-    if (error) { alert("保存失败: " + error.message); return; }
-    setEditShip(null); load();
-  };
-
-  // —— 标记已上架: 写库存表 inventory (每条发货一条) ——
-  const markListed = async (r) => {
-    if (!canEdit) return;
-    const avail = Math.max(0, Number(r.qty || 0) - Number(r.loss_qty || 0));
-    const today = new Date().toISOString().slice(0, 10);
-    if (!confirm(`确认将「${r.product_name}」标记为已上架？\n\n上架数量 = 发货 ${r.qty} − 损耗 ${r.loss_qty || 0} = ${avail}\n上架日期 = ${today}（可之后编辑修改）`)) return;
-    const rec = {
-      store: r.store || null,
-      ship_date: r.ship_date || null,
-      ship_warehouse: r.ship_warehouse || null,
-      ship_batch: r.ship_batch || null,
-      asin: r.asin || null, product_name: r.product_name,
-      listed_date: today, listed_qty: avail,
-      landed_cost: r.landed_cost != null ? Number(r.landed_cost) : null,
-    };
-    const { error: e1 } = await supabase.from("inventory").upsert({ shipment_id: r.id, ...rec }, { onConflict: "shipment_id" });
-    if (e1) { alert("写入库存失败(请先建表 inventory): " + e1.message); return; }
-    const { error: e2 } = await supabase.from("shipments").update({ listed: true }).eq("id", r.id);
-    if (e2) { alert("更新发货标记失败: " + e2.message); return; }
-    load();
-  };
-
   // 批次着色: 同一批次 (ship_batch 为空继承上一个非空) 同色, 不同批次不同颜色
   const batchColorOf = useMemo(() => {
     const PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
@@ -1723,13 +1580,13 @@ function Shipments() {
       if (!r.ship_date) return;
       const days = (today - new Date(r.ship_date).getTime()) / 86400000;
       if (days > 65) {
-        const missing = FIELDS_65.filter(f => f === "listed_date" ? !r[f] : (r[f] == null || r[f] === ""));
+        const missing = FIELDS_65.filter(f => f === "listed_date" ? !r[f] : (r[f] == null || Number(r[f]) === 0));
         if (missing.length) r65.push({ row: r, days: Math.floor(days), missing });
       }
       if (days > 14) {
         const missing = FIELDS_14.filter(f => {
           if (["logistics_provider", "channel", "last_mile_no"].includes(f)) return !r[f];
-          return r[f] == null || r[f] === "";
+          return r[f] == null || Number(r[f]) === 0;
         });
         if (missing.length) r14.push({ row: r, days: Math.floor(days), missing });
       }
@@ -1797,8 +1654,8 @@ function Shipments() {
       {rows.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
           <div style={{ minWidth: 2260 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px 80px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
-              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "累计天数", "账单核对", "运费已付", "备注", "操作"].map(h => (
+            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "累计天数", "账单核对", "运费已付", "备注"].map(h => (
                 <div key={h} style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>{h}</div>
               ))}
             </div>
@@ -1852,18 +1709,6 @@ function Shipments() {
                   {r.freight_paid ? "✓ 已付" : "✗ 未付"}
                 </div>
                 <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
-                <div style={{ padding: "6px", textAlign: "center", whiteSpace: "nowrap" }}>
-                  {canEdit && !r.listed && (
-                    <span onClick={() => markListed(r)} title="标记已上架 → 写入库存"
-                      style={{ color: "#3B6D11", cursor: "pointer", fontWeight: 600, fontSize: 11, marginRight: 6 }}>↑上架</span>
-                  )}
-                  {canEdit && r.listed && (
-                    <span title="已写入库存, 可点编辑改数量/日期" style={{ color: "#4db6a4", fontWeight: 600, fontSize: 11, marginRight: 6 }}>✓已上架</span>
-                  )}
-                  {canEdit && (
-                    <span onClick={() => openEditShip(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎ 编辑</span>
-                  )}
-                </div>
               </div>
               );
             })}
@@ -1874,407 +1719,50 @@ function Shipments() {
           暂无发货记录 · Excel 导入: node scripts/import-shipments.mjs {"<文件>"} --store=店铺名
         </div>
       )}
-
-      {/* 编辑弹窗 */}
-      {editShip && (
-        <div onClick={() => setEditShip(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 620, maxHeight: "85vh", overflow: "auto" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>编辑发货记录</div>
-            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>带 * 为必填 · 数值留空会清空 · 保存后表格即时更新</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              {SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).map(k => (
-                <div key={k}>
-                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>
-                    {SHIP_LABEL[k] || k}{k === "product_name" || k === "qty" || k === "ship_date" ? " *" : ""}
-                  </div>
-                  {SHIP_DATE.includes(k) ? (
-                    <input type="date" value={shipForm[k] || ""} onChange={(e) => setShipForm(s => ({ ...s, [k]: e.target.value }))}
-                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
-                  ) : (
-                    <input value={shipForm[k] || ""} onChange={(e) => setShipForm(s => ({ ...s, [k]: e.target.value }))}
-                      placeholder={SHIP_LABEL[k] || k}
-                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
-                  )}
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-              <button onClick={() => setEditShip(null)}
-                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
-                取消
-              </button>
-              <button onClick={saveShip}
-                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
-                保存修改
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 // ---------------- 链接制作进度 (空骨架, 待 KK 定义维度) ----------------
 function LinkProgress() {
-  const [rows, setRows] = useState([]);
-  const [canEdit, setCanEdit] = useState(false);
-  const [roleLabel, setRoleLabel] = useState("");
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data && data.user) {
-        const r = getUserRole(data.user.email || "");
-        setRoleLabel(getRoleLabel(r));
-        setCanEdit(r === "fr" || r === "cd_link" || r === "admin");
-      }
-    });
-    loadRows();
-  }, []);
-  const loadRows = () => {
-    supabase.from("link_progress").select("*").order("created_at", { ascending: false })
-      .then(({ data }) => { if (data) setRows(data); })
-      .catch(e => console.error("LinkProgress fetch err:", e));
-  };
-  const cols = [
-    { key: "product_name",   label: "产品" },
-    { key: "receive_date",   label: "接收日期" },
-    { key: "asin",           label: "asin" },
-    { key: "country",        label: "国家", kind: "country" },
-    { key: "sku",            label: "确定sku" },
-    { key: "title",          label: "标题" },
-    { key: "five_points",    label: "五点" },
-    { key: "kit_image",      label: "套图" },
-    { key: "a_plus",         label: "a+" },
-    { key: "video",          label: "视频" },
-    { key: "qa",             label: "q&a" },
-    { key: "fba_conversion", label: "fba转化" },
-    { key: "deliver_date",   label: "交付日期" },
-  ];
-  const COUNTRIES = ["", "FR", "DE", "UK", "IT", "ES", "NL", "PL", "SE"];
-  // 编辑弹窗状态
-  const [editRow, setEditRow] = useState(null);   // null 或 { id, form }
-  const [form, setForm] = useState({});
-  const openEdit = (row) => {
-    const f = {};
-    cols.forEach(c => f[c.key] = row ? (row[c.key] || "") : "");
-    setForm(f); setEditRow(row ? { id: row.id } : { id: null });
-  };
-  const saveRow = async () => {
-    const clean = {};
-    cols.forEach(c => clean[c.key] = (form[c.key] || "").trim() || null);
-    if (!clean.product_name) { alert("产品名必填"); return; }
-    if (editRow.id) {
-      const { error } = await supabase.from("link_progress").update(clean).eq("id", editRow.id);
-      if (error) { alert("保存失败: " + error.message); return; }
-    } else {
-      const { error } = await supabase.from("link_progress").insert(clean);
-      if (error) { alert("保存失败: " + error.message); return; }
-    }
-    setEditRow(null); loadRows();
-  };
-  const delRow = async (id) => {
-    if (!confirm("确认删除该记录？")) return;
-    const { error } = await supabase.from("link_progress").delete().eq("id", id);
-    if (error) { alert("删除失败: " + error.message); return; }
-    loadRows();
-  };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>链接制作进度</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            链接制作各阶段跟踪 · 11 列 · {canEdit ? "法国/成都链接 可编辑" : "只读（法国/成都链接可编辑）"}
+            链接制作各阶段进度跟踪 · 全员可见 · 待 KK 定义维度与数据源
           </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 11, color: C.faint }}>当前角色: {roleLabel || "未登录"}</span>
-          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 行</span>
-          {canEdit && (
-            <button onClick={() => openEdit(null)}
-              style={{ padding: "6px 14px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
-              + 新增记录
-            </button>
-          )}
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: C.bg }}>
-              {cols.map(c => (
-                <th key={c.key} style={{ padding: "10px 8px", textAlign: "left", fontWeight: 600, color: C.ink, borderBottom: `1px solid ${C.line}`, minWidth: 110 }}>
-                  {c.label}
-                </th>
-              ))}
-              {canEdit && <th style={{ padding: "10px 8px", borderBottom: `1px solid ${C.line}`, width: 90 }}>操作</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={cols.length + (canEdit ? 1 : 0)} style={{ padding: 40, textAlign: "center", color: C.faint, fontStyle: "italic" }}>
-                  暂无数据 · 等待录入
-                </td>
-              </tr>
-            ) : rows.map(r => (
-              <tr key={r.id} style={{ borderBottom: `1px solid ${C.line}` }}>
-                {cols.map(c => (
-                  <td key={c.key} style={{ padding: "10px 8px", color: C.sub }}>
-                    {r[c.key] || "—"}
-                  </td>
-                ))}
-                {canEdit && (
-                  <td style={{ padding: "10px 8px" }}>
-                    <span onClick={() => openEdit(r)} style={{ color: C.brand, cursor: "pointer", fontSize: 11, marginRight: 8 }}>编辑</span>
-                    <span onClick={() => delRow(r.id)} style={{ color: "#ff9090", cursor: "pointer", fontSize: 11 }}>删除</span>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        链接制作进度模块 · 待 KK 确认进度维度(拍摄/作图/翻译/上架/优化等)与数据源
       </div>
-
-      {/* 新增/编辑 弹窗 */}
-      {editRow && (
-        <div onClick={() => setEditRow(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 560, maxHeight: "85vh", overflow: "auto" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>{editRow.id ? "编辑记录" : "新增记录"}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {cols.map(c => (
-                <div key={c.key}>
-                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>{c.label}</div>
-                  {c.key.endsWith("_date") ? (
-                    <input type="date" value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
-                      style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
-                  ) : c.kind === "country" ? (
-                    <select value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
-                      style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }}>
-                      {COUNTRIES.map(x => <option key={x} value={x}>{x || "选择国家"}</option>)}
-                    </select>
-                  ) : (
-                    <input value={form[c.key] || ""} onChange={(e) => setForm(s => ({ ...s, [c.key]: e.target.value }))}
-                      placeholder={c.label}
-                      style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
-                  )}
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-              <button onClick={() => setEditRow(null)}
-                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
-                取消
-              </button>
-              <button onClick={saveRow}
-                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 // ---------------- 库存统计 (空骨架, 待 KK 提供维度与数据源) ----------------
 function InventoryStats() {
-  const [rows, setRows] = useState([]);
-  const [err, setErr] = useState("");
-  const [invRole, setInvRole] = useState(null);
-  const [edInv, setEdInv] = useState(null);       // { id } 编辑库存行
-  const [invForm, setInvForm] = useState({});
-  const [filterStore, setFilterStore] = useState("");
-  const [storeOpts, setStoreOpts] = useState(["飞鸟","野趣","俊业","乾霖","屿阔","胤顺"]);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data && data.user) setInvRole(getUserRole(data.user.email || ""));
-    });
-  }, []);
-  const canEditInv = invRole === "admin" || invRole === "cd_promotion";
-  const load = () => {
-    let q = supabase.from("inventory").select("*").order("ship_date", { ascending: true });
-    if (filterStore) q = q.eq("store", filterStore);
-    q.then(({ data, error }) => {
-      if (error) { setErr(error.message); setRows([]); return; }
-      setRows(data || []); setErr("");
-      // 拉 store 字段去重, 合并 KK 写死的 6 家
-      supabase.from("inventory").select("store").then(({ data: all }) => {
-        const fromDb = [...new Set((all || []).map(r => r.store).filter(Boolean))];
-        setStoreOpts(prev => {
-          const merged = [...new Set([...prev, ...fromDb])];
-          return merged.sort();
-        });
-      });
-    });
-  };
-  useEffect(() => { load(); }, []);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (invRole) load(); }, [filterStore]);
-  const openEditInv = (r) => {
-    const f = {
-      store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
-      ship_batch: r.ship_batch || "", product_name: r.product_name || "", asin: r.asin || "",
-      listed_qty: r.listed_qty != null ? String(r.listed_qty) : "",
-      stock_qty: r.stock_qty != null ? String(r.stock_qty) : "",
-      landed_cost: r.landed_cost != null ? String(r.landed_cost) : "",
-      purchase_date: r.purchase_date || "", listed_date: r.listed_date || "", sold_date: r.sold_date || "",
-    };
-    setInvForm(f); setEdInv({ id: r.id });
-  };
-  const saveInv = async () => {
-    if (!edInv) return;
-    const clean = {};
-    Object.entries(invForm).forEach(([k, v]) => {
-      const s = (v || "").trim();
-      if (s === "") { clean[k] = null; return; }
-      if (["listed_qty", "stock_qty"].includes(k)) { clean[k] = parseInt(s, 10); return; }
-      if (["landed_cost"].includes(k)) { clean[k] = Number(s); return; }
-      clean[k] = s;
-    });
-    const { error } = await supabase.from("inventory").update(clean).eq("id", edInv.id);
-    if (error) { alert("保存失败: " + error.message); return; }
-    setEdInv(null); load();
-  };
-  const totalQty = rows.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
-  const totalStock = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
-  const totalAmount = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0) * Number(r.landed_cost || 0), 0);
-  const daysBetween = (a, b) => {
-    if (!a || !b) return null;
-    const ms = new Date(b).getTime() - new Date(a).getTime();
-    return Math.round(ms / 86400000);
-  };
-  const INV_FIELDS = [
-    { k: "ship_date", l: "货发日期", t: "date" }, { k: "ship_warehouse", l: "仓库" },
-    { k: "ship_batch", l: "发货批次" }, { k: "product_name", l: "款式" },
-    { k: "asin", l: "ASIN" }, { k: "listed_qty", l: "上架数量", t: "num" },
-    { k: "stock_qty", l: "库存数量", t: "num" }, { k: "landed_cost", l: "盈亏价", t: "num" },
-    { k: "purchase_date", l: "采购时间", t: "date" }, { k: "listed_date", l: "上架时间", t: "date" },
-    { k: "sold_date", l: "售完时间", t: "date" },
-  ];
-  const COLS = [
-    { k: "ship_date",      l: "货发日期" },
-    { k: "ship_warehouse", l: "仓库" },
-    { k: "ship_batch",     l: "发货批次" },
-    { k: "product_name",   l: "款式" },
-    { k: "asin",           l: "ASIN" },
-    { k: "listed_qty",     l: "上架数量", bold: true },
-    { k: "stock_qty",      l: "库存数量", bold: true },
-    { k: "landed_cost",    l: "盈亏价", fmt: "money" },
-    { k: "purchase_date",  l: "采购时间" },
-    { k: "ship_date_disp", l: "发货时间", disp: r => r.ship_date },
-    { k: "prep_days",      l: "准备周期", calc: r => daysBetween(r.purchase_date, r.ship_date) },
-    { k: "listed_date",    l: "上架时间" },
-    { k: "logistics_days", l: "物流周期", calc: r => daysBetween(r.ship_date, r.listed_date) },
-    { k: "sold_date",      l: "售完时间" },
-    { k: "sales_days",     l: "销售周期", calc: r => daysBetween(r.listed_date, r.sold_date) },
-    { k: "total_days",     l: "全局期次", calc: r => daysBetween(r.ship_date, r.sold_date) },
-    { k: "cycle_rate",     l: "全周次率", calc: r => {
-        const total = daysBetween(r.ship_date, r.sold_date);
-        const sales = daysBetween(r.listed_date, r.sold_date);
-        if (!total || total <= 0) return null;
-        return Math.round((sales || 0) / total * 100) + "%";
-      }
-    },
-  ];
-  const fmt = (col, v, r) => {
-    if (col.calc) v = col.calc(r);
-    if (col.disp) v = col.disp(r);
-    if (v == null || v === "") return "—";
-    if (col.fmt === "money" && v != null) return "¥" + Number(v).toFixed(2);
-    return v;
-  };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>库存记录</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>库存统计</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            发货记录标记「已上架」自动生成 · 每条发货一行 · 17 列同 Excel · 全员可见 · 红色=需关注 (周期异常/库存为0)
+            各店铺 / 类目 / ASIN 维度的库存数据 · 全员可见 · 待 KK 提供维度与数据源
           </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 条 · 上架合计 {totalQty} 件 · 当前库存 {totalStock}</span>
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
         </div>
       </div>
-      {err && <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
-        读取失败(请先建表 inventory): {err}
-      </div>}
-
-      {/* 筛选: 店铺 */}
-      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 18px", marginBottom: 14 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
-          <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-            <option value="">全部店铺</option>
-            {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{filterStore ? `已筛选: ${filterStore}` : `共 ${rows.length} 条`}</span>
-          <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
-            库存金额 ¥{totalAmount.toFixed(2)}
-          </span>
-        </div>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        库存统计模块 · 待 KK 确认维度 (店铺/类目/ASIN) 与数据源 (SP-API 库存/采购记录)
       </div>
-
-      {rows.length ? (
-        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 1820 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
-              {COLS.map(c => (
-                <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>
-              ))}
-              {canEditInv && <div style={{ padding: "9px 8px" }}>操作</div>}
-            </div>
-            {rows.map((r, i) => {
-              const bg = i % 2 ? C.bg : "transparent";
-              return (
-                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bg }}>
-                  {COLS.map(c => (
-                    <div key={c.k} style={{ padding: "8px", fontWeight: c.bold ? 600 : 400, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(c, r[c.k], r)}</div>
-                  ))}
-                  {canEditInv && <div style={{ padding: "8px", textAlign: "center" }}>
-                    <span onClick={() => openEditInv(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
-                  </div>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : (
-        <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13 }}>
-          暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录
-        </div>
-      )}
-
-      {/* 编辑库存弹窗 */}
-      {edInv && (
-        <div onClick={() => setEdInv(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 560, maxHeight: "85vh", overflow: "auto" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>编辑库存记录</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {INV_FIELDS.map(f => (
-                <div key={f.k}>
-                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>{f.l}</div>
-                  <input type={f.t === "date" ? "date" : f.t === "num" ? "number" : "text"} value={invForm[f.k] || ""}
-                    onChange={(e) => setInvForm(s => ({ ...s, [f.k]: e.target.value }))}
-                    style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
-              采购时间 / 售完时间 / 库存数量 可手填；以后接订单后售完时间按批次自动更新
-            </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-              <button onClick={() => setEdInv(null)}
-                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
-              <button onClick={saveInv}
-                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>保存修改</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -2284,10 +1772,7 @@ function CatDash({ setProjectFor }) {
   const [openB, setOpenB] = useState({});
   const [openG, setOpenG] = useState({});
   const [openC, setOpenC] = useState({});
-  
-
-  // 大类/二级 cat 默认全部折叠 (重置历史 state)
-  useEffect(() => { setOpenC({}); setOpenG({}); setOpenL({}); }, []);
+  const [openL, setOpenL] = useState({});
   const [handoffMap, setHandoffMap] = useState({});
   const [shReady, setShReady] = useState(false);
 
@@ -2323,26 +1808,7 @@ function CatDash({ setProjectFor }) {
       if (cat.children) cat.children.forEach(s => walk(s));
     };
     walk(c);
-    return { sell, idleP, skip };const tallyCatDeep = (c) => {
-    let sell = 0, idleP = 0, skip = 0;
-    const collect = (catId) => {
-      const d = CAT_DETAIL[catId];
-      if (d && d.leaves) d.leaves.forEach(lf => {
-        if (lf.st === "researched_skip") skip++;
-        else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
-        else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
-      });
-    };
-    const walk = (cat) => {
-      collect(cat.id);
-      if (cat.children) cat.children.forEach(s => walk(s));
-    };
-    walk(c);
     return { sell, idleP, skip };
-  };
-
-  // 新模型递归统计: cat + 子 cat + 产品 (基于 cat_id, KK 2026-08-10)
-  
   };
 
   const PhaseTag = ({ lid }) => {
@@ -2384,15 +1850,15 @@ function CatDash({ setProjectFor }) {
             {bOpen && info.groups.map((g, gi) => {
               const gkey = `${b}|${gi}`;
               const gOpen = !!openG[gkey];
-              const allRootCats = sortCatsBySt((g.cats || []).filter(c => !c.children || c.children.length === 0));
-              const nestedCats = sortCatsBySt((g.cats || []).filter(c => c.children && c.children.length > 0));
+              const allRootCats = (g.cats || []).filter(c => !c.children || c.children.length === 0);
+              const nestedCats = (g.cats || []).filter(c => c.children && c.children.length > 0);
               const gTally = (g.cats || []).reduce((s, c) => {
-                const t = tallyCatDeepV2(c);
-                return { sell: s.sell + t.sell, idle: s.idle + t.idle };
-              }, { sell: 0, idle: 0 });
+                const t = tallyCatDeep(c);
+                return { sell: s.sell + t.sell, idleP: s.idleP + t.idleP, skip: s.skip + t.skip };
+              }, { sell: 0, idleP: 0, skip: 0 });
               return (
                 <div key={gkey} style={{ borderTop: `1px solid ${C.line}` }}>
-                  <div onClick={() => { setOpenG(s => ({ ...s, [gkey]: !s[gkey] })); setOpenC(s => { const ns = {...s}; Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; }); return ns; }); }}
+                  <div onClick={() => setOpenG(s => ({ ...s, [gkey]: !s[gkey] }))}
                     style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer" }}>
                     <Caret open={gOpen} small />
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
@@ -2405,18 +1871,12 @@ function CatDash({ setProjectFor }) {
                   {gOpen && (
                     <div style={{ background: C.bg, borderTop: `1px solid ${C.line}`, padding: "10px 16px 14px 50px" }}>
                       {allRootCats.map((c, ci) => {
-                        const ckey = `${gkey}|root${c.id}`;
+                        const ckey = `${gkey}|root${ci}`;
                         const cOpen = !!openC[ckey];
                         const t = tallyCatDeep(c);
                         return (
                           <div key={ci} style={{ marginBottom: 6 }}>
-                            <div onClick={() => setOpenC(s => {
-                              const willOpen = !s[ckey];
-                              const ns = { ...s };
-                              Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; });
-                              if (willOpen) ns[ckey] = true;
-                              return ns;
-                            })} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
+                            <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600 }}>{c.name}</span>
                               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
@@ -2431,7 +1891,7 @@ function CatDash({ setProjectFor }) {
                             </div>
                             {cOpen && c.children && c.children.length > 0 && (
                               <div style={{ marginLeft: 28, marginTop: 4 }}>
-                                {sortCatsBySt(c.children).map((sub, si) => {
+                                {c.children.map((sub, si) => {
                                   const st = tallyCatDeep(sub);
                                   return (
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
@@ -2454,18 +1914,12 @@ function CatDash({ setProjectFor }) {
                         );
                       })}
                       {nestedCats.map((c, ci) => {
-                        const ckey = `${gkey}|nest${c.id}`;
+                        const ckey = `${gkey}|nest${ci}`;
                         const cOpen = !!openC[ckey];
                         const t = tallyCatDeep(c);
                         return (
                           <div key={ci} style={{ marginBottom: 4 }}>
-                            <div onClick={() => setOpenC(s => {
-                              const willOpen = !s[ckey];
-                              const ns = { ...s };
-                              Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; });
-                              if (willOpen) ns[ckey] = true;
-                              return ns;
-                            })} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
+                            <div onClick={() => setOpenC(s => ({ ...s, [ckey]: !s[ckey] }))} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12, color: C.ink }}>
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600, marginLeft: 4 }}>{c.name}</span>
                               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
@@ -2781,164 +2235,23 @@ function OrderSummary() {
 }
 
 // ---------------- 店铺运维费用 (空骨架, 待 KK 填充) ----------------
-// 维度: 月份 × 店铺 × 站点 × 费用类别 → 金额
-// 店铺筛选: 不选=全部店铺汇总(只读) / 选具体店铺=该店铺数据(可编辑)
 function OpsFee() {
-  const SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
-  const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租"];
-  const cur = new Date();
-  const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
-  const [rows, setRows] = useState([]);
-  const [filterStore, setFilterStore] = useState("");                      // "" = 全部店铺
-  const [storeOpts, setStoreOpts] = useState(["飞鸟", "野趣", "俊业", "乾霖", "屿阔", "胤顺"]);
-  const [edCell, setEdCell] = useState(null);
-  const [edAmount, setEdAmount] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const [opsRole, setOpsRole] = useState(null);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data && data.user) setOpsRole(getUserRole(data.user.email || ""));
-    });
-  }, []);
-  const canEdit = opsRole === "admin";
-  const load = () => {
-    supabase.from("opsfee_monthly").select("*").eq("month", month).order("site, category")
-      .then(({ data, error }) => {
-        if (error) { alert("读取失败(请先建表 opsfee_monthly): " + error.message); setRows([]); return; }
-        setRows(data || []); setLoaded(true);
-        // 拉 store 字段去重, 合并固定店铺清单
-        supabase.from("opsfee_monthly").select("store").then(({ data: all }) => {
-          const fromDb = [...new Set((all || []).map(r => r.store).filter(Boolean))];
-          setStoreOpts(prev => [...new Set([...prev, ...fromDb])].sort());
-        });
-      });
-  };
-  useEffect(() => { load(); }, [month]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (opsRole) load(); }, [opsRole]);
-  // 不选店铺 = 全部店铺汇总; 选店铺 = 只看该店铺
-  const getVal = (site, category) => {
-    const m = rows.filter(x => x.site === site && x.category === category);
-    if (!filterStore) return m.reduce((s, x) => s + Number(x.amount || 0), 0);
-    const r = m.find(x => x.store === filterStore);
-    return r ? Number(r.amount || 0) : 0;
-  };
-  const total = (category) => SITES.reduce((s, site) => s + getVal(site, category), 0);
-  const totalSite = (site) => CATS.reduce((s, cat) => s + getVal(site, cat), 0);
-  const canEditCell = canEdit && !!filterStore;      // 汇总视图不可直接录, 先选店铺
-  const openCell = (site, category) => {
-    if (!canEditCell) return;
-    setEdCell({ site, category });
-    setEdAmount(String(getVal(site, category)));
-  };
-  const saveCell = async () => {
-    if (!edCell) return;
-    const amount = Number(edAmount);
-    if (isNaN(amount)) { alert("金额必须是数字"); return; }
-    const existing = rows.find(x => x.site === edCell.site && x.category === edCell.category && x.store === filterStore);
-    let err;
-    if (existing) {
-      ({ error: err } = await supabase.from("opsfee_monthly").update({ amount }).eq("id", existing.id));
-    } else {
-      ({ error: err } = await supabase.from("opsfee_monthly").insert({ month, store: filterStore, site: edCell.site, category: edCell.category, amount }));
-    }
-    if (err) { alert("保存失败: " + err.message); return; }
-    setEdCell(null); load();
-  };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            月份 × 店铺 × 站点 × 费用类别 · 单元格点击改金额 · {
-              !canEdit ? "只读"
-                : filterStore ? `已选店铺「${filterStore}」可编辑`
-                  : "全部店铺汇总(只读) · 选择店铺后录入"
-            }
+            各店铺运维费用记录 (月租/工具/广告/杂费) · 仅管理员可见 · 待 KK 确认口径与数据源
           </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
-          <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-            <option value="">全部店铺</option>
-            {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
-          <input type="month" value={month.slice(0, 7)} onChange={e => setMonth(e.target.value + "-01")}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
         </div>
       </div>
-      {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
-      {loaded && (
-        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 880 }}>
-            <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
-              <div style={{ padding: "10px 12px", borderRight: `1px solid #2a4a78` }}>
-                {month.slice(0, 7)} · {filterStore || "全部店铺"}
-              </div>
-              {SITES.map(s => <div key={s} style={{ padding: "10px 8px", textAlign: "right", borderRight: `1px solid #2a4a78` }}>{s}</div>)}
-              <div style={{ padding: "10px 12px", textAlign: "right" }}>合计</div>
-            </div>
-            {CATS.map(cat => (
-              <div key={cat} style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
-                <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>{cat}</div>
-                {SITES.map(site => {
-                  const v = getVal(site, cat);
-                  return (
-                    <div key={site} onClick={() => openCell(site, cat)} title={canEditCell ? "点击编辑" : ""}
-                      style={{ padding: "8px 10px", textAlign: "right", cursor: canEditCell ? "pointer" : "default", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>
-                      {v ? v.toFixed(2) : "—"}
-                    </div>
-                  );
-                })}
-                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: C.brand, background: C.bg }}>
-                  {total(cat).toFixed(2)}
-                </div>
-              </div>
-            ))}
-            <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
-              <div style={{ padding: "10px 12px", fontWeight: 700, color: C.brand }}>站点合计</div>
-              {SITES.map(site => (
-                <div key={site} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: C.brand }}>
-                  {totalSite(site).toFixed(2)}
-                </div>
-              ))}
-              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#c05b52", background: "#c05b5210" }}>
-                {CATS.reduce((s, c) => s + total(c), 0).toFixed(2)}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {edCell && (
-        <div onClick={() => setEdCell(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 380 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>编辑运维费用</div>
-            <div style={{ fontSize: 12, color: C.sub, marginBottom: 12 }}>
-              {month.slice(0, 7)} · {filterStore} · {edCell.category} · {edCell.site}
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>金额 (€)</div>
-              <input type="number" step="0.01" value={edAmount} onChange={(e) => setEdAmount(e.target.value)} autoFocus
-                style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 14 }} />
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>店铺</div>
-              <select value={filterStore} onChange={(e) => setFilterStore(e.target.value)}
-                style={{ width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-                {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => setEdCell(null)} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
-              <button onClick={saveCell} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>保存</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        店铺运维费用 · 待 KK 确认费用项 (月租/工具订阅/广告/杂费) 与数据源 (Excel导入/手动录)
+      </div>
     </div>
   );
 }
@@ -3330,13 +2643,6 @@ function Finance() {
 
 // ---------------- 品牌货架 (三层展开: 品牌 → 大类 → 类目) ----------------
 function Shelf() {
-  const [shelfErr, setShelfErr] = useState(null);
-  useEffect(() => {
-    (async () => {
-      try { await fetchShelfData(); }
-      catch (e) { console.error("Shelf fetch err:", e); setShelfErr(String(e)); }
-    })();
-  }, []);
   const brands = Object.keys(BRAND_SHELF);
   // 改状态权限: 按拖拽权限框住 (KK: 货架改状态与进度拖拽同权限)
   //   sFull (admin/fr) 全改; 角色只能改自己负责阶段的 leaf/product 状态
@@ -3450,18 +2756,6 @@ function Shelf() {
     const payload = edit.type === "leaf" && newSt !== "idle" ? { st: newSt, phase: null } : { st: newSt };
     const { error } = await supabase.from(edit.table).update(payload).eq("id", edit.id);
     if (error) { alert("保存失败: " + error.message); return; }
-    // 自动入框: cat 状态改为 idle 时, 同步加进 monitor_handoff h1 框 (KK 2026-08-10)
-    if (edit.type === "cat" && newSt === "idle") {
-      await supabase.from("monitor_handoff").insert({
-        cat_id: edit.id,
-        box_key: "h1",
-        start_at: new Date().toISOString(),
-      });
-    }
-    // 自动出框: cat 改为不做时, 从两个闭环消失 (KK 2026-08-10)
-    if (edit.type === "cat" && (newSt === "skip" || newSt === "researched_skip")) {
-      await supabase.from("monitor_handoff").delete().eq("cat_id", edit.id);
-    }
     setEdit(null);
     await refreshShelf();
   };
@@ -3533,7 +2827,7 @@ function Shelf() {
       cat_id: addLeaf.catId,
       leaf_name: leafName.trim(),
       path: leafPath.trim() || null,
-      st: "ready",
+      st: "idle",
     }).select().single();
     if (error) { alert("添加失败: " + error.message); return; }
     // 仅 phase=planning 的 leaf 才同步进 h1 框 (立项期间)
@@ -3559,7 +2853,7 @@ function Shelf() {
   };
 
   // 子类目递归渲染 (cat 嵌套: Transport et voyages > Accessoires voiture > leaves)
-  const renderCatTree = (children, parentKey, depth) => children && children.length ? sortCatsBySt(children).map((sub, si) => {
+  const renderCatTree = (children, parentKey, depth) => children && children.length ? children.map((sub, si) => {
     const subKey = `${parentKey}|sub${si}`;
     const subOpen = !!openC[subKey];
     const subDetail = catDetail(sub.name);  // 单参数查找 (不依赖 g, 避免 ReferenceError)
@@ -3571,34 +2865,21 @@ function Shelf() {
           <Caret open={subOpen} small />
           {stDot(sub.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: sub.id, st: sub.st, label: sub.name }); })}
           <span style={{ fontSize: 13, color: C.ink }}>{sub.name}</span>
-          {(sub.st === "skip" || sub.st === "researched_skip") && (<span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#dc2626", color: "#fff", marginLeft: 8 }}>不做</span>)}
-          <span style={{ marginLeft: "auto", fontSize: 11, display: "inline-flex", gap: 10 }}>
-            {(() => {
-              const t = tallyCatDeepV2(sub);
-              return (
-                <>
-                  <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
-                  <span style={{ color: C.sub }}>在调研 {t.idle}</span>
-                </>
-              );
-            })()}
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+            {subDetail && subDetail.leaves ? `${subDetail.leaves.length} 项` : ""}
           </span>
         </div>
         {subOpen && (
           <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
             {sub.children && sub.children.length > 0 && renderCatTree(sub.children, subKey, depth + 1)}
-            {subDetail && subDetail.products && subDetail.products.length > 0 ? (
-              <div style={{ padding: `8px 16px 14px ${pad + 24}px`, background: C.panel }}>
-                <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, letterSpacing: ".04em", marginBottom: 4 }}>产品</div>
-                {subDetail.products.map((p) => renderProductRow(p, sub.id))}
+            {subDetail && subDetail.leaves ? subDetail.leaves.map((lf, li) => (
+              <div key={li} style={{ display: "flex", alignItems: "center", gap: 9, padding: `10px 16px 10px ${pad + 24}px`, borderTop: li ? `1px solid ${C.line}` : "none" }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: SHELF_ST[lf.st] ? SHELF_ST[lf.st].color : C.faint, display: "inline-block" }} />
+                <span style={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>{lf.leaf}</span>
+                <span style={{ fontSize: 10, color: C.faint }}>{lf.path || ""}</span>
               </div>
-            ) : (!sub.children || sub.children.length === 0) && (
-              <div style={{ padding: `10px 16px 10px ${pad + 24}px`, fontSize: 11, color: C.faint }}>暂无产品</div>
-            )}
-            <div onClick={(e) => { e.stopPropagation(); setAddProd({ catId: sub.id }); }}
-              style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 16px 8px " + (pad + 24) + "px" }}>
-              + 新增产品
-            </div>
+            )) : <div style={{ padding: `10px 16px 10px ${pad + 24}px`, fontSize: 11, color: C.faint }}>暂无末端类目</div>}
+            {/* 规则未定, 暂不显示新增末端类目按钮 */}
           </div>
         )}
       </div>
@@ -3673,7 +2954,7 @@ function Shelf() {
 
       {/* 图例 */}
       <div style={{ display: "flex", gap: 16, marginBottom: 18 }}>
-        {Array.from(new Map(Object.entries(SHELF_ST).map(([k, v]) => [v.label, [k, v]])).values()).map(([k, v]) => (
+        {Object.entries(SHELF_ST).map(([k, v]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.sub }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: v.color, display: "inline-block" }} />{v.label}
           </div>
@@ -3732,7 +3013,7 @@ function Shelf() {
                     g.cats.forEach(c => gn[c.st]++);
                     return (
                       <div key={gi} style={{ borderTop: gi ? `1px solid ${C.line}` : "none" }}>
-                        <div onClick={() => { setOpenG(s => ({ ...s, [gkey]: !s[gkey] })); setOpenC(s => { const ns = {...s}; Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; }); return ns; }); }}
+                        <div onClick={() => setOpenG(s => ({ ...s, [gkey]: !s[gkey] }))}
                           style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", cursor: "pointer", background: C.panel2 }}>
                           <Caret open={gOpen} small />
                           <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
@@ -3753,39 +3034,20 @@ function Shelf() {
                         {gOpen && (
                           g.cats.length ? (
                             <div>
-                              {sortCatsBySt(g.cats).map((c, ci) => {
-                                // 根 cat (parent_cat_id = NULL): 自动展开其 children, 隐藏名字行 (避免与大类名重复)
-                                if (c.parent_cat_id === null || c.parent_cat_id === undefined) {
-                                  return c.children && c.children.length > 0 ? (
-                                    <div key={ci} style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
-                                            {sortCatsBySt(c.children).map((sub, si) => {
-                                        try { return renderCatTree([sub], `${gkey}|root${ci}`, 1); } catch (e) { console.error("root cat nested err:", e); return null; }
-                                      })}
-                                    </div>
-                                  ) : null;
-                                }
+                              {g.cats.map((c, ci) => {
                                 if (c.st === "skip" || c.st === "researched_skip") {
                                   return (
-                                    <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
-                                      <span style={{ fontSize: 13, color: C.faint }}>{c.name}</span>
-                                      <span style={{ marginLeft: "auto", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600, background: "#5a3030", color: "#ff9090", border: "1px solid #7a4040" }}>
-                                        不做
-                                      </span>
+                                    <div key={ci} style={{ display: "flex", alignItems: "center", padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
+                                      <span style={{ fontSize: 13, color: C.faint }}>{c.name} - 不做</span>
                                     </div>
                                   );
                                 }
-                                const ckey = `${gkey}|${c.id}`;
+                                const ckey = `${gkey}|${ci}`;
                                 const cOpen = !!openC[ckey];
                                 const detail = catDetail(c.name, g.name);
                                 return (
                                   <div key={ci} style={{ borderTop: `1px solid ${C.line}` }}>
-                                    <div onClick={() => setOpenC(st => {
-                                      const willOpen = !st[ckey];
-                                      const ns = { ...st };
-                                      Object.keys(ns).forEach(k => { if (k.startsWith(gkey + "|")) delete ns[k]; });
-                                      if (willOpen) ns[ckey] = true;
-                                      return ns;
-                                    })}
+                                    <div onClick={() => setOpenC(st => ({ ...st, [ckey]: !st[ckey] }))}
                                       style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 58px", cursor: "pointer" }}>
                                       <Caret open={cOpen} small />
                                       {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
@@ -3824,18 +3086,97 @@ function Shelf() {
                                         {c.children && c.children.length > 0 && (() => {
                                           try { return renderCatTree(c.children, ckey, 1); } catch (e) { console.error("cat nested render err:", e); return null; }
                                         })()}
-                                        {detail && detail.products && detail.products.length > 0 ? (
-                                          <div style={{ padding: '6px 16px 14px 82px', background: C.panel }}>
-                                            <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, letterSpacing: '.04em', marginBottom: 4 }}>产品</div>
-                                            {detail.products.map((p) => renderProductRow(p, c.id))}
-                                          </div>
+                                        {detail && detail.leaves ? (
+                                          <React.Fragment>
+                                          {detail.leaves.filter(lf => {
+                                            const f = filterC[ckey];
+                                            if (!f) return true;
+                                            if (f === "selling") return lf.products.some(p => p.st === "selling");
+                                            if (f === "researched_skip") return lf.st === "researched_skip";
+                                            return (lf.st === "idle" && (!lf.products || !lf.products.length)) || lf.products.some(p => p.st === "idle");
+                                          }).map((lf, li) => {
+                                            const f = filterC[ckey];
+                                            const shownProducts = f === "selling" ? lf.products.filter(p => p.st === "selling")
+                                              : f === "idle" ? lf.products.filter(p => p.st === "idle") : lf.products;
+                                            const lkey = `${ckey}|${li}`;
+                                            const lOpen = !!openL[lkey];
+                                            return (
+                                              <div key={li} style={{ borderTop: li ? `1px solid ${C.line}` : "none" }}>
+                                                {/* 末端类目行 */}
+                                                <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 82px" }}>
+                                                  <span onClick={() => setOpenL(st => ({ ...st, [lkey]: !st[lkey] }))} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 9 }}>
+                                                    <Caret open={lOpen} small />
+                                                    {stDot(lf.st === "idle" && lf.phase ? lf.phase : lf.st,
+                                                      (e) => { e.stopPropagation(); setEdit({ type: "leaf", table: "shelf_leaves", id: lf.id, st: lf.st, phase: lf.phase, label: lf.leaf }); }, undefined, canEditSt(lf.id))}
+                                                  </span>
+                                                  <span onClick={() => setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName })} style={{ fontSize: 13, color: C.ink, fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted", textDecorationColor: C.faint, textUnderlineOffset: 3 }}>
+                                                    {lf.leaf}
+                                                  </span>
+                                                  {(() => {
+                                                    const hbox = handoffMap[lf.id];
+                                                    if (hbox && HANDOFF_STEP_LABEL[hbox]) {
+                                                      const hc = HANDOFF_BOXES.find(b => b.id === hbox);
+                                                      return (
+                                                        <span style={{ fontSize: 11, color: hc ? hc.color : C.brand, fontWeight: 600 }}>
+                                                          · {HANDOFF_STEP_LABEL[hbox]}
+                                                        </span>
+                                                      );
+                                                    }
+                                                    return null;
+                                                  })()}
+                                                  {lf.st === "idle" && (!lf.products || !lf.products.length) && !handoffMap[lf.id] && (
+                                                    <select
+                                                      value={lf.phase || ""}
+                                                      onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        const v = e.target.value;
+                                                        if (v) savePhaseFor(lf.id, v); else clearPhaseFor(lf.id);
+                                                      }}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      style={{ fontSize: 11, padding: "2px 6px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, color: C.ink, cursor: "pointer", outline: "none" }}>
+                                                      <option value="">未细分</option>
+                                                      {Object.entries(LEAF_PHASE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                                    </select>
+                                                  )}
+                                                  {lf.st === "researched_skip" && (
+                                                    <span style={{ fontSize: 11, color: C.faint }}>· 已调研不做</span>
+                                                  )}
+                                                  <span style={{ marginLeft: "auto", fontSize: 11, color: C.brand, cursor: "pointer" }}
+                                                    onClick={() => {
+                                                      if (lf.chatUrl) { window.open(lf.chatUrl, "_blank", "noopener,noreferrer"); return; }
+                                                      setProjectFor({ name: lf.leaf, path: lf.path, chatName: lf.chatName });
+                                                    }}>
+                                                    进入分析 →
+                                                  </span>
+                                                </div>
+                                                <div style={{ fontSize: 11, color: C.faint, padding: "0 16px 8px 116px" }}>{lf.path}</div>
+                                                {/* 末端点开后显示 产品 / 供应商 */}
+                                                {lOpen && (
+                                                  <div style={{ padding: "4px 16px 14px 116px", background: C.panel }}>
+                                                    <Branch title="产品">
+                                                      {shownProducts.length ? shownProducts.map((p) => renderProductRow(p, lf.id)) : <Empty t="暂无产品" />}
+                                                      <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
+                                                        style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
+                                                        + 新增产品
+                                                      </div>
+                                                      {/* 供应商内嵌产品 Branch 末尾 (KK 2026-08-08 模板) */}
+                                                      {lf.suppliers.length ? lf.suppliers.map((sp, si) => (
+                                                        <div key={si} style={{ fontSize: 12, padding: "5px 0", lineHeight: 1.6 }}>
+                                                          <span style={{ color: C.ink, fontWeight: 600 }}>{sp.factory}</span>
+                                                          <span style={{ color: C.sub }}> · {sp.contact}</span>
+                                                          <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
+                                                        </div>
+                                                      )) : null}
+                                                      {/* 规则未定, 暂不显示新增供应商按钮 */}
+                                                    </Branch>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        {/* 规则未定, 暂不显示新增末端类目按钮 */}
+                                          </React.Fragment>
                                         ) : (
-                                          <div style={{ padding: '8px 16px 14px 82px', fontSize: 12, color: C.faint }}>暂无产品</div>
-                                        )}
-                                        <div onClick={(e) => { e.stopPropagation(); setAddProd({ catId: c.id }); }}
-                                          style={{ fontSize: 11, color: C.brand, cursor: 'pointer', padding: '5px 16px 10px 82px' }}>
-                                          + 新增产品
-                                        </div>: (
                                           <div style={{ padding: "10px 16px 14px 82px" }}>
                                             {/* 顶部统计: 产品 · 变体 · 供应商 */}
                                             <div style={{ display: "flex", gap: 14, fontSize: 11, color: C.sub, marginBottom: 8, padding: "6px 8px", background: C.bg, borderRadius: 6 }}>
@@ -3945,7 +3286,7 @@ function Shelf() {
             <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>修改状态</div>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>{edit.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {Array.from(new Map(Object.entries(SHELF_ST).map(([k, v]) => [v.label, [k, v]])).values()).map(([k, v]) => (
+              {Object.entries(SHELF_ST).map(([k, v]) => (
                 <div key={k} onClick={() => saveSt(k)}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
                     border: `1px solid ${edit.st === k ? v.color : C.line}`, background: edit.st === k ? `${v.color}22` : "transparent", color: C.ink, fontSize: 13 }}>
@@ -4121,5 +3462,3 @@ function Stat({ label, value, accent }) {
   </div>;
 }
 const btn = (C) => ({ marginTop: 12, width: "100%", padding: "8px", background: "transparent", border: `1px solid ${C.line}`, color: C.sub, borderRadius: 8, fontSize: 12, cursor: "pointer" });
-
-// build trigger 1786350204773
