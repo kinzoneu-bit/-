@@ -2787,6 +2787,8 @@ function OpsFee() {
   const SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
   const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租"];
   const cur = new Date();
+  const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);   // 前3年 ~ 后2年
+  const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
   const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");                      // "" = 全部店铺
@@ -2866,8 +2868,14 @@ function OpsFee() {
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
-          <input type="month" value={month.slice(0, 7)} onChange={e => setMonth(e.target.value + "-01")}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+          <select value={month.slice(0, 4)} onChange={e => setMonth(`${e.target.value}-${month.slice(5, 7)}-01`)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            {YEARS.map(y => <option key={y} value={String(y)}>{y}年</option>)}
+          </select>
+          <select value={month.slice(5, 7)} onChange={e => setMonth(`${month.slice(0, 4)}-${e.target.value}-01`)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
+          </select>
         </div>
       </div>
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
