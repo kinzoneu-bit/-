@@ -1601,12 +1601,14 @@ function Shipments() {
 
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");
+  const [filterBatch, setFilterBatch] = useState("");     // 按发货批次号查询
   const [storeOpts, setStoreOpts] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   const load = async () => {
     let q = supabase.from("shipments").select("*");
     if (filterStore) q = q.eq("store", filterStore);
+    if (filterBatch.trim()) q = q.ilike("ship_batch", `%${filterBatch.trim()}%`);
     const { data, error } = await q.order("ship_date", { ascending: true }).limit(2000);
     if (error) { alert("读取失败(请先建表 shipments): " + error.message); return; }
     setRows(data || []);
@@ -1618,7 +1620,11 @@ function Shipments() {
   };
   useEffect(() => { if (shipRole) load(); }, [shipRole]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (shipRole && loaded) load(); }, [filterStore]);
+  useEffect(() => {
+    if (!shipRole || !loaded) return;
+    const t = setTimeout(load, 300);        // 输入防抖
+    return () => clearTimeout(t);
+  }, [filterStore, filterBatch]);
 
   // 勾选切换 (账单核对/运费已付) · 仅 canEdit
   const toggleField = async (rowId, field, current) => {
@@ -1746,7 +1752,7 @@ function Shipments() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>发货记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺筛选 · 26 列(按 Excel) · 金额单位人民币(¥) · 日期降序 · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/管理员可更新" : "只读"}
+            按店铺 / 发货批次号筛选 · 26 列(按 Excel) · 金额单位人民币(¥) · 日期降序 · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/管理员可更新" : "只读"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1764,7 +1770,23 @@ function Shipments() {
             <option value="">全部店铺</option>
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{rows.length} 条</span>
+          <span style={{ fontSize: 12, color: C.sub }}>发货批次号:</span>
+          <div style={{ position: "relative" }}>
+            <input value={filterBatch} onChange={e => setFilterBatch(e.target.value)}
+              placeholder="输入批次号, 支持部分匹配"
+              style={{ width: 260, padding: "6px 30px 6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+            {filterBatch && (
+              <span onClick={() => setFilterBatch("")} title="清空"
+                style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: C.faint, fontSize: 13, lineHeight: 1 }}>✕</span>
+            )}
+          </div>
+          {(filterStore || filterBatch.trim()) && (
+            <span onClick={() => { setFilterStore(""); setFilterBatch(""); }}
+              style={{ fontSize: 12, color: C.brand, cursor: "pointer", fontWeight: 600 }}>重置</span>
+          )}
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+            {rows.length} 条{filterBatch.trim() ? ` · 批次含「${filterBatch.trim()}」` : ""}
+          </span>
         </div>
       </div>
 
