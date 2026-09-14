@@ -2848,21 +2848,34 @@ function OpsFee() {
   const total = (category) => SITES.reduce((s, site) => s + getVal(site, category), 0);
   const totalSite = (site) => CATS.reduce((s, cat) => s + getVal(site, cat), 0);
   const canEditCell = canEdit && !!filterStore;      // 汇总视图只读, 选店铺后直接录入
-  // 单元格草稿: 正在输入的值 (key = site|category), 回车/失焦即存
+  const OPS_PWD = "852963";                          // 录入二次校验密码 (防手误误改)
+  // 单元格草稿: 正在输入的值 (key = site|category), 回车/失焦 → 弹确认框 → 输密码 → 才写库
   const [drafts, setDrafts] = useState({});
+  const [pending, setPending] = useState(null);      // 待确认的改动 { site, category, amount, oldV, existing }
+  const [pwd, setPwd] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
   useEffect(() => { setDrafts({}); }, [filterStore, month]);
   const setDraft = (site, category, v) => setDrafts(p => ({ ...p, [`${site}|${category}`]: v }));
   const clearDraft = (site, category) => setDrafts(p => { const n = { ...p }; delete n[`${site}|${category}`]; return n; });
-  const commitCell = async (site, category) => {
+  // 失焦/回车 → 不直接写库, 先弹确认框
+  const requestCell = (site, category) => {
     const key = `${site}|${category}`;
     const raw = drafts[key];
-    if (raw === undefined || !canEditCell) return;              // 没改过 → 不写库
+    if (raw === undefined || !canEditCell) return;
     const existing = rows.find(x => x.site === site && x.category === category && x.store === filterStore);
     const oldV = existing ? Number(existing.amount || 0) : 0;
     const amount = raw.trim() === "" ? 0 : Number(raw);
     if (isNaN(amount)) { alert("金额必须是数字"); setDraft(site, category, oldV ? String(oldV) : ""); return; }
-    if (existing && oldV === amount) { clearDraft(site, category); return; }   // 值没变 → 不写库
-    if (!existing && amount === 0 && raw.trim() === "") { clearDraft(site, category); return; }
+    if (existing && oldV === amount) { clearDraft(site, category); return; }        // 值没变 → 不弹框
+    if (!existing && raw.trim() === "") { clearDraft(site, category); return; }     // 空值新建 → 忽略
+    setPwd(""); setPwdErr("");
+    setPending({ site, category, amount, oldV, existing });
+  };
+  // 确认框里通过密码校验后才真正写库
+  const confirmSave = async () => {
+    if (!pending) return;
+    if (pwd.trim() !== OPS_PWD) { setPwdErr("密码不正确, 请重新输入"); return; }
+    const { site, category, amount, existing } = pending;
     let err, saved;
     if (existing) {
       ({ error: err } = await supabase.from("opsfee_monthly").update({ amount }).eq("id", existing.id));
@@ -2872,16 +2885,18 @@ function OpsFee() {
         .insert({ month, store: filterStore, site, category, amount }).select().single());
       if (!err && saved) setRows(prev => [...prev, saved]);
     }
-    if (err) { alert("保存失败: " + err.message); return; }
+    if (err) { setPwdErr("保存失败: " + err.message); return; }
     clearDraft(site, category);
+    setPending(null); setPwd("");
   };
+  const cancelSave = () => { setPending(null); setPwd(""); setPwdErr(""); setDrafts({}); };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入, 回车或点空白处即存 · {
+            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入, 回车/点空白处弹确认框(需密码) 才入库 · {
               !canEdit ? "只读"
                 : filterStore ? `当前店铺「${filterStore}」可直接录`
                   : "全部店铺汇总(只读) · 选一个店铺即可录入"
@@ -2936,7 +2951,7 @@ function OpsFee() {
                         value={drafts[k] !== undefined ? drafts[k] : (v ? String(v) : "")}
                         onChange={e => setDraft(site, cat, e.target.value)}
                         onFocus={e => e.target.select()}
-                        onBlur={() => commitCell(site, cat)}
+                        onBlur={() => requestCell(site, cat)}
                         onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
                         placeholder="—" inputMode="decimal"
                         style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: v ? 600 : 400, outline: "none" }} />
@@ -2958,6 +2973,42 @@ function OpsFee() {
               <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#c05b52", background: "#c05b5210" }}>
                 {CATS.reduce((s, c) => s + total(c), 0).toFixed(2)}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 改动确认框: 输密码 852963 才写库 */}
+      {pending && (
+        <div onClick={cancelSave} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 400 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认修改运维费用</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>请核对下方信息, 输入密码后才会写入数据库</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>
+              {[["月份", month.slice(0, 7)], ["店铺", filterStore || "全部店铺(不可录)"], ["费用类别", pending.category], ["站点", pending.site]]
+                .map(([k, v]) => (
+                  <div key={k} style={{ display: "flex", marginBottom: 4 }}>
+                    <span style={{ width: 72, color: C.sub }}>{k}</span>
+                    <span style={{ color: C.ink, fontWeight: 600 }}>{v}</span>
+                  </div>
+                ))}
+              <div style={{ display: "flex", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.line}` }}>
+                <span style={{ width: 72, color: C.sub }}>金额</span>
+                <span style={{ color: C.faint }}>{pending.oldV ? pending.oldV.toFixed(2) : "—"}</span>
+                <span style={{ margin: "0 8px", color: C.faint }}>→</span>
+                <span style={{ color: C.brand, fontWeight: 700, fontSize: 14 }}>{pending.amount.toFixed(2)} €</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>确认密码</div>
+            <input type="password" value={pwd} autoFocus
+              onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
+              onKeyDown={e => { if (e.key === "Enter") confirmSave(); if (e.key === "Escape") cancelSave(); }}
+              placeholder="输入密码"
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={cancelSave} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
+              <button onClick={confirmSave} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认保存</button>
             </div>
           </div>
         </div>
