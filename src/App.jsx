@@ -2854,16 +2854,21 @@ function OpsFee() {
   const total = (category) => SITES.reduce((s, site) => s + getVal(site, category), 0);
   const totalSite = (site) => CATS.reduce((s, cat) => s + getVal(site, cat), 0);
   const canEditCell = canEdit && !!filterStore;      // 汇总视图只读, 选店铺后直接录入
-  const OPS_PWD = "852963";                          // 录入二次校验密码 (防手误误改)
-  // 单元格草稿: 正在输入的值 (key = site|category), 回车/失焦 → 弹确认框 → 输密码 → 才写库
-  const [drafts, setDrafts] = useState({});
-  const [pending, setPending] = useState(null);      // 待确认的改动 { site, category, amount, oldV, existing }
+  const OPS_PWD = "852963";                          // 批量提交时的二次校验密码 (防手误误改)
+  // 规则 (2026-09-14 KK 定):
+  //   单项改动 → 4 秒后自动落库, 不弹框不输密码
+  //   多项改动 → 底部浮条「确认提交」→ 一次性输密码校验 → 一起落库
+  const [drafts, setDrafts] = useState({});          // 正在输入的值 (key = site|category)
+  const [pendingMap, setPendingMap] = useState({});  // 待落库改动 key → { site, category, amount, oldV, existingId, store }
+  const [pwdOpen, setPwdOpen] = useState(false);
   const [pwd, setPwd] = useState("");
   const [pwdErr, setPwdErr] = useState("");
-  useEffect(() => { setDrafts({}); }, [filterStore, month]);
+  const pendingList = Object.values(pendingMap);
+  const pendingCount = pendingList.length;
   const setDraft = (site, category, v) => setDrafts(p => ({ ...p, [`${site}|${category}`]: v }));
   const clearDraft = (site, category) => setDrafts(p => { const n = { ...p }; delete n[`${site}|${category}`]; return n; });
-  // 失焦/回车 → 不直接写库, 先弹确认框
+  const dropPending = (keys) => setPendingMap(p => { const n = { ...p }; keys.forEach(k => delete n[k]); return n; });
+  // 失焦/回车 → 记入待提交队列 (不立刻写库)
   const requestCell = (site, category) => {
     const key = `${site}|${category}`;
     const raw = drafts[key];
@@ -2872,37 +2877,70 @@ function OpsFee() {
     const oldV = existing ? Number(existing.amount || 0) : 0;
     const amount = raw.trim() === "" ? 0 : Number(raw);
     if (isNaN(amount)) { alert("金额必须是数字"); setDraft(site, category, oldV ? String(oldV) : ""); return; }
-    if (existing && oldV === amount) { clearDraft(site, category); return; }        // 值没变 → 不弹框
-    if (!existing && raw.trim() === "") { clearDraft(site, category); return; }     // 空值新建 → 忽略
-    setPwd(""); setPwdErr("");
-    setPending({ site, category, amount, oldV, existing });
+    if (existing && oldV === amount) { clearDraft(site, category); dropPending([key]); return; }   // 值没变
+    if (!existing && raw.trim() === "") { clearDraft(site, category); dropPending([key]); return; } // 空值新建
+    setPendingMap(p => ({ ...p, [key]: { key, site, category, amount, oldV, existingId: existing ? existing.id : null, store: filterStore, month } }));
   };
-  // 确认框里通过密码校验后才真正写库
-  const confirmSave = async () => {
-    if (!pending) return;
-    if (pwd.trim() !== OPS_PWD) { setPwdErr("密码不正确, 请重新输入"); return; }
-    const { site, category, amount, existing } = pending;
-    let err, saved;
-    if (existing) {
-      ({ error: err } = await supabase.from("opsfee_monthly").update({ amount }).eq("id", existing.id));
-      if (!err) setRows(prev => prev.map(r => r.id === existing.id ? { ...r, amount } : r));
-    } else {
-      ({ data: saved, error: err } = await supabase.from("opsfee_monthly")
-        .insert({ month, store: filterStore, site, category, amount }).select().single());
-      if (!err && saved) setRows(prev => [...prev, saved]);
+  // 真正落库 (单项自动 / 批量密码校验后)
+  const writeAll = async () => {
+    const list = Object.values(pendingMap);
+    if (!list.length) return;
+    const done = [], added = [];
+    let errMsg = "";
+    for (const it of list) {
+      if (it.existingId) {
+        const { error } = await supabase.from("opsfee_monthly").update({ amount: it.amount }).eq("id", it.existingId);
+        if (error) { errMsg = error.message; continue; }
+        done.push(it);
+      } else {
+        const { data, error } = await supabase.from("opsfee_monthly")
+          .insert({ month: it.month || month, store: it.store, site: it.site, category: it.category, amount: it.amount }).select().single();
+        if (error) { errMsg = error.message; continue; }
+        if (data) added.push(data);
+        done.push(it);
+      }
     }
-    if (err) { setPwdErr("保存失败: " + err.message); return; }
-    clearDraft(site, category);
-    setPending(null); setPwd("");
+    if (done.length) {
+      const upd = {};
+      done.forEach(o => { if (o.existingId) upd[o.existingId] = o.amount; });
+      setRows(prev => [...prev.map(r => (r.id in upd ? { ...r, amount: upd[r.id] } : r)), ...added]);
+      setDrafts(p => { const n = { ...p }; done.forEach(o => delete n[`${o.site}|${o.category}`]); return n; });
+      dropPending(done.map(o => o.key));
+    }
+    setPwdOpen(false); setPwd(""); setPwdErr("");
+    if (errMsg) alert("部分保存失败: " + errMsg);
   };
-  const cancelSave = () => { setPending(null); setPwd(""); setPwdErr(""); setDrafts({}); };
+  // 单项改动: 4 秒无新改动 → 静默自动保存
+  useEffect(() => {
+    if (pendingCount !== 1 || pwdOpen) return;
+    const t = setTimeout(() => { writeAll(); }, 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMap, pwdOpen]);
+  // 切换店铺/月份: 先把未提交改动按原店铺落库, 再清空草稿
+  useEffect(() => {
+    if (Object.keys(pendingMap).length) writeAll();
+    setDrafts({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStore, month]);
+  const submitAll = () => {
+    if (!pendingCount) return;
+    if (pendingCount === 1) { writeAll(); return; }        // 只改一项 → 不输密码
+    setPwd(""); setPwdErr(""); setPwdOpen(true);           // 改多项 → 一次性输密码
+  };
+  const confirmBatch = () => {
+    if (pwd.trim() !== OPS_PWD) { setPwdErr("密码不正确, 请重新输入"); return; }
+    writeAll();
+  };
+  const discardAll = () => { setPendingMap({}); setDrafts({}); setPwdOpen(false); setPwd(""); setPwdErr(""); };
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入, 回车/点空白处弹确认框(需密码) 才入库 · {
+            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入 · 改一项自动保存 · 连改多项在底部一次性确认(需密码) · {
               !canEdit ? "只读"
                 : filterStore ? `当前店铺「${filterStore}」可直接录`
                   : "全部店铺汇总(只读) · 选一个店铺即可录入"
@@ -2960,7 +2998,7 @@ function OpsFee() {
                         onBlur={() => requestCell(site, cat)}
                         onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
                         placeholder="—" inputMode="decimal"
-                        style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: v ? 600 : 400, outline: "none" }} />
+                        style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: v ? 600 : 400, outline: "none" }} />
                     </div>
                   );
                 })}
@@ -2984,37 +3022,51 @@ function OpsFee() {
         </div>
       )}
 
-      {/* 改动确认框: 输密码 852963 才写库 */}
-      {pending && (
-        <div onClick={cancelSave} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 400 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认修改运维费用</div>
-            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>请核对下方信息, 输入密码后才会写入数据库</div>
-            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14 }}>
-              {[["月份", month.slice(0, 7)], ["店铺", filterStore || "全部店铺(不可录)"], ["费用类别", pending.category], ["站点", pending.site]]
-                .map(([k, v]) => (
-                  <div key={k} style={{ display: "flex", marginBottom: 4 }}>
-                    <span style={{ width: 72, color: C.sub }}>{k}</span>
-                    <span style={{ color: C.ink, fontWeight: 600 }}>{v}</span>
-                  </div>
-                ))}
-              <div style={{ display: "flex", marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.line}` }}>
-                <span style={{ width: 72, color: C.sub }}>金额</span>
-                <span style={{ color: C.faint }}>{pending.oldV ? pending.oldV.toFixed(2) : "—"}</span>
-                <span style={{ margin: "0 8px", color: C.faint }}>→</span>
-                <span style={{ color: C.brand, fontWeight: 700, fontSize: 14 }}>{pending.amount.toFixed(2)} €</span>
+      {/* 待提交浮条: 单项自动保存, 多项需一次性输密码确认 */}
+      {pendingCount > 0 && !pwdOpen && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: `1px solid ${C.line}`, boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ fontSize: 12, color: C.ink }}>
+            本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · {pendingCount === 1 ? "即将自动保存" : "需一次性确认(输密码)"}
+          </span>
+          <button onClick={discardAll} style={{ padding: "6px 12px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer" }}>撤销全部</button>
+          <button onClick={submitAll} style={{ padding: "6px 16px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
+        </div>
+      )}
+
+      {/* 批量提交确认框: 列出全部改动 + 输密码 852963 */}
+      {pwdOpen && (
+        <div onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 460, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认提交 {pendingCount} 项改动</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>{month.slice(0, 7)} · {filterStore} · 核对无误后输入密码, 一次性写入数据库</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 14 }}>
+              <div style={{ display: "flex", color: C.sub, fontSize: 11, paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ width: 100 }}>费用类别</span>
+                <span style={{ width: 70 }}>站点</span>
+                <span style={{ flex: 1, textAlign: "right" }}>原值 → 新值</span>
               </div>
+              {pendingList.map(it => (
+                <div key={it.key} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <span style={{ width: 100, color: C.ink }}>{it.category}</span>
+                  <span style={{ width: 70, color: C.sub }}>{it.site}</span>
+                  <span style={{ flex: 1, textAlign: "right" }}>
+                    <span style={{ color: C.faint }}>{it.oldV ? it.oldV.toFixed(2) : "—"}</span>
+                    <span style={{ margin: "0 6px", color: C.faint }}>→</span>
+                    <span style={{ color: C.brand, fontWeight: 700 }}>{it.amount.toFixed(2)} €</span>
+                  </span>
+                </div>
+              ))}
             </div>
             <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>确认密码</div>
             <input type="password" value={pwd} autoFocus
               onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
-              onKeyDown={e => { if (e.key === "Enter") confirmSave(); if (e.key === "Escape") cancelSave(); }}
+              onKeyDown={e => { if (e.key === "Enter") confirmBatch(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
               placeholder="输入密码"
               style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
             {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-              <button onClick={cancelSave} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
-              <button onClick={confirmSave} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认保存</button>
+              <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
+              <button onClick={confirmBatch} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
             </div>
           </div>
         </div>
