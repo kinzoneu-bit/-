@@ -561,7 +561,12 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"], ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["opsfee", "店铺运维费用"], ["finance", "财务核算"]] : [])].map(([k, l]) => (
+        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"],
+          // 店铺运维费用: admin + 成都·供应链 (2026-09-14 KK 定)
+          ...(["admin", "cd_supplier"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
+          // 单品月度订单统计 / 财务核算: 仅 admin
+          ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"], ["finance", "财务核算"]] : [])
+        ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
             {l}
@@ -2822,7 +2827,8 @@ function OpsFee() {
       if (data && data.user) setOpsRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  const canEdit = opsRole === "admin";
+  // 可录入: admin + 成都·供应链 (2026-09-14 KK 定)
+  const canEdit = opsRole === "admin" || opsRole === "cd_supplier";
   const load = () => {
     supabase.from("opsfee_monthly").select("*").eq("month", month).order("site, category")
       .then(({ data, error }) => {
