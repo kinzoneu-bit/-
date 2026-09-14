@@ -2910,23 +2910,19 @@ function OpsFee() {
     setPwdOpen(false); setPwd(""); setPwdErr("");
     if (errMsg) alert("部分保存失败: " + errMsg);
   };
-  // 单项改动: 4 秒无新改动 → 静默自动保存
-  useEffect(() => {
-    if (pendingCount !== 1 || pwdOpen) return;
-    const t = setTimeout(() => { writeAll(); }, 4000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingMap, pwdOpen]);
-  // 切换店铺/月份: 先把未提交改动按原店铺落库, 再清空草稿
-  useEffect(() => {
-    if (Object.keys(pendingMap).length) writeAll();
-    setDrafts({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStore, month]);
+  // 切换店铺/月份: 有未提交改动先拦住 (必须先提交或撤销, 不能带着未提交改动跳走)
+  useEffect(() => { setDrafts({}); }, [filterStore, month]);
+  const guardSwitch = () => {
+    const n = pendingCount;
+    if (n > 0) {
+      alert(`还有 ${n} 项改动未提交。\n请先点底部「确认提交」输密码写入数据库, 或点「撤销全部」放弃改动。`);
+      return false;
+    }
+    return true;
+  };
   const submitAll = () => {
     if (!pendingCount) return;
-    if (pendingCount === 1) { writeAll(); return; }        // 只改一项 → 不输密码
-    setPwd(""); setPwdErr(""); setPwdOpen(true);           // 改多项 → 一次性输密码
+    setPwd(""); setPwdErr(""); setPwdOpen(true);            // 不论改 1 项还是多项, 提交都要输密码
   };
   const confirmBatch = () => {
     if (pwd.trim() !== OPS_PWD) { setPwdErr("密码不正确, 请重新输入"); return; }
@@ -2940,7 +2936,7 @@ function OpsFee() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入 · 改一项自动保存 · 连改多项在底部一次性确认(需密码) · {
+            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入 · 改动先缓存在页面上, 全部改完点底部「确认提交」输密码一次性入库 · {
               !canEdit ? "只读"
                 : filterStore ? `当前店铺「${filterStore}」可直接录`
                   : "全部店铺汇总(只读) · 选一个店铺即可录入"
@@ -2949,17 +2945,17 @@ function OpsFee() {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
-          <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
+          <select value={filterStore} onChange={e => { if (!guardSwitch()) return; setFilterStore(e.target.value); }}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             <option value="">全部店铺(汇总)</option>
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
-          <select value={month.slice(0, 4)} onChange={e => setMonth(`${e.target.value}-${month.slice(5, 7)}-01`)}
+          <select value={month.slice(0, 4)} onChange={e => { if (!guardSwitch()) return; setMonth(`${e.target.value}-${month.slice(5, 7)}-01`); }}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {YEARS.map(y => <option key={y} value={String(y)}>{y}年</option>)}
           </select>
-          <select value={month.slice(5, 7)} onChange={e => setMonth(`${month.slice(0, 4)}-${e.target.value}-01`)}
+          <select value={month.slice(5, 7)} onChange={e => { if (!guardSwitch()) return; setMonth(`${month.slice(0, 4)}-${e.target.value}-01`); }}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
           </select>
@@ -3022,23 +3018,23 @@ function OpsFee() {
         </div>
       )}
 
-      {/* 待提交浮条: 单项自动保存, 多项需一次性输密码确认 */}
+      {/* 待提交浮条: 改动只缓存在页面, 点确认提交才输密码一次性入库 */}
       {pendingCount > 0 && !pwdOpen && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: `1px solid ${C.line}`, boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: `1px solid #d9a441`, boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, color: C.ink }}>
-            本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · {pendingCount === 1 ? "即将自动保存" : "需一次性确认(输密码)"}
+            本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
           </span>
           <button onClick={discardAll} style={{ padding: "6px 12px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer" }}>撤销全部</button>
           <button onClick={submitAll} style={{ padding: "6px 16px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
         </div>
       )}
 
-      {/* 批量提交确认框: 列出全部改动 + 输密码 852963 */}
+      {/* 提交确认框: 列出全部改动 + 输密码 852963 */}
       {pwdOpen && (
         <div onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 460, maxHeight: "80vh", overflow: "auto" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认提交 {pendingCount} 项改动</div>
-            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>{month.slice(0, 7)} · {filterStore} · 核对无误后输入密码, 一次性写入数据库</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>核对无误后输入密码, 一次性写入数据库</div>
             <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 14 }}>
               <div style={{ display: "flex", color: C.sub, fontSize: 11, paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
                 <span style={{ width: 100 }}>费用类别</span>
