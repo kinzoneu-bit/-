@@ -2812,7 +2812,10 @@ function OrderSummary() {
 // 店铺筛选: 不选=全部店铺汇总(只读) / 选具体店铺=该店铺数据(可编辑)
 function OpsFee() {
   const SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
-  const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
+  // 「网络IP费用」= 月固定费用, 不区分国家(站点), 每店铺每月固定 88, 月内可手改
+  const MONTHLY_SITE = "月固定";
+  const MONTHLY_CATS = { "网络IP费用": 88 };
+  const CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);   // 前3年 ~ 后2年
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
@@ -2851,8 +2854,17 @@ function OpsFee() {
     const r = m.find(x => x.store === filterStore);
     return r ? Number(r.amount || 0) : 0;
   };
-  const total = (category) => SITES.reduce((s, site) => s + getVal(site, category), 0);
-  const totalSite = (site) => CATS.reduce((s, cat) => s + getVal(site, cat), 0);
+  const isMonthly = (cat) => MONTHLY_CATS[cat] !== undefined;
+  // 月固定费用取值: 有记录用记录, 没记录用默认值 (每店铺每月一份)
+  const monthlyVal = (cat) => {
+    const rs = rows.filter(x => x.category === cat && x.site === MONTHLY_SITE);
+    if (!filterStore) return rs.length ? rs.reduce((s, x) => s + Number(x.amount || 0), 0) : MONTHLY_CATS[cat];
+    const r = rs.find(x => x.store === filterStore);
+    return r ? Number(r.amount || 0) : MONTHLY_CATS[cat];
+  };
+  const total = (category) => isMonthly(category) ? monthlyVal(category) : SITES.reduce((s, site) => s + getVal(site, category), 0);
+  const SITE_CATS = CATS.filter(c => !isMonthly(c));        // 参加站点合计的类别
+  const totalSite = (site) => SITE_CATS.reduce((s, cat) => s + getVal(site, cat), 0);
   const canEditCell = canEdit && !!filterStore;      // 汇总视图只读, 选店铺后直接录入
   const OPS_PWD = "852963";                          // 批量提交时的二次校验密码 (防手误误改)
   // 规则 (2026-09-14 KK 定):
@@ -2973,6 +2985,35 @@ function OpsFee() {
               <div style={{ padding: "10px 12px", textAlign: "right" }}>合计</div>
             </div>
             {CATS.map(cat => (
+              isMonthly(cat) ? (() => {                       // 月固定费用行: 不区分站点, 只在合计列录入
+                const v = monthlyVal(cat);
+                const k = `${MONTHLY_SITE}|${cat}`;
+                return (
+                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "#f7f5ff" }}>
+                    <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink }}>
+                      {cat}
+                      <span style={{ marginLeft: 6, fontSize: 10, color: "#534AB7", border: "1px solid #CECBF6", background: "#EEEDFE", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
+                    </div>
+                    {SITES.map(site => (
+                      <div key={site} style={{ padding: "8px 10px", textAlign: "right", color: C.faint }}>—</div>
+                    ))}
+                    <div style={{ padding: "3px 8px" }}>
+                      {canEditCell ? (
+                        <input
+                          value={drafts[k] !== undefined ? drafts[k] : (v ? String(v) : "")}
+                          onChange={e => setDraft(MONTHLY_SITE, cat, e.target.value)}
+                          onFocus={e => e.target.select()}
+                          onBlur={() => requestCell(MONTHLY_SITE, cat)}
+                          onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          placeholder="—" inputMode="decimal"
+                          style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: 600, outline: "none" }} />
+                      ) : (
+                        <div style={{ padding: "5px 4px", textAlign: "right", fontWeight: 700, color: v ? C.ink : C.faint }}>{v ? v.toFixed(2) : "—"}</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })() : (
               <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
                 <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>{cat}</div>
                 {SITES.map(site => {
@@ -3002,6 +3043,7 @@ function OpsFee() {
                   {total(cat).toFixed(2)}
                 </div>
               </div>
+              )
             ))}
             <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
               <div style={{ padding: "10px 12px", fontWeight: 700, color: C.brand }}>站点合计</div>
