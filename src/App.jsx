@@ -2812,7 +2812,7 @@ function OrderSummary() {
 // 店铺筛选: 不选=全部店铺汇总(只读) / 选具体店铺=该店铺数据(可编辑)
 function OpsFee() {
   const SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
-  const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租"];
+  const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用"];
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);   // 前3年 ~ 后2年
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
