@@ -2865,6 +2865,17 @@ function OpsFee() {
   const total = (category) => isMonthly(category) ? monthlyVal(category) : SITES.reduce((s, site) => s + getVal(site, category), 0);
   const SITE_CATS = CATS.filter(c => !isMonthly(c));        // 参加站点合计的类别
   const totalSite = (site) => SITE_CATS.reduce((s, cat) => s + getVal(site, cat), 0);
+  // —— 币种核算 ——
+  // 站点里录的都是欧元(€); 网络IP费用等"月固定"类别直接是人民币(¥), 不参与汇率折算
+  const [rate, setRate] = useState(() => {
+    const v = parseFloat(localStorage.getItem("opsfee_rate") || "");
+    return v > 0 ? v : 8.0;
+  });
+  useEffect(() => { localStorage.setItem("opsfee_rate", String(rate)); }, [rate]);
+  const eurTotal = SITE_CATS.reduce((s, c) => s + total(c), 0);                   // 欧元合计
+  const monthlyRmb = CATS.filter(isMonthly).reduce((s, c) => s + monthlyVal(c), 0); // 月固定(人民币)小计
+  const rmbTotal = eurTotal * rate + monthlyRmb;                                  // 月度核算费用(¥)
+  const toRmb = (cat) => isMonthly(cat) ? monthlyVal(cat) : total(cat) * rate;
   const canEditCell = canEdit && !!filterStore;      // 汇总视图只读, 选店铺后直接录入
   const OPS_PWD = "852963";                          // 批量提交时的二次校验密码 (防手误误改)
   // 规则 (2026-09-14 KK 定):
@@ -2948,7 +2959,7 @@ function OpsFee() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺运维费用</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            月份 × 店铺 × 站点 × 费用类别 · 单元格直接输入 · 改动先缓存在页面上, 全部改完点底部「确认提交」输密码一次性入库 · {
+            月份 × 店铺 × 站点 × 费用类别 · 站点金额=欧元 € · 网络IP等月固定=人民币 ¥ · 右侧自动折算人民币 · 改完点底部「确认提交」输密码入库 · {
               !canEdit ? "只读"
                 : filterStore ? `当前店铺「${filterStore}」可直接录`
                   : "全部店铺汇总(只读) · 选一个店铺即可录入"
@@ -2971,25 +2982,30 @@ function OpsFee() {
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
           </select>
+          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>汇率 €→¥:</span>
+          <input type="number" step="0.01" min="0" value={rate}
+            onChange={e => setRate(Number(e.target.value) || 0)}
+            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
         </div>
       </div>
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
       {loaded && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 950 }}>
-            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
+          <div style={{ minWidth: 1420 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
               <div style={{ padding: "10px 12px", borderRight: `1px solid #2a4a78` }}>
                 {month.slice(0, 7)} · {filterStore || "全部店铺"}
               </div>
               {SITES.map(s => <div key={s} style={{ padding: "10px 8px", textAlign: "right", borderRight: `1px solid #2a4a78` }}>{s}</div>)}
-              <div style={{ padding: "10px 12px", textAlign: "right" }}>合计</div>
+              <div style={{ padding: "10px 12px", textAlign: "right", borderRight: `1px solid #2a4a78` }}>合计 €</div>
+              <div style={{ padding: "10px 12px", textAlign: "right" }}>折算人民币 ¥</div>
             </div>
             {CATS.map(cat => (
               isMonthly(cat) ? (() => {                       // 月固定费用行: 不区分站点, 只在合计列录入
                 const v = monthlyVal(cat);
                 const k = `${MONTHLY_SITE}|${cat}`;
                 return (
-                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "#f7f5ff" }}>
+                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "#f7f5ff" }}>
                     <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink }}>
                       {cat}
                       <span style={{ marginLeft: 6, fontSize: 10, color: "#534AB7", border: "1px solid #CECBF6", background: "#EEEDFE", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
@@ -2997,6 +3013,7 @@ function OpsFee() {
                     {SITES.map(site => (
                       <div key={site} style={{ padding: "8px 10px", textAlign: "right", color: C.faint }}>—</div>
                     ))}
+                    <div style={{ padding: "8px 12px", textAlign: "right", color: C.faint }}>—</div>
                     <div style={{ padding: "3px 8px" }}>
                       {canEditCell ? (
                         <input
@@ -3005,7 +3022,7 @@ function OpsFee() {
                           onFocus={e => e.target.select()}
                           onBlur={() => requestCell(MONTHLY_SITE, cat)}
                           onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                          placeholder="—" inputMode="decimal"
+                          placeholder="—" inputMode="decimal" title="人民币金额 (¥)"
                           style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: 600, outline: "none" }} />
                       ) : (
                         <div style={{ padding: "5px 4px", textAlign: "right", fontWeight: 700, color: v ? C.ink : C.faint }}>{v ? v.toFixed(2) : "—"}</div>
@@ -3014,7 +3031,7 @@ function OpsFee() {
                   </div>
                 );
               })() : (
-              <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
+              <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
                 <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>{cat}</div>
                 {SITES.map(site => {
                   const v = getVal(site, cat);
@@ -3039,22 +3056,35 @@ function OpsFee() {
                     </div>
                   );
                 })}
-                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: C.brand, background: C.bg }}>
+                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: C.brand, background: C.bg, borderRight: `1px solid ${C.line}` }}>
                   {total(cat).toFixed(2)}
+                </div>
+                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#0F6E56", background: "#E1F5EE" }}>
+                  ¥{toRmb(cat).toFixed(2)}
                 </div>
               </div>
               )
             ))}
-            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
               <div style={{ padding: "10px 12px", fontWeight: 700, color: C.brand }}>站点合计</div>
               {SITES.map(site => (
                 <div key={site} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: C.brand }}>
                   {totalSite(site).toFixed(2)}
                 </div>
               ))}
-              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#c05b52", background: "#c05b5210" }}>
-                {CATS.reduce((s, c) => s + total(c), 0).toFixed(2)}
+              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: C.brand, borderRight: `1px solid ${C.line}` }}>
+                {eurTotal.toFixed(2)}
               </div>
+              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#fff", background: "#0F6E56" }}>
+                ¥{rmbTotal.toFixed(2)}
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, background: C.panel, fontSize: 11 }}>
+              <div style={{ padding: "8px 12px", color: C.faint }}>说明</div>
+              <div style={{ gridColumn: `span ${SITES.length + 1}`, padding: "8px 12px", color: C.faint }}>
+                站点金额均为欧元(€) · 汇率 €→¥ = {rate} · 月度核算费用 ¥ = (欧元合计 {eurTotal.toFixed(2)} × {rate}) + 网络IP等月固定 ¥{monthlyRmb.toFixed(2)}
+              </div>
+              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#0F6E56" }}>¥{rmbTotal.toFixed(2)}</div>
             </div>
           </div>
         </div>
