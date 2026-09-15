@@ -2812,7 +2812,7 @@ function OrderSummary() {
 // 店铺筛选: 不选=全部店铺汇总(只读) / 选具体店铺=该店铺数据(可编辑)
 function OpsFee() {
   const SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
-  const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用"];
+  const CATS = ["广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);   // 前3年 ~ 后2年
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
@@ -2964,8 +2964,8 @@ function OpsFee() {
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
       {loaded && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 880 }}>
-            <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
+          <div style={{ minWidth: 950 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
               <div style={{ padding: "10px 12px", borderRight: `1px solid #2a4a78` }}>
                 {month.slice(0, 7)} · {filterStore || "全部店铺"}
               </div>
@@ -2973,7 +2973,7 @@ function OpsFee() {
               <div style={{ padding: "10px 12px", textAlign: "right" }}>合计</div>
             </div>
             {CATS.map(cat => (
-              <div key={cat} style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
+              <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
                 <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>{cat}</div>
                 {SITES.map(site => {
                   const v = getVal(site, cat);
@@ -3003,7 +3003,7 @@ function OpsFee() {
                 </div>
               </div>
             ))}
-            <div style={{ display: "grid", gridTemplateColumns: `180px repeat(${SITES.length}, 110px) 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
               <div style={{ padding: "10px 12px", fontWeight: 700, color: C.brand }}>站点合计</div>
               {SITES.map(site => (
                 <div key={site} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: C.brand }}>
