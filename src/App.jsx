@@ -3156,153 +3156,25 @@ function OpsFee() {
   );
 }
 
-// ---------------- 店铺月度核算 (汇总视图, 只读) ----------------
-// 一句话: 某月各店铺运维费用 → 欧元合计 × 汇率 + 月固定(¥) = 月度核算费用
-// 币种: 站点列是欧元(€); 「月固定」类别(网络IP费用)是人民币(¥), 不折算
-// 权限: admin + 成都·供应链 (与「店铺运维费用」一致)
+// ---------------- 店铺月度核算 (空骨架, 待 KK 提供内容) ----------------
+// 权限: admin + 成都·供应链 (与「店铺运维费用」一致); 具体口径/字段/数据源由 KK 指定后再实现
 function StoreMonthly() {
-  const cur = new Date();
-  const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
-  const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
-  const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
-  const [rate, setRate] = useState(() => {
-    const v = parseFloat(localStorage.getItem("opsfee_rate") || "");
-    return v > 0 ? v : 8.0;
-  });
-  useEffect(() => { localStorage.setItem("opsfee_rate", String(rate)); }, [rate]);
-  const [rows, setRows] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    setLoaded(false);
-    supabase.from("opsfee_monthly").select("*").eq("month", month)
-      .then(({ data, error }) => {
-        if (error) { alert("读取失败(请先建表 opsfee_monthly): " + error.message); setRows([]); return; }
-        setRows(data || []); setLoaded(true);
-      });
-  }, [month]);
-
-  const isMonthly = (cat) => OPS_MONTHLY_CATS[cat] !== undefined;
-  // 该月有数据的店铺 (按固定清单顺序排前面)
-  const active = [...new Set(rows.map(r => r.store).filter(Boolean))];
-  const stores = [...OPS_FIXED_STORES.filter(s => active.includes(s)), ...active.filter(s => !OPS_FIXED_STORES.includes(s))];
-  // 某店铺某类别金额: 月固定类别 有记录用记录 / 无记录用默认值
-  const amt = (store, cat) => {
-    const rs = rows.filter(r => r.store === store && r.category === cat);
-    if (isMonthly(cat)) {
-      const m = rs.filter(r => r.site === OPS_MONTHLY_SITE);
-      return m.length ? m.reduce((s, x) => s + Number(x.amount || 0), 0) : OPS_MONTHLY_CATS[cat];
-    }
-    return rs.reduce((s, x) => s + Number(x.amount || 0), 0);
-  };
-  const eurOf = (store) => OPS_SITE_CATS.reduce((s, c) => s + amt(store, c), 0);
-  const fixedOf = (store) => OPS_CATS.filter(isMonthly).reduce((s, c) => s + amt(store, c), 0);
-  const rmbOf = (store) => eurOf(store) * rate + fixedOf(store);
-  const catEur = (cat) => stores.reduce((s, st) => s + amt(st, cat), 0);
-  const totalEur = OPS_SITE_CATS.reduce((s, c) => s + catEur(c), 0);
-  const totalFixed = OPS_CATS.filter(isMonthly).reduce((s, c) => s + catEur(c), 0);
-  const totalRmb = totalEur * rate + totalFixed;
-  const GRID = "180px repeat(4, 1fr)";
-  const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, textAlign: "right" };
-  const td = { padding: "9px 12px", fontSize: 12, textAlign: "right" };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺月度核算</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺汇总当月运维费用 · 欧元合计 × 汇率 + 月固定(网络IP) = 月度核算费用 · 只读
+            按店铺 × 月的核算视图 · 待 KK 确认口径与数据源
           </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
-          <select value={month.slice(0, 4)} onChange={e => setMonth(`${e.target.value}-${month.slice(5, 7)}-01`)}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-            {YEARS.map(y => <option key={y} value={String(y)}>{y}年</option>)}
-          </select>
-          <select value={month.slice(5, 7)} onChange={e => setMonth(`${month.slice(0, 4)}-${e.target.value}-01`)}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-            {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
-          </select>
-          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>汇率 €→¥:</span>
-          <input type="number" step="0.01" min="0" value={rate} onChange={e => setRate(Number(e.target.value) || 0)}
-            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
         </div>
       </div>
-
-      {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
-
-      {loaded && !stores.length && (
-        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 40, textAlign: "center", color: C.faint, fontSize: 13 }}>
-          {month.slice(0, 7)} 还没有数据 · 请先到「店铺运维费用」录入
-        </div>
-      )}
-
-      {loaded && stores.length > 0 && (
-        <>
-          {/* 按店铺汇总 */}
-          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
-            <div style={{ background: "#1f3a68", display: "grid", gridTemplateColumns: GRID }}>
-              <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 按店铺</div>
-              <div style={th}>欧元合计 €</div>
-              <div style={th}>折算人民币 ¥</div>
-              <div style={th}>月固定 ¥</div>
-              <div style={th}>月度核算费用 ¥</div>
-            </div>
-            {stores.map((st, i) => (
-              <div key={st} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: i % 2 ? C.bg : "transparent" }}>
-                <div style={{ ...td, textAlign: "left", fontWeight: 600, color: C.ink }}>{st}</div>
-                <div style={{ ...td, color: C.ink }}>{eurOf(st).toFixed(2)}</div>
-                <div style={{ ...td, color: "#0F6E56" }}>{(eurOf(st) * rate).toFixed(2)}</div>
-                <div style={{ ...td, color: "#534AB7" }}>{fixedOf(st).toFixed(2)}</div>
-                <div style={{ ...td, fontWeight: 700, color: "#0F6E56", background: "#E1F5EE" }}>{rmbOf(st).toFixed(2)}</div>
-              </div>
-            ))}
-            <div style={{ display: "grid", gridTemplateColumns: GRID, borderTop: `2px solid ${C.line}`, background: C.bg }}>
-              <div style={{ ...td, textAlign: "left", fontWeight: 700, color: C.brand }}>全部店铺合计</div>
-              <div style={{ ...td, fontWeight: 700, color: C.brand }}>{totalEur.toFixed(2)}</div>
-              <div style={{ ...td, fontWeight: 700, color: "#0F6E56" }}>{(totalEur * rate).toFixed(2)}</div>
-              <div style={{ ...td, fontWeight: 700, color: "#534AB7" }}>{totalFixed.toFixed(2)}</div>
-              <div style={{ ...td, fontWeight: 700, color: "#fff", background: "#0F6E56" }}>{totalRmb.toFixed(2)}</div>
-            </div>
-          </div>
-
-          {/* 按费用类别 */}
-          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
-            <div style={{ background: "#1f3a68", display: "grid", gridTemplateColumns: GRID }}>
-              <div style={{ ...th, textAlign: "left" }}>按费用类别</div>
-              <div style={th}>金额 €</div>
-              <div style={th}>折算人民币 ¥</div>
-              <div style={th}>占总费用</div>
-              <div style={th}>币种</div>
-            </div>
-            {OPS_CATS.map((cat, i) => {
-              const m = isMonthly(cat);
-              const eur = catEur(cat);
-              const rmb = m ? eur : eur * rate;
-              const pct = totalRmb ? (rmb / totalRmb * 100) : 0;
-              return (
-                <div key={cat} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: m ? "#f7f5ff" : (i % 2 ? C.bg : "transparent") }}>
-                  <div style={{ ...td, textAlign: "left", color: C.ink }}>{cat}</div>
-                  <div style={{ ...td, color: m ? C.faint : C.ink }}>{m ? "—" : eur.toFixed(2)}</div>
-                  <div style={{ ...td, color: "#0F6E56" }}>{rmb.toFixed(2)}</div>
-                  <div style={{ ...td, color: C.sub }}>{pct.toFixed(1)}%</div>
-                  <div style={{ ...td, color: m ? "#534AB7" : C.faint }}>{m ? "¥ 人民币" : "€ 欧元"}</div>
-                </div>
-              );
-            })}
-            <div style={{ display: "grid", gridTemplateColumns: GRID, borderTop: `2px solid ${C.line}`, background: C.bg }}>
-              <div style={{ ...td, textAlign: "left", fontWeight: 700, color: C.brand }}>月度核算费用</div>
-              <div style={{ ...td, fontWeight: 700, color: C.brand }}>{totalEur.toFixed(2)}</div>
-              <div style={{ ...td, fontWeight: 700, color: "#0F6E56" }}>{totalRmb.toFixed(2)}</div>
-              <div style={{ ...td, fontWeight: 700, color: C.sub }}>100%</div>
-              <div style={{ ...td }} />
-            </div>
-            <div style={{ padding: "10px 14px", borderTop: `1px solid ${C.line}`, fontSize: 11, color: C.faint }}>
-              月度核算费用 ¥ = 欧元合计 {totalEur.toFixed(2)} × {rate} + 月固定合计 ¥{totalFixed.toFixed(2)} = ¥{totalRmb.toFixed(2)}
-            </div>
-          </div>
-        </>
-      )}
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        店铺月度核算 · 待 KK 提供内容 (字段 / 口径 / 数据源)
+      </div>
     </div>
   );
 }
