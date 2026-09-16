@@ -3,7 +3,7 @@
 -- KK 2026-09-16 定:
 --   单位人民币 ¥, 每月独立
 --   item 取值: 收入 / 人工 / 场地 / 其他   (各项成本 & 净利润自动算, 不入库)
---   权限: 仅管理层 (admin + 法国成员 fr) 可读写
+--   权限: 管理层 (admin + 法国成员 fr + 成都采购 黄丹 cd_procurement) 可读写
 -- 在 Supabase → SQL Editor 整段粘贴执行, 幂等可重复跑
 -- ============================================================
 
@@ -40,7 +40,7 @@ DROP TRIGGER IF EXISTS trg_smc_updated ON store_monthly_costs;
 CREATE TRIGGER trg_smc_updated BEFORE UPDATE ON store_monthly_costs
   FOR EACH ROW EXECUTE FUNCTION smc_set_updated();
 
--- RLS: 仅管理层 (admin / fr)
+-- RLS: 管理层 (admin / fr / cd_procurement-黄丹)
 ALTER TABLE store_monthly_costs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS smc_read_all ON store_monthly_costs;
@@ -51,12 +51,12 @@ CREATE POLICY smc_rw_mgmt ON store_monthly_costs FOR ALL TO authenticated
   USING (
     EXISTS (SELECT 1 FROM user_profiles up
             WHERE up.user_id = auth.uid()
-              AND up.role IN ('admin', 'fr'))
+              AND up.role IN ('admin', 'fr', 'cd_procurement'))
   )
   WITH CHECK (
     EXISTS (SELECT 1 FROM user_profiles up
             WHERE up.user_id = auth.uid()
-              AND up.role IN ('admin', 'fr'))
+              AND up.role IN ('admin', 'fr', 'cd_procurement'))
   );
 
 -- 校验: 应返回 1 条策略 (smc_rw_mgmt) + 8 列

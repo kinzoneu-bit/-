@@ -566,8 +566,8 @@ export default function App() {
           ...(["admin", "cd_supplier"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
           // 单品月度订单统计: 仅 admin
           ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"]] : []),
-          // 店铺月度核算: 仅管理层 (admin + 法国成员 fr) — KK 2026-09-16 定
-          ...(["admin", "fr"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
+          // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹) — KK 2026-09-16 定
+          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
           // 财务核算: 仅 admin
           ...(curRole === "admin" ? [["finance", "财务核算"]] : [])
         ].map(([k, l]) => (
@@ -3163,7 +3163,7 @@ function OpsFee() {
 //   人工 / 场地 / 其他 = 手工录入 (表 store_monthly_costs)
 //   净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 (自动, 收入为 0 时显示「—」)
 // 录入规则与店铺运维费用一致: 改动先缓存 → 底部「确认提交」→ 输密码 852963 → 一次性入库
-// 权限: 仅管理层 = admin + 法国成员(fr), 读写都只给这两个角色
+// 权限: 管理层 = admin + 法国成员(fr) + 成都采购(黄丹, cd_procurement), 读写都只给这三个角色
 function StoreMonthly() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
@@ -3203,8 +3203,8 @@ function StoreMonthly() {
       if (data && data.user) setRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  // 仅管理层 (admin + 法国成员 fr) — KK 2026-09-16 定
-  const canEdit = role === "admin" || role === "fr";
+  // 仅管理层: admin + 法国成员 fr + 成都采购(黄丹) — KK 2026-09-16 定
+  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
 
   const load = () => {
     setLoaded(false);
