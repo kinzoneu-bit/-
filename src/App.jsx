@@ -3186,25 +3186,125 @@ function OrderSummary() {
   );
 }
 
-// ---------------- 订单记录 (空骨架, 待 KK 提供内容) ----------------
-// 2026-09-17 KK 要求新增, 位置: 库存统计 之后; 页面内容由 KK 后续指定
+// ---------------- 订单记录 (按 KK 2026-09-17 Excel「订单统计」表头) ----------------
+// 列: 序号 / 日期 / 订单号 / 地区 / 名字 / 产品 / sku / 到仓价 / 售价 / 到手营业额 / 折合 / 毛利润 / 毛利率 / 邮件 / 索评 / 退款
+// 数据源: 表 order_records (Excel 导入: node scripts/import-orders.mjs <文件>)
 function OrderRecords() {
+  const [rows, setRows] = useState([]);
+  const [err, setErr] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    supabase.from("order_records").select("*")
+      .order("order_date", { ascending: false }).limit(3000)
+      .then(({ data, error }) => {
+        if (error) { setErr(error.message); setRows([]); } else { setRows(data || []); setErr(""); }
+        setLoaded(true);
+      });
+  }, []);
+  const OC = [
+    { k: "idx", l: "序号", w: 60 },
+    { k: "order_date", l: "日期", w: 100 },
+    { k: "order_no", l: "订单号", w: 175 },
+    { k: "region", l: "地区", w: 90 },
+    { k: "customer", l: "名字", w: 110 },
+    { k: "product", l: "产品", w: 160 },
+    { k: "sku", l: "sku", w: 120 },
+    { k: "landed_cost", l: "到仓价", w: 90, t: "money" },
+    { k: "price", l: "售价", w: 85, t: "money" },
+    { k: "net_revenue", l: "到手营业额", w: 105, t: "money" },
+    { k: "converted", l: "折合", w: 100, t: "money" },
+    { k: "gross_profit", l: "毛利润", w: 95, t: "money", hl: true },
+    { k: "gross_margin", l: "毛利率", w: 85, t: "pct" },
+    { k: "email_sent", l: "邮件", w: 80 },
+    { k: "review_asked", l: "索评", w: 80 },
+    { k: "refund", l: "退款", w: 80 },
+  ];
+  const OC_GRID = OC.map(c => `${c.w}px`).join(" ");
+  const money = (v) => (v === null || v === undefined || v === "") ? "—" : "¥" + Number(v).toFixed(2);
+  const cellOf = (c, r, i) => {
+    if (c.k === "idx") return i + 1;
+    const v = r[c.k];
+    if (c.t === "money") return money(v);
+    if (c.t === "pct") return (v === null || v === undefined || v === "") ? "—" : (Number(v) * 100).toFixed(2) + "%";
+    return (v === null || v === undefined || v === "") ? "—" : v;
+  };
+  const sum = (k) => rows.reduce((s, r) => s + Number(r[k] || 0), 0);
+  const avgMargin = (() => {
+    const ok = rows.filter(r => r.gross_margin !== null && r.gross_margin !== undefined && r.gross_margin !== "");
+    return ok.length ? ok.reduce((s, r) => s + Number(r.gross_margin), 0) / ok.length : null;
+  })();
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>订单记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            订单明细记录 · 待 KK 确认口径与数据源
+            逐单明细 · 16 列同 Excel (序号/日期/订单号/地区/名字/产品/sku/到仓价/售价/到手营业额/折合/毛利润/毛利率/邮件/索评/退款) · 全员可见
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 单</span>
+          <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
+            毛利润合计 ¥{sum("gross_profit").toFixed(2)}
+          </span>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
+            平均毛利率 {avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}
+          </span>
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        订单记录 · 待 KK 提供内容 (字段 / 口径 / 数据源)
-      </div>
+
+      {err && (
+        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+          读取失败(请先建表 order_records): {err}
+        </div>
+      )}
+
+      {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
+
+      {loaded && rows.length > 0 && (
+        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+          <div style={{ minWidth: 1600 }}>
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2 }}>
+              {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
+            </div>
+            {rows.map((r, i) => (
+              <div key={r.id} style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
+                {OC.map(c => (
+                  <div key={c.k} title={cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i))}
+                    style={{
+                      padding: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      borderRight: `1px solid ${C.line}`,
+                      textAlign: ["idx", "order_date", "order_no", "region", "customer", "product", "sku", "email_sent", "review_asked", "refund"].includes(c.k) ? "left" : "right",
+                      fontWeight: c.hl ? 600 : 400,
+                      color: c.hl ? C.brand : (c.k === "idx" ? C.faint : C.ink),
+                    }}>
+                    {cellOf(c, r, i)}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {/* 合计行 */}
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 11, fontWeight: 700 }}>
+              <div style={{ padding: "9px 8px", color: C.faint }} />
+              <div style={{ padding: "9px 8px", color: C.brand }}>合计</div>
+              <div style={{ padding: "9px 8px", color: C.faint }}>{rows.length} 单</div>
+              {["region", "customer", "product", "sku"].map(k => <div key={k} style={{ padding: "9px 8px" }} />)}
+              {["landed_cost", "price", "net_revenue", "converted", "gross_profit"].map(k => (
+                <div key={k} style={{ padding: "9px 8px", textAlign: "right", color: k === "gross_profit" ? C.brand : C.ink }}>{money(sum(k))}</div>
+              ))}
+              <div style={{ padding: "9px 8px", textAlign: "right", color: C.ink }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>
+              <div style={{ padding: "9px 8px" }} /><div style={{ padding: "9px 8px" }} /><div style={{ padding: "9px 8px" }} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loaded && rows.length === 0 && !err && (
+        <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13, lineHeight: 1.9 }}>
+          暂无订单记录<br />
+          <span style={{ fontSize: 12 }}>Excel 导入: node scripts/import-orders.mjs {"<文件>"}（表头按 Excel：日期/订单号/地区/名字/产品/sku/到仓价/售价/到手营业额/折合/毛利润/毛利率/邮件/索评/退款）</span>
+        </div>
+      )}
     </div>
   );
 }
