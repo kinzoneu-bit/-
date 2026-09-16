@@ -561,7 +561,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"],
+        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
           // 店铺运维费用: admin + 成都·供应链 (2026-09-14 KK 定)
           ...(["admin", "cd_supplier"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
           // 单品月度订单统计: 仅 admin
@@ -586,6 +586,7 @@ export default function App() {
         {tab === "progress" && <LinkProgress />}
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
+        {tab === "orderrecords" && <OrderRecords />}
         {tab === "asinlife" && <AsinLifecycle />}
         {tab === "adanalysis" && <AdAnalysis />}
         {tab === "score" && <LinkScore />}
@@ -3180,6 +3181,29 @@ function OrderSummary() {
       </div>
       <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
         单品月度订单统计 · 待 KK 确认口径 (单品×月订单量 / 同比环比 / 品牌维度) 与数据源 (SP-API)
+      </div>
+    </div>
+  );
+}
+
+// ---------------- 订单记录 (空骨架, 待 KK 提供内容) ----------------
+// 2026-09-17 KK 要求新增, 位置: 库存统计 之后; 页面内容由 KK 后续指定
+function OrderRecords() {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>订单记录</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            订单明细记录 · 待 KK 确认口径与数据源
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        </div>
+      </div>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        订单记录 · 待 KK 提供内容 (字段 / 口径 / 数据源)
       </div>
     </div>
   );
