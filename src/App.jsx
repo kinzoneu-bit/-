@@ -3018,10 +3018,10 @@ function OpsFee() {
                 const v = monthlyVal(cat);
                 const k = `${MONTHLY_SITE}|${cat}`;
                 return (
-                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "#f7f5ff" }}>
+                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "rgba(127,119,221,.10)" }}>
                     <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink }}>
                       {cat}
-                      <span style={{ marginLeft: 6, fontSize: 10, color: "#534AB7", border: "1px solid #CECBF6", background: "#EEEDFE", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
+                      <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
                     </div>
                     {SITES.map(site => (
                       <div key={site} style={{ padding: "8px 10px", textAlign: "right", color: C.faint }}>—</div>
@@ -3072,7 +3072,7 @@ function OpsFee() {
                 <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: C.brand, background: C.bg, borderRight: `1px solid ${C.line}` }}>
                   {total(cat).toFixed(2)}
                 </div>
-                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#0F6E56", background: "#E1F5EE" }}>
+                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#5DCAA5", background: "rgba(15,110,86,.15)" }}>
                   ¥{toRmb(cat).toFixed(2)}
                 </div>
               </div>
@@ -3097,7 +3097,7 @@ function OpsFee() {
               <div style={{ gridColumn: `span ${SITES.length + 1}`, padding: "8px 12px", color: C.faint }}>
                 站点金额均为欧元(€) · 汇率 €→¥ = {rate} · 月度核算费用 ¥ = (欧元合计 {eurTotal.toFixed(2)} × {rate}) + 网络IP等月固定 ¥{monthlyRmb.toFixed(2)}
               </div>
-              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#0F6E56" }}>¥{rmbTotal.toFixed(2)}</div>
+              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#5DCAA5" }}>¥{rmbTotal.toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -3156,24 +3156,60 @@ function OpsFee() {
   );
 }
 
-// ---------------- 店铺月度核算 (空骨架, 待 KK 提供内容) ----------------
-// 权限: admin + 成都·供应链 (与「店铺运维费用」一致); 具体口径/字段/数据源由 KK 指定后再实现
+// ---------------- 店铺月度核算 (空骨架, 待 KK 提供完整字段) ----------------
+// 口径 (KK 2026-09-16): 每个月独立一张表 → 顶部选月份, 表格就是那个月的
+// 结构: 行 = 科目(人工/场地/其他/净利润...), 列 = 店铺
+// 权限: admin + 成都·供应链 (与「店铺运维费用」一致)
 function StoreMonthly() {
+  const cur = new Date();
+  const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
+  const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+  const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
+  const ROWS = ["人工", "场地", "其他", "净利润"];        // 截图中可见的科目, 其余待 KK 补全
+  const COLS = OPS_FIXED_STORES;                          // 每个店铺一列
+  const GRID = `220px repeat(${COLS.length}, 1fr)`;
+  const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, textAlign: "right" };
+  const td = { padding: "12px", fontSize: 12, textAlign: "right", color: C.faint };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺月度核算</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺 × 月的核算视图 · 待 KK 确认口径与数据源
+            每月独立一张 · 行 = 科目(人工/场地/其他/净利润…) · 列 = 店铺 · 空骨架待填充
           </div>
         </div>
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
+          <select value={month.slice(0, 4)} onChange={e => setMonth(`${e.target.value}-${month.slice(5, 7)}-01`)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            {YEARS.map(y => <option key={y} value={String(y)}>{y}年</option>)}
+          </select>
+          <select value={month.slice(5, 7)} onChange={e => setMonth(`${month.slice(0, 4)}-${e.target.value}-01`)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
+          </select>
           <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        店铺月度核算 · 待 KK 提供内容 (字段 / 口径 / 数据源)
+
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "#1f3a68", display: "grid", gridTemplateColumns: GRID }}>
+          <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 项目</div>
+          {COLS.map(s => <div key={s} style={th}>{s}</div>)}
+        </div>
+        {ROWS.map((r, i) => (
+          <div key={r} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: r === "净利润" ? C.panel2 : (i % 2 ? C.bg : "transparent") }}>
+            <div style={{ ...td, textAlign: "left", color: C.ink, fontWeight: 600 }}>{r}</div>
+            {COLS.map(s => <div key={s} style={td}>—</div>)}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.7 }}>
+        · 上表为布局骨架, 尚未接数据 (表格里的「—」等你确认字段后接)<br />
+        · 截图里「人工」上面还有科目被我裁掉了, 请把完整科目清单发我, 我按顺序补到表里<br />
+        · 单位(¥ / €) 与「净利润」的算法口径也请一并确认
       </div>
     </div>
   );
