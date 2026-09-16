@@ -561,7 +561,7 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["inventory", "库存统计"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["score", "链接评分"],
+        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"],
           // 店铺运维费用: admin + 成都·供应链 (2026-09-14 KK 定)
           ...(["admin", "cd_supplier"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
           // 单品月度订单统计: 仅 admin
