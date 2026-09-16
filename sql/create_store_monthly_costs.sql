@@ -1,8 +1,9 @@
 -- ============================================================
 -- 店铺月度核算 · 手工录入表 (store_monthly_costs)
--- KK 2026-09-16 定: 单位人民币 ¥, 每月独立
+-- KK 2026-09-16 定:
+--   单位人民币 ¥, 每月独立
 --   item 取值: 收入 / 人工 / 场地 / 其他   (各项成本 & 净利润自动算, 不入库)
--- 权限: 读=所有登录用户; 写=admin + 成都·供应链(cd_supplier)
+--   权限: 仅管理层 (admin + 法国成员 fr) 可读写
 -- 在 Supabase → SQL Editor 整段粘贴执行, 幂等可重复跑
 -- ============================================================
 
@@ -39,26 +40,26 @@ DROP TRIGGER IF EXISTS trg_smc_updated ON store_monthly_costs;
 CREATE TRIGGER trg_smc_updated BEFORE UPDATE ON store_monthly_costs
   FOR EACH ROW EXECUTE FUNCTION smc_set_updated();
 
--- RLS
+-- RLS: 仅管理层 (admin / fr)
 ALTER TABLE store_monthly_costs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS smc_read_all ON store_monthly_costs;
-CREATE POLICY smc_read_all ON store_monthly_costs FOR SELECT TO authenticated USING (true);
-
 DROP POLICY IF EXISTS smc_write_ops ON store_monthly_costs;
-CREATE POLICY smc_write_ops ON store_monthly_costs FOR ALL TO authenticated
+DROP POLICY IF EXISTS smc_rw_mgmt ON store_monthly_costs;
+
+CREATE POLICY smc_rw_mgmt ON store_monthly_costs FOR ALL TO authenticated
   USING (
     EXISTS (SELECT 1 FROM user_profiles up
             WHERE up.user_id = auth.uid()
-              AND up.role IN ('admin', 'cd_supplier'))
+              AND up.role IN ('admin', 'fr'))
   )
   WITH CHECK (
     EXISTS (SELECT 1 FROM user_profiles up
             WHERE up.user_id = auth.uid()
-              AND up.role IN ('admin', 'cd_supplier'))
+              AND up.role IN ('admin', 'fr'))
   );
 
--- 校验: 应返回 2 条策略 + 8 列
+-- 校验: 应返回 1 条策略 (smc_rw_mgmt) + 8 列
 SELECT policyname, cmd FROM pg_policies WHERE tablename = 'store_monthly_costs' ORDER BY policyname;
 
 SELECT column_name FROM information_schema.columns

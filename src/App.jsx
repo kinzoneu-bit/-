@@ -562,12 +562,12 @@ export default function App() {
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
         {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["track", "链接日级跟进"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["score", "链接评分"],
-          // 店铺运维费用 + 店铺月度核算: admin + 成都·供应链 (2026-09-14/15 KK 定)
+          // 店铺运维费用: admin + 成都·供应链 (2026-09-14 KK 定)
           ...(["admin", "cd_supplier"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
           // 单品月度订单统计: 仅 admin
           ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"]] : []),
-          // 店铺月度核算: admin + 成都·供应链
-          ...(["admin", "cd_supplier"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
+          // 店铺月度核算: 仅管理层 (admin + 法国成员 fr) — KK 2026-09-16 定
+          ...(["admin", "fr"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
           // 财务核算: 仅 admin
           ...(curRole === "admin" ? [["finance", "财务核算"]] : [])
         ].map(([k, l]) => (
@@ -3163,7 +3163,7 @@ function OpsFee() {
 //   人工 / 场地 / 其他 = 手工录入 (表 store_monthly_costs)
 //   净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 (自动, 收入为 0 时显示「—」)
 // 录入规则与店铺运维费用一致: 改动先缓存 → 底部「确认提交」→ 输密码 852963 → 一次性入库
-// 权限: admin + 成都·供应链(cd_supplier)
+// 权限: 仅管理层 = admin + 法国成员(fr), 读写都只给这两个角色
 function StoreMonthly() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
@@ -3203,7 +3203,8 @@ function StoreMonthly() {
       if (data && data.user) setRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  const canEdit = role === "admin" || role === "cd_supplier";
+  // 仅管理层 (admin + 法国成员 fr) — KK 2026-09-16 定
+  const canEdit = role === "admin" || role === "fr";
 
   const load = () => {
     setLoaded(false);
