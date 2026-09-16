@@ -2366,6 +2366,22 @@ function InventoryStats() {
   useEffect(() => { load(); }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (invRole) load(); }, [filterStore]);
+  // 筛选: 仓库(下拉) / 发货批次 / 款式 / ASIN (后三个为包含匹配, 不区分大小写)
+  const [fWh, setFWh] = useState("");
+  const [fBatch, setFBatch] = useState("");
+  const [fStyle, setFStyle] = useState("");
+  const [fAsin, setFAsin] = useState("");
+  const whOpts = useMemo(() => [...new Set(rows.map(r => r.ship_warehouse).filter(Boolean))].sort(), [rows]);
+  const kw = (s) => String(s == null ? "" : s).trim().toLowerCase();
+  const view = useMemo(() => rows.filter(r => {
+    if (fWh && r.ship_warehouse !== fWh) return false;
+    if (kw(fBatch) && !kw(r.ship_batch).includes(kw(fBatch))) return false;
+    if (kw(fStyle) && !kw(r.product_name).includes(kw(fStyle))) return false;
+    if (kw(fAsin) && !kw(r.asin).includes(kw(fAsin))) return false;
+    return true;
+  }), [rows, fWh, fBatch, fStyle, fAsin]);
+  const hasFilter = !!(fWh || fBatch.trim() || fStyle.trim() || fAsin.trim());
+  const resetInvFilter = () => { setFWh(""); setFBatch(""); setFStyle(""); setFAsin(""); };
   const openEditInv = (r) => {
     const f = {
       store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
@@ -2391,9 +2407,9 @@ function InventoryStats() {
     if (error) { alert("保存失败: " + error.message); return; }
     setEdInv(null); load();
   };
-  const totalQty = rows.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
-  const totalStock = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
-  const totalAmount = rows.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0) * Number(r.landed_cost || 0), 0);
+  const totalQty = view.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
+  const totalStock = view.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
+  const totalAmount = view.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0) * Number(r.landed_cost || 0), 0);
   const daysBetween = (a, b) => {
     if (!a || !b) return null;
     const ms = new Date(b).getTime() - new Date(a).getTime();
@@ -2445,18 +2461,20 @@ function InventoryStats() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>库存记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            发货记录标记「已上架」自动生成 · 每条发货一行 · 17 列同 Excel · 全员可见 · 红色=需关注 (周期异常/库存为0)
+            发货记录标记「已上架」自动生成 · 每条发货一行 · 全员可见 · 可按 仓库/发货批次/款式/ASIN 筛选 · 红色=需关注 (周期异常/库存为0)
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 条 · 上架合计 {totalQty} 件 · 当前库存 {totalStock}</span>
+          <span style={{ fontSize: 11, color: C.faint }}>
+            {hasFilter ? "筛选后" : "共"} {view.length} 条 · 上架合计 {totalQty} 件 · 当前库存 {totalStock}
+          </span>
         </div>
       </div>
       {err && <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
         读取失败(请先建表 inventory): {err}
       </div>}
 
-      {/* 筛选: 店铺 */}
+      {/* 筛选: 店铺 + 仓库/发货批次/款式/ASIN */}
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 18px", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
@@ -2465,14 +2483,40 @@ function InventoryStats() {
             <option value="">全部店铺</option>
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{filterStore ? `已筛选: ${filterStore}` : `共 ${rows.length} 条`}</span>
+
+          <span style={{ fontSize: 12, color: C.sub, marginLeft: 6 }}>仓库:</span>
+          <select value={fWh} onChange={e => setFWh(e.target.value)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+            <option value="">全部仓库</option>
+            {whOpts.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+
+          <span style={{ fontSize: 12, color: C.sub }}>发货批次:</span>
+          <input value={fBatch} onChange={e => setFBatch(e.target.value)} placeholder="输入批次号, 支持部分匹配"
+            style={{ width: 170, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+
+          <span style={{ fontSize: 12, color: C.sub }}>款式:</span>
+          <input value={fStyle} onChange={e => setFStyle(e.target.value)} placeholder="如 9mm / 国黑"
+            style={{ width: 140, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+
+          <span style={{ fontSize: 12, color: C.sub }}>ASIN:</span>
+          <input value={fAsin} onChange={e => setFAsin(e.target.value)} placeholder="如 B0DX87XTSB"
+            style={{ width: 150, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+
+          {hasFilter && (
+            <span onClick={resetInvFilter} style={{ fontSize: 12, color: C.brand, cursor: "pointer", fontWeight: 600 }}>重置</span>
+          )}
+
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+            {hasFilter ? `筛选出 ${view.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
+          </span>
           <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
             库存金额 ¥{totalAmount.toFixed(2)}
           </span>
         </div>
       </div>
 
-      {rows.length ? (
+      {view.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
           <div style={{ minWidth: 1820 }}>
             <div style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
@@ -2481,7 +2525,7 @@ function InventoryStats() {
               ))}
               {canEditInv && <div style={{ padding: "9px 8px" }}>操作</div>}
             </div>
-            {rows.map((r, i) => {
+            {view.map((r, i) => {
               const bg = i % 2 ? C.bg : "transparent";
               return (
                 <div key={r.id} style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bg }}>
@@ -2498,7 +2542,7 @@ function InventoryStats() {
         </div>
       ) : (
         <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13 }}>
-          暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录
+          {rows.length ? "没有符合筛选条件的记录 · 点「重置」看全部" : "暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录"}
         </div>
       )}
 
