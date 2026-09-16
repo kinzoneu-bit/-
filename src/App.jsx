@@ -2821,6 +2821,82 @@ const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "
 const OPS_FIXED_STORES = ["飞鸟", "野趣", "俊业", "乾霖", "屿阔", "胤顺"];
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
 
+// 本月汇率输入 (店铺运维费用 / 店铺月度核算 共用)
+// 规则: 汇率按月各自记录(表 fx_rates); 改动后失焦 → 弹框输密码 → 才写库
+function RateField({ month, canEdit, pwd, onRate }) {
+  const [rate, setRate] = useState(8.0);
+  const [saved, setSaved] = useState(8.0);
+  const [open, setOpen] = useState(false);
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      let v = null;
+      const { data: cur } = await supabase.from("fx_rates").select("rate").eq("month", month).maybeSingle();
+      if (cur && cur.rate) v = Number(cur.rate);
+      else {
+        const { data: last } = await supabase.from("fx_rates").select("rate").order("month", { ascending: false }).limit(1);
+        v = (last && last.length) ? Number(last[0].rate) : (parseFloat(localStorage.getItem("opsfee_rate") || "") || 8.0);
+      }
+      if (!on) return;
+      setRate(v); setSaved(v); onRate(v);
+    })();
+    return () => { on = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month]);
+  const change = (v) => { setRate(v); onRate(Number(v) || 0); };
+  const request = () => {
+    if (!canEdit) return;
+    const num = Number(rate);
+    if (!num || num <= 0) { setRate(saved); onRate(saved); return; }
+    if (num === saved) return;
+    setPin(""); setErr(""); setOpen(true);
+  };
+  const confirm = async () => {
+    if (pin.trim() !== pwd) { setErr("密码不正确, 请重新输入"); return; }
+    const num = Number(rate);
+    const { error } = await supabase.from("fx_rates").upsert({ month, rate: num }, { onConflict: "month" });
+    if (error) { setErr("保存失败(请先建表 fx_rates): " + error.message); return; }
+    localStorage.setItem("opsfee_rate", String(num));
+    setSaved(num); setOpen(false); setPin(""); setErr("");
+  };
+  const cancel = () => { setRate(saved); onRate(saved); setOpen(false); setPin(""); setErr(""); };
+  return (
+    <>
+      <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }} title={canEdit ? "本月汇率, 改完点空白处 → 输密码确认" : "汇率由管理层维护, 只读"}>本月汇率 €→¥:</span>
+      <input type="number" step="0.01" min="0" value={rate} disabled={!canEdit}
+        onChange={e => change(e.target.value)} onBlur={request}
+        style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: canEdit ? C.ink : C.faint, fontSize: 12 }} />
+      {open && (
+        <div onClick={cancel} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 380 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认修改本月汇率</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>{month.slice(0, 7)} · 只影响本月, 历史月份的汇率不受影响</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14, display: "flex", alignItems: "center" }}>
+              <span style={{ color: C.sub, width: 72 }}>汇率 €→¥</span>
+              <span style={{ color: C.faint }}>{saved}</span>
+              <span style={{ margin: "0 8px", color: C.faint }}>→</span>
+              <span style={{ color: C.brand, fontWeight: 700, fontSize: 14 }}>{Number(rate) || 0}</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>确认密码</div>
+            <input type="password" value={pin} autoFocus
+              onChange={e => { setPin(e.target.value); setErr(""); }}
+              onKeyDown={e => { if (e.key === "Enter") confirm(); if (e.key === "Escape") cancel(); }}
+              placeholder="输入密码"
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${err ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {err && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{err}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={cancel} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
+              <button onClick={confirm} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认修改</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---------------- 店铺运维费用 ----------------
 // 维度: 月份 × 店铺 × 站点 × 费用类别 → 金额
 // 店铺筛选: 不选=全部店铺汇总(只读) / 选具体店铺=该店铺数据(可编辑)
@@ -2880,30 +2956,9 @@ function OpsFee() {
   const totalSite = (site) => SITE_CATS.reduce((s, cat) => s + getVal(site, cat), 0);
   // —— 币种核算 ——
   // 站点里录的都是欧元(€); 网络IP费用等"月固定"类别直接是人民币(¥), 不参与汇率折算
-  // 汇率按「月」各自记录 (表 fx_rates): 改当月只影响当月, 历史月份保持原汇率
-  const [rate, setRate] = useState(() => {
-    const v = parseFloat(localStorage.getItem("opsfee_rate") || "");
-    return v > 0 ? v : 8.0;
-  });
+  // 汇率按「月」各自记录 (表 fx_rates) 且改动需密码: 见 <RateField />
+  const [rate, setRate] = useState(8.0);
   const canEditRate = ["admin", "fr", "cd_procurement"].includes(opsRole);
-  useEffect(() => {
-    let on = true;
-    (async () => {
-      const { data: cur } = await supabase.from("fx_rates").select("rate").eq("month", month).maybeSingle();
-      if (cur && cur.rate) { if (on) setRate(Number(cur.rate)); return; }
-      const { data: last } = await supabase.from("fx_rates").select("rate").order("month", { ascending: false }).limit(1);
-      if (on) setRate(last && last.length ? Number(last[0].rate) : (parseFloat(localStorage.getItem("opsfee_rate") || "") || 8.0));
-    })();
-    return () => { on = false; };
-  }, [month]);
-  const saveRate = async (v) => {
-    const num = Number(v);
-    if (!num || num <= 0) return;
-    localStorage.setItem("opsfee_rate", String(num));
-    if (!canEditRate) return;
-    const { error } = await supabase.from("fx_rates").upsert({ month, rate: num }, { onConflict: "month" });
-    if (error) alert("本月汇率保存失败(请先建表 fx_rates): " + error.message);
-  };
   const eurTotal = SITE_CATS.reduce((s, c) => s + total(c), 0);                   // 欧元合计
   const monthlyRmb = CATS.filter(isMonthly).reduce((s, c) => s + monthlyVal(c), 0); // 月固定(人民币)小计
   const rmbTotal = eurTotal * rate + monthlyRmb;                                  // 月度核算费用(¥)
@@ -3014,11 +3069,7 @@ function OpsFee() {
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
           </select>
-          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }} title={canEditRate ? "本月汇率, 改完点旁边空白处即存" : "汇率由管理层维护"}>本月汇率 €→¥:</span>
-          <input type="number" step="0.01" min="0" value={rate} disabled={!canEditRate}
-            onChange={e => setRate(Number(e.target.value) || 0)}
-            onBlur={() => saveRate(rate)}
-            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: canEditRate ? C.ink : C.faint, fontSize: 12 }} />
+          <RateField month={month} canEdit={canEditRate} pwd={OPS_PWD} onRate={setRate} />
         </div>
       </div>
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
@@ -3202,11 +3253,8 @@ function StoreMonthly() {
   const PWD = "852963";
 
   const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
-  // 汇率按「月」各自记录 (表 fx_rates): 改当月只影响当月, 历史月份保持原汇率
-  const [rate, setRate] = useState(() => {
-    const v = parseFloat(localStorage.getItem("opsfee_rate") || "");
-    return v > 0 ? v : 8.0;
-  });
+  // 汇率按「月」各自记录 (表 fx_rates) 且改动需密码: 见 <RateField />
+  const [rate, setRate] = useState(8.0);
   const [opsRows, setOpsRows] = useState([]);       // 店铺运维费用 (当月)
   const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
   const [loaded, setLoaded] = useState(false);
@@ -3226,25 +3274,6 @@ function StoreMonthly() {
   // 仅管理层: admin + 法国成员 fr + 成都采购(黄丹) — KK 2026-09-16 定
   const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
   const canEditRate = canEdit;
-  // 载入本月汇率 (没有则取最近一个月的, 再没有用缓存/默认8.0)
-  useEffect(() => {
-    let on = true;
-    (async () => {
-      const { data: cur2 } = await supabase.from("fx_rates").select("rate").eq("month", month).maybeSingle();
-      if (cur2 && cur2.rate) { if (on) setRate(Number(cur2.rate)); return; }
-      const { data: last } = await supabase.from("fx_rates").select("rate").order("month", { ascending: false }).limit(1);
-      if (on) setRate(last && last.length ? Number(last[0].rate) : (parseFloat(localStorage.getItem("opsfee_rate") || "") || 8.0));
-    })();
-    return () => { on = false; };
-  }, [month]);
-  const saveRate = async (v) => {
-    const num = Number(v);
-    if (!num || num <= 0) return;
-    localStorage.setItem("opsfee_rate", String(num));
-    if (!canEditRate) return;
-    const { error } = await supabase.from("fx_rates").upsert({ month, rate: num }, { onConflict: "month" });
-    if (error) alert("本月汇率保存失败(请先建表 fx_rates): " + error.message);
-  };
 
   const load = () => {
     setLoaded(false);
@@ -3359,11 +3388,7 @@ function StoreMonthly() {
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
           </select>
-          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }} title="本月汇率, 改完点旁边空白处即存">本月汇率 €→¥:</span>
-          <input type="number" step="0.01" min="0" value={rate} disabled={!canEditRate}
-            onChange={e => setRate(Number(e.target.value) || 0)}
-            onBlur={() => saveRate(rate)}
-            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: canEditRate ? C.ink : C.faint, fontSize: 12 }} />
+          <RateField month={month} canEdit={canEditRate} pwd={PWD} onRate={setRate} />
         </div>
       </div>
 
