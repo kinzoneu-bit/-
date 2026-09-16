@@ -3048,21 +3048,25 @@ const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
 function RateField({ month, canEdit, pwd, onRate }) {
   const [rate, setRate] = useState(8.0);
   const [saved, setSaved] = useState(8.0);
+  const [src, setSrc] = useState("default");     // own=本月已设 / inherit=沿用历史 / default=默认
   const [open, setOpen] = useState(false);
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
+  // 取本月汇率: 优先本月记录; 没有则取「不晚于本月的最近一条」(时间上最接近的历史汇率);
+  // 再也没有就用默认 8.0。绝不使用全局缓存 —— 否则改一个月会串到所有月份 (KK 2026-09-16 踩坑)
   useEffect(() => {
     let on = true;
     (async () => {
-      let v = null;
       const { data: cur } = await supabase.from("fx_rates").select("rate").eq("month", month).maybeSingle();
-      if (cur && cur.rate) v = Number(cur.rate);
+      let v = null, s = "default";
+      if (cur && cur.rate) { v = Number(cur.rate); s = "own"; }
       else {
-        const { data: last } = await supabase.from("fx_rates").select("rate").order("month", { ascending: false }).limit(1);
-        v = (last && last.length) ? Number(last[0].rate) : (parseFloat(localStorage.getItem("opsfee_rate") || "") || 8.0);
+        const { data: prev } = await supabase.from("fx_rates").select("rate")
+          .lte("month", month).order("month", { ascending: false }).limit(1);
+        if (prev && prev.length) { v = Number(prev[0].rate); s = "inherit"; } else { v = 8.0; s = "default"; }
       }
       if (!on) return;
-      setRate(v); setSaved(v); onRate(v);
+      setRate(v); setSaved(v); setSrc(s); onRate(v);
     })();
     return () => { on = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3079,9 +3083,8 @@ function RateField({ month, canEdit, pwd, onRate }) {
     if (pin.trim() !== pwd) { setErr("密码不正确, 请重新输入"); return; }
     const num = Number(rate);
     const { error } = await supabase.from("fx_rates").upsert({ month, rate: num }, { onConflict: "month" });
-    if (error) { setErr("保存失败(请先建表 fx_rates): " + error.message); return; }
-    localStorage.setItem("opsfee_rate", String(num));
-    setSaved(num); setOpen(false); setPin(""); setErr("");
+    if (error) { setErr("保存失败(请先在 Supabase 建表 fx_rates): " + error.message); return; }
+    setSaved(num); setSrc("own"); setOpen(false); setPin(""); setErr("");
   };
   const cancel = () => { setRate(saved); onRate(saved); setOpen(false); setPin(""); setErr(""); };
   return (
@@ -3090,6 +3093,12 @@ function RateField({ month, canEdit, pwd, onRate }) {
       <input type="number" step="0.01" min="0" value={rate} disabled={!canEdit}
         onChange={e => change(e.target.value)} onBlur={request}
         style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: canEdit ? C.ink : C.faint, fontSize: 12 }} />
+      {src !== "own" && (
+        <span title={src === "inherit" ? "本月还没单独设汇率, 暂时沿用之前月份的汇率; 改一次即可锁定本月" : "数据库里还没有汇率记录(请先跑 fx_rates 建表 SQL), 现用默认 8.0"}
+          style={{ fontSize: 10, color: src === "inherit" ? C.watch : C.drop, border: `1px solid ${src === "inherit" ? C.watch : C.drop}`, borderRadius: 4, padding: "1px 5px" }}>
+          {src === "inherit" ? "沿用历史·未锁定" : "未设·默认8.0"}
+        </span>
+      )}
       {open && (
         <div onClick={cancel} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 130 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 380 }}>
