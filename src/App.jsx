@@ -2880,11 +2880,30 @@ function OpsFee() {
   const totalSite = (site) => SITE_CATS.reduce((s, cat) => s + getVal(site, cat), 0);
   // —— 币种核算 ——
   // 站点里录的都是欧元(€); 网络IP费用等"月固定"类别直接是人民币(¥), 不参与汇率折算
+  // 汇率按「月」各自记录 (表 fx_rates): 改当月只影响当月, 历史月份保持原汇率
   const [rate, setRate] = useState(() => {
     const v = parseFloat(localStorage.getItem("opsfee_rate") || "");
     return v > 0 ? v : 8.0;
   });
-  useEffect(() => { localStorage.setItem("opsfee_rate", String(rate)); }, [rate]);
+  const canEditRate = ["admin", "fr", "cd_procurement"].includes(opsRole);
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      const { data: cur } = await supabase.from("fx_rates").select("rate").eq("month", month).maybeSingle();
+      if (cur && cur.rate) { if (on) setRate(Number(cur.rate)); return; }
+      const { data: last } = await supabase.from("fx_rates").select("rate").order("month", { ascending: false }).limit(1);
+      if (on) setRate(last && last.length ? Number(last[0].rate) : (parseFloat(localStorage.getItem("opsfee_rate") || "") || 8.0));
+    })();
+    return () => { on = false; };
+  }, [month]);
+  const saveRate = async (v) => {
+    const num = Number(v);
+    if (!num || num <= 0) return;
+    localStorage.setItem("opsfee_rate", String(num));
+    if (!canEditRate) return;
+    const { error } = await supabase.from("fx_rates").upsert({ month, rate: num }, { onConflict: "month" });
+    if (error) alert("本月汇率保存失败(请先建表 fx_rates): " + error.message);
+  };
   const eurTotal = SITE_CATS.reduce((s, c) => s + total(c), 0);                   // 欧元合计
   const monthlyRmb = CATS.filter(isMonthly).reduce((s, c) => s + monthlyVal(c), 0); // 月固定(人民币)小计
   const rmbTotal = eurTotal * rate + monthlyRmb;                                  // 月度核算费用(¥)
@@ -2995,10 +3014,11 @@ function OpsFee() {
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
           </select>
-          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>汇率 €→¥:</span>
-          <input type="number" step="0.01" min="0" value={rate}
+          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }} title={canEditRate ? "本月汇率, 改完点旁边空白处即存" : "汇率由管理层维护"}>本月汇率 €→¥:</span>
+          <input type="number" step="0.01" min="0" value={rate} disabled={!canEditRate}
             onChange={e => setRate(Number(e.target.value) || 0)}
-            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+            onBlur={() => saveRate(rate)}
+            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: canEditRate ? C.ink : C.faint, fontSize: 12 }} />
         </div>
       </div>
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
@@ -3095,7 +3115,7 @@ function OpsFee() {
             <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, background: C.panel, fontSize: 11 }}>
               <div style={{ padding: "8px 12px", color: C.faint }}>说明</div>
               <div style={{ gridColumn: `span ${SITES.length + 1}`, padding: "8px 12px", color: C.faint }}>
-                站点金额均为欧元(€) · 汇率 €→¥ = {rate} · 月度核算费用 ¥ = (欧元合计 {eurTotal.toFixed(2)} × {rate}) + 网络IP等月固定 ¥{monthlyRmb.toFixed(2)}
+                站点金额均为欧元(€) · 本月汇率 €→¥ = {rate} · 月度核算费用 ¥ = (欧元合计 {eurTotal.toFixed(2)} × {rate}) + 网络IP等月固定 ¥{monthlyRmb.toFixed(2)}
               </div>
               <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#5DCAA5" }}>¥{rmbTotal.toFixed(2)}</div>
             </div>
@@ -3182,11 +3202,11 @@ function StoreMonthly() {
   const PWD = "852963";
 
   const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
+  // 汇率按「月」各自记录 (表 fx_rates): 改当月只影响当月, 历史月份保持原汇率
   const [rate, setRate] = useState(() => {
     const v = parseFloat(localStorage.getItem("opsfee_rate") || "");
     return v > 0 ? v : 8.0;
   });
-  useEffect(() => { localStorage.setItem("opsfee_rate", String(rate)); }, [rate]);
   const [opsRows, setOpsRows] = useState([]);       // 店铺运维费用 (当月)
   const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
   const [loaded, setLoaded] = useState(false);
@@ -3205,6 +3225,26 @@ function StoreMonthly() {
   }, []);
   // 仅管理层: admin + 法国成员 fr + 成都采购(黄丹) — KK 2026-09-16 定
   const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
+  const canEditRate = canEdit;
+  // 载入本月汇率 (没有则取最近一个月的, 再没有用缓存/默认8.0)
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      const { data: cur2 } = await supabase.from("fx_rates").select("rate").eq("month", month).maybeSingle();
+      if (cur2 && cur2.rate) { if (on) setRate(Number(cur2.rate)); return; }
+      const { data: last } = await supabase.from("fx_rates").select("rate").order("month", { ascending: false }).limit(1);
+      if (on) setRate(last && last.length ? Number(last[0].rate) : (parseFloat(localStorage.getItem("opsfee_rate") || "") || 8.0));
+    })();
+    return () => { on = false; };
+  }, [month]);
+  const saveRate = async (v) => {
+    const num = Number(v);
+    if (!num || num <= 0) return;
+    localStorage.setItem("opsfee_rate", String(num));
+    if (!canEditRate) return;
+    const { error } = await supabase.from("fx_rates").upsert({ month, rate: num }, { onConflict: "month" });
+    if (error) alert("本月汇率保存失败(请先建表 fx_rates): " + error.message);
+  };
 
   const load = () => {
     setLoaded(false);
@@ -3319,9 +3359,11 @@ function StoreMonthly() {
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
           </select>
-          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>汇率 €→¥:</span>
-          <input type="number" step="0.01" min="0" value={rate} onChange={e => setRate(Number(e.target.value) || 0)}
-            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
+          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }} title="本月汇率, 改完点旁边空白处即存">本月汇率 €→¥:</span>
+          <input type="number" step="0.01" min="0" value={rate} disabled={!canEditRate}
+            onChange={e => setRate(Number(e.target.value) || 0)}
+            onBlur={() => saveRate(rate)}
+            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: canEditRate ? C.ink : C.faint, fontSize: 12 }} />
         </div>
       </div>
 
