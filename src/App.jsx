@@ -1746,7 +1746,6 @@ function Shipments() {
   const SUM_COLS = BCOLS.filter(c => c.t === "sum");
   const ROW_COLS = BCOLS.filter(c => c.t === "row");
 
-  const B_PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
   // 批次分组 (ship_batch 为空则继承上一个非空批次; 完全没有批次的单行独立成组)
   const batches = useMemo(() => {
     const list = [], map = {};
@@ -1759,7 +1758,7 @@ function Shipments() {
       map[key].rows.push(r);
     });
     list.forEach((g, i) => {
-      g.color = B_PALETTE[i % B_PALETTE.length];
+      g.color = BATCH_PALETTE[i % BATCH_PALETTE.length];
       g.total = g.rows.reduce((s, r) => s + Number(r.goods_value || 0), 0);   // 总值 = Σ货值
     });
     return list;
@@ -1936,8 +1935,8 @@ function Shipments() {
       {/* 表格: 按批次分组, 批次级列整批合并显示一个值 */}
       {batches.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
-          <div style={{ minWidth: 2340 }}>
-            <div style={{ display: "grid", gridTemplateColumns: GRID_T, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2 }}>
+          <div style={{ minWidth: 2352, padding: "0 6px 4px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID_T, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2, margin: "0 -6px" }}>
               {BCOLS.map(c => (
                 <div key={c.k} title={c.t === "batch" ? "批次级字段: 点合并格按批次修改" : (c.t === "sum" ? "自动 = 本批次各行货值之和" : "")}
                   style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>
@@ -1959,9 +1958,11 @@ function Shipments() {
                 <div key={g.key} style={{
                   display: "grid", gridTemplateColumns: GRID_T,
                   gridTemplateRows: `repeat(${N}, minmax(34px, auto))`,
-                  borderTop: `1px solid ${C.line}`,
-                  background: blockColor ? `${blockColor}1f` : `${g.color}14`,
-                  borderLeft: `3px solid ${blockColor || g.color}`,
+                  margin: "0 0 6px 0",
+                  background: blockColor ? `${blockColor}26` : `${g.color}22`,
+                  border: `1px solid ${blockColor || g.color}`,
+                  borderLeft: `4px solid ${blockColor || g.color}`,
+                  borderRadius: 4,
                 }}>
                   {/* 批次级列: 跨整批 */}
                   {BATCH_COLS.map(c => {
@@ -2455,13 +2456,33 @@ function InventoryStats() {
     if (col.fmt === "money" && v != null) return "¥" + Number(v).toFixed(2);
     return v;
   };
+  // —— 批次分组显示 (KK 2026-09-16): 每个批次一块底色+描边, 批次级列整批合并 ——
+  const INV_BATCH_KEYS = ["ship_date", "ship_warehouse", "ship_batch"];
+  const INV_BATCH_COLS = COLS.filter(c => INV_BATCH_KEYS.includes(c.k));
+  const INV_ROW_COLS = COLS.filter(c => !INV_BATCH_KEYS.includes(c.k));
+  const W_INV = [100, 100, 100, 130, 130, 90, 90, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
+  const GRID_INV = (canEditInv ? W_INV : W_INV.slice(0, W_INV.length - 1)).map(w => `${w}px`).join(" ");
+  const colIdxInv = (k) => COLS.findIndex(c => c.k === k) + 1;
+  const invBatches = useMemo(() => {
+    const list = [], map = {};
+    let lastBatch = null;
+    view.forEach(r => {
+      let key;
+      if (r.ship_batch) { lastBatch = r.ship_batch; key = r.ship_batch; }
+      else key = lastBatch || `__single_${r.id}`;
+      if (!map[key]) { map[key] = { key, rows: [] }; list.push(map[key]); }
+      map[key].rows.push(r);
+    });
+    list.forEach((g, i) => { g.color = BATCH_PALETTE[i % BATCH_PALETTE.length]; });
+    return list;
+  }, [view]);
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>库存记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            发货记录标记「已上架」自动生成 · 每条发货一行 · 全员可见 · 可按 仓库/发货批次/款式/ASIN 筛选 · 红色=需关注 (周期异常/库存为0)
+            发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 货发日期/仓库/批次整批合并) · 可按 仓库/发货批次/款式/ASIN 筛选
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -2518,23 +2539,56 @@ function InventoryStats() {
 
       {view.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 1820 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+          <div style={{ minWidth: canEditInv ? 1790 : 1710, padding: "0 6px 4px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID_INV, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2, margin: "0 -6px" }}>
               {COLS.map(c => (
-                <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>
+                <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>
+                  {c.l}{INV_BATCH_KEYS.includes(c.k) && <span style={{ fontWeight: 400, color: "#9FE1CB" }}> 批</span>}
+                </div>
               ))}
               {canEditInv && <div style={{ padding: "9px 8px" }}>操作</div>}
             </div>
-            {view.map((r, i) => {
-              const bg = i % 2 ? C.bg : "transparent";
+            {invBatches.map(g => {
+              const N = g.rows.length;
               return (
-                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "100px 100px 100px 130px 130px 90px 90px 100px 100px 100px 90px 100px 90px 100px 90px 90px 90px 70px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: bg }}>
-                  {COLS.map(c => (
-                    <div key={c.k} style={{ padding: "8px", fontWeight: c.bold ? 600 : 400, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(c, r[c.k], r)}</div>
-                  ))}
-                  {canEditInv && <div style={{ padding: "8px", textAlign: "center" }}>
-                    <span onClick={() => openEditInv(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
-                  </div>}
+                <div key={g.key} style={{
+                  display: "grid", gridTemplateColumns: GRID_INV,
+                  gridTemplateRows: `repeat(${N}, minmax(34px, auto))`,
+                  margin: "0 0 6px 0",
+                  background: `${g.color}22`, border: `1px solid ${g.color}`, borderLeft: `4px solid ${g.color}`, borderRadius: 4,
+                  fontSize: 11,
+                }}>
+                  {/* 批次级列: 发货日期 / 仓库 / 发货批次 (整批合并显示一个值) */}
+                  {INV_BATCH_COLS.map(c => {
+                    const hit = g.rows.find(r => r[c.k] !== null && r[c.k] !== undefined && r[c.k] !== "");
+                    return (
+                      <div key={c.k} style={{
+                        gridColumn: colIdxInv(c.k), gridRow: `span ${N}`, display: "flex", alignItems: "center",
+                        padding: "8px", borderRight: `1px solid ${C.line}`, color: C.ink, fontWeight: 600,
+                        overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
+                      }}>
+                        {hit ? String(hit[c.k]) : "—"}
+                      </div>
+                    );
+                  })}
+                  {/* 逐行列 */}
+                  {g.rows.map((r, ri) => {
+                    const cell = (k) => ({
+                      gridColumn: colIdxInv(k), gridRow: ri + 1, padding: "8px",
+                      borderRight: `1px solid ${C.line}`, borderTop: ri ? `1px solid ${C.line}` : "none",
+                      color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    });
+                    return INV_ROW_COLS.map(c => (
+                      <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: c.bold ? 600 : 400 }}>{fmt(c, r[c.k], r)}</div>
+                    ));
+                  })}
+                  {/* 操作列 (整批一个, 点 ✎ 改该批次第一行的记录) */}
+                  {canEditInv && (
+                    <div style={{ gridColumn: COLS.length + 1, gridRow: `span ${N}`, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px" }}>
+                      <span onClick={() => openEditInv(g.rows[0])} title="编辑该批次记录"
+                        style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -3086,6 +3140,8 @@ const OPS_MONTHLY_CATS = { "网络IP费用": 88 };
 const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
 const OPS_FIXED_STORES = ["飞鸟", "野趣", "俊业", "乾霖", "屿阔", "胤顺"];
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
+// 批次配色 (发货记录 / 库存记录 共用): 每个批次一块底色, 循环取色
+const BATCH_PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
 
 // 本月汇率输入 (店铺运维费用 / 店铺月度核算 共用)
 // 规则: 汇率按月各自记录(表 fx_rates); 改动后失焦 → 弹框输密码 → 才写库
