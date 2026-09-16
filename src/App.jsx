@@ -3156,72 +3156,281 @@ function OpsFee() {
   );
 }
 
-// ---------------- 店铺月度核算 (空骨架, 待 KK 提供完整字段) ----------------
-// 口径 (KK 2026-09-16): 每个月独立一张表 → 顶部选月份, 表格就是那个月的
-// 结构: 行 = 科目(人工/场地/其他/净利润...), 列 = 店铺
-// 权限: admin + 成都·供应链 (与「店铺运维费用」一致)
+// ---------------- 店铺月度核算 ----------------
+// 口径 (KK 2026-09-16 定):
+//   单位 = 人民币 ¥; 每个月独立一张表 (顶部选月份)
+//   各项成本 = 店铺运维费用 (自动: 欧元合计 × 汇率 + 月固定¥)
+//   人工 / 场地 / 其他 = 手工录入 (表 store_monthly_costs)
+//   净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 (自动, 收入为 0 时显示「—」)
+// 录入规则与店铺运维费用一致: 改动先缓存 → 底部「确认提交」→ 输密码 852963 → 一次性入库
+// 权限: admin + 成都·供应链(cd_supplier)
 function StoreMonthly() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
-  const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
-  // 科目 (KK 2026-09-16 定): 净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他
+  const STORES = OPS_FIXED_STORES;
   const ROWS = [
-    { k: "收入", auto: false },
-    { k: "各项成本", auto: false },
-    { k: "人工", auto: false },
-    { k: "场地", auto: false },
-    { k: "其他", auto: false },
-    { k: "净利润", auto: true },
+    { k: "收入", type: "manual" },
+    { k: "各项成本", type: "auto" },
+    { k: "人工", type: "manual" },
+    { k: "场地", type: "manual" },
+    { k: "其他", type: "manual" },
+    { k: "净利润", type: "net" },
   ];
-  const COLS = OPS_FIXED_STORES;                          // 每个店铺一列
-  const GRID = `220px repeat(${COLS.length}, 1fr)`;
+  const MANUAL = ROWS.filter(r => r.type === "manual").map(r => r.k);
+  const GRID = `220px repeat(${STORES.length}, 1fr)`;
+  const PWD = "852963";
+
+  const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
+  const [rate, setRate] = useState(() => {
+    const v = parseFloat(localStorage.getItem("opsfee_rate") || "");
+    return v > 0 ? v : 8.0;
+  });
+  useEffect(() => { localStorage.setItem("opsfee_rate", String(rate)); }, [rate]);
+  const [opsRows, setOpsRows] = useState([]);       // 店铺运维费用 (当月)
+  const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
+  const [loaded, setLoaded] = useState(false);
+  const [role, setRole] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [pendingMap, setPendingMap] = useState({});
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
+  const pendingCount = Object.keys(pendingMap).length;
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) setRole(getUserRole(data.user.email || ""));
+    });
+  }, []);
+  const canEdit = role === "admin" || role === "cd_supplier";
+
+  const load = () => {
+    setLoaded(false);
+    Promise.all([
+      supabase.from("opsfee_monthly").select("*").eq("month", month),
+      supabase.from("store_monthly_costs").select("*").eq("month", month),
+    ]).then(([a, b]) => {
+      if (a.error) alert("读取运维费用失败: " + a.error.message);
+      if (b.error) alert("读取手工录入失败(请先建表 store_monthly_costs): " + b.error.message);
+      setOpsRows(a.data || []); setCostRows(b.data || []); setLoaded(true);
+    });
+  };
+  useEffect(() => { if (role !== null) load(); }, [month, role]);
+
+  // 「各项成本」= 运维费用: 欧元合计 × 汇率 + 月固定¥ (该店铺当月完全没数据则记 0)
+  const opsCost = (store) => {
+    if (!opsRows.some(r => r.store === store)) return 0;
+    const eur = opsRows.filter(r => r.store === store && !Object.prototype.hasOwnProperty.call(OPS_MONTHLY_CATS, r.category))
+      .reduce((s, x) => s + Number(x.amount || 0), 0);
+    const fixed = Object.entries(OPS_MONTHLY_CATS).reduce((s, [cat, def]) => {
+      const rs = opsRows.filter(r => r.store === store && r.category === cat && r.site === OPS_MONTHLY_SITE);
+      return s + (rs.length ? rs.reduce((a, x) => a + Number(x.amount || 0), 0) : def);
+    }, 0);
+    return eur * rate + fixed;
+  };
+  // 手工录入值 (null = 还没录)
+  const manVal = (store, item) => {
+    const r = costRows.find(x => x.store === store && x.item === item);
+    return r ? Number(r.amount || 0) : null;
+  };
+  const manNum = (store, item) => { const v = manVal(store, item); return v === null ? 0 : v; };
+  const netOf = (store) => manNum(store, "收入") - opsCost(store) - manNum(store, "人工") - manNum(store, "场地") - manNum(store, "其他");
+  const incomeEntered = (store) => manVal(store, "收入") !== null;
+
+  // —— 录入: 同店铺运维费用 (缓存 → 确认提交 → 密码 → 入库) ——
+  const setDraft = (store, item, v) => setDrafts(p => ({ ...p, [`${store}|${item}`]: v }));
+  const clearDraft = (store, item) => setDrafts(p => { const n = { ...p }; delete n[`${store}|${item}`]; return n; });
+  const dropPending = (keys) => setPendingMap(p => { const n = { ...p }; keys.forEach(k => delete n[k]); return n; });
+  const requestCell = (store, item) => {
+    const key = `${store}|${item}`;
+    const raw = drafts[key];
+    if (raw === undefined || !canEdit) return;
+    const existing = costRows.find(x => x.store === store && x.item === item);
+    const oldV = existing ? Number(existing.amount || 0) : 0;
+    const amount = raw.trim() === "" ? 0 : Number(raw);
+    if (isNaN(amount)) { alert("金额必须是数字"); setDraft(store, item, oldV ? String(oldV) : ""); return; }
+    if (existing && oldV === amount) { clearDraft(store, item); dropPending([key]); return; }
+    if (!existing && raw.trim() === "") { clearDraft(store, item); dropPending([key]); return; }
+    setPendingMap(p => ({ ...p, [key]: { key, store, item, amount, oldV, existingId: existing ? existing.id : null, month } }));
+  };
+  const writeAll = async () => {
+    const list = Object.values(pendingMap);
+    if (!list.length) return;
+    const done = [], added = [];
+    let errMsg = "";
+    for (const it of list) {
+      if (it.existingId) {
+        const { error } = await supabase.from("store_monthly_costs").update({ amount: it.amount }).eq("id", it.existingId);
+        if (error) { errMsg = error.message; continue; }
+      } else {
+        const { data, error } = await supabase.from("store_monthly_costs")
+          .insert({ month: it.month || month, store: it.store, item: it.item, amount: it.amount }).select().single();
+        if (error) { errMsg = error.message; continue; }
+        if (data) added.push(data);
+      }
+      done.push(it);
+    }
+    if (done.length) {
+      const upd = {};
+      done.forEach(o => { if (o.existingId) upd[o.existingId] = o.amount; });
+      setCostRows(prev => [...prev.map(r => (r.id in upd ? { ...r, amount: upd[r.id] } : r)), ...added]);
+      setDrafts(p => { const n = { ...p }; done.forEach(o => delete n[`${o.store}|${o.item}`]); return n; });
+      dropPending(done.map(o => o.key));
+    }
+    setPwdOpen(false); setPwd(""); setPwdErr("");
+    if (errMsg) alert("部分保存失败: " + errMsg);
+  };
+  const guardSwitch = () => {
+    if (pendingCount > 0) {
+      alert(`还有 ${pendingCount} 项改动未提交。\n请先点底部「确认提交」输密码写入数据库, 或点「撤销全部」放弃改动。`);
+      return false;
+    }
+    return true;
+  };
+  const submitAll = () => { if (!pendingCount) return; setPwd(""); setPwdErr(""); setPwdOpen(true); };
+  const confirmBatch = () => {
+    if (pwd.trim() !== PWD) { setPwdErr("密码不正确, 请重新输入"); return; }
+    writeAll();
+  };
+  const discardAll = () => { setPendingMap({}); setDrafts({}); setPwdOpen(false); setPwd(""); setPwdErr(""); };
+
   const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, textAlign: "right" };
-  const td = { padding: "12px", fontSize: 12, textAlign: "right", color: C.faint };
+  const td = { padding: "6px 10px", fontSize: 12, textAlign: "right" };
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺月度核算</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            每月独立一张 · 单位：人民币 ¥ · 净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 · 空骨架待填充
+            每月独立一张 · 单位：人民币 ¥ · 净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 · {
+              !canEdit ? "只读" : "改动改完点底部「确认提交」输密码入库"
+            }
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
-          <select value={month.slice(0, 4)} onChange={e => setMonth(`${e.target.value}-${month.slice(5, 7)}-01`)}
+          <select value={month.slice(0, 4)} onChange={e => { if (!guardSwitch()) return; setMonth(`${e.target.value}-${month.slice(5, 7)}-01`); }}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {YEARS.map(y => <option key={y} value={String(y)}>{y}年</option>)}
           </select>
-          <select value={month.slice(5, 7)} onChange={e => setMonth(`${month.slice(0, 4)}-${e.target.value}-01`)}
+          <select value={month.slice(5, 7)} onChange={e => { if (!guardSwitch()) return; setMonth(`${month.slice(0, 4)}-${e.target.value}-01`); }}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
           </select>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+          <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>汇率 €→¥:</span>
+          <input type="number" step="0.01" min="0" value={rate} onChange={e => setRate(Number(e.target.value) || 0)}
+            style={{ width: 64, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }} />
         </div>
       </div>
 
-      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ background: "#1f3a68", display: "grid", gridTemplateColumns: GRID }}>
-          <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 项目 (¥)</div>
-          {COLS.map(s => <div key={s} style={th}>{s}</div>)}
-        </div>
-        {ROWS.map((r, i) => (
-          <div key={r.k} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: r.auto ? "rgba(77,182,164,.10)" : (i % 2 ? C.bg : "transparent") }}>
-            <div style={{ ...td, textAlign: "left", color: r.auto ? C.brand : C.ink, fontWeight: 600 }}>
-              {r.k}
-              {r.auto && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}>自动计算</span>}
+      {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
+
+      {loaded && (
+        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+          <div style={{ minWidth: 900 }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
+              <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 项目 (¥)</div>
+              {STORES.map(s => <div key={s} style={th}>{s}</div>)}
             </div>
-            {COLS.map(s => <div key={s} style={{ ...td, color: r.auto ? C.sub : C.faint }}>{r.auto ? "自动" : "—"}</div>)}
+            {ROWS.map((row, i) => {
+              const isAuto = row.type === "auto";
+              const isNet = row.type === "net";
+              return (
+                <div key={row.k} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: isNet ? "rgba(77,182,164,.10)" : (i % 2 ? C.bg : "transparent") }}>
+                  <div style={{ ...td, textAlign: "left", fontWeight: 600, color: isNet ? C.brand : C.ink }}>
+                    {row.k}
+                    {isAuto && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>自动·运维费用</span>}
+                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}>自动计算</span>}
+                  </div>
+                  {STORES.map(st => {
+                    const k = `${st}|${row.k}`;
+                    if (isAuto) {
+                      const v = opsCost(st);
+                      return <div key={st} style={{ ...td, padding: "12px 10px", color: v ? C.ink : C.faint, fontWeight: v ? 600 : 400 }}>{v ? v.toFixed(2) : "—"}</div>;
+                    }
+                    if (isNet) {
+                      const ok = incomeEntered(st);
+                      const v = netOf(st);
+                      return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: 700, color: !ok ? C.faint : (v >= 0 ? C.ink : "#e0857a") }}>{ok ? v.toFixed(2) : "—"}</div>;
+                    }
+                    const v = manVal(st, row.k);
+                    if (!canEdit) {
+                      return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>{v === null ? "—" : v.toFixed(2)}</div>;
+                    }
+                    return (
+                      <div key={st} style={{ padding: "4px 8px" }}>
+                        <input
+                          value={drafts[k] !== undefined ? drafts[k] : (v === null ? "" : String(v))}
+                          onChange={e => setDraft(st, row.k, e.target.value)}
+                          onFocus={e => e.target.select()}
+                          onBlur={() => requestCell(st, row.k)}
+                          onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          placeholder="—" inputMode="decimal"
+                          style={{ width: "100%", padding: "6px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: pendingMap[k] ? 600 : 400, outline: "none" }} />
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.8 }}>
-        · 上表为布局骨架, 尚未接数据 (表格里的「—」等字段确认后接)<br />
-        · <b>净利润</b> = 收入 − 各项成本 − 人工 − 场地 − 其他（自动算, 不用手填）<br />
-        · 待确认: ①「收入」来源(订单/SP-API?) ②「各项成本」是否 = 店铺运维费用合计 ③「人工/场地/其他」是否手工录入
+        · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
+        · <b>收入 / 人工 / 场地 / 其他</b> 手工录入 · <b>净利润</b> 自动算 (收入未填时显示「—」)<br />
+        · 收入的长期来源待定 (后续可接订单数据), 现在先手工填
       </div>
+
+      {pendingCount > 0 && !pwdOpen && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ fontSize: 12, color: C.ink }}>
+            本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
+          </span>
+          <button onClick={discardAll} style={{ padding: "6px 12px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer" }}>撤销全部</button>
+          <button onClick={submitAll} style={{ padding: "6px 16px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
+        </div>
+      )}
+
+      {pwdOpen && (
+        <div onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 460, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认提交 {pendingCount} 项改动</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>核对无误后输入密码, 一次性写入数据库</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 14 }}>
+              <div style={{ display: "flex", color: C.sub, fontSize: 11, paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ width: 90 }}>项目</span>
+                <span style={{ width: 90 }}>店铺</span>
+                <span style={{ flex: 1, textAlign: "right" }}>原值 → 新值</span>
+              </div>
+              {Object.values(pendingMap).map(it => (
+                <div key={it.key} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <span style={{ width: 90, color: C.ink }}>{it.item}</span>
+                  <span style={{ width: 90, color: C.sub }}>{it.store}</span>
+                  <span style={{ flex: 1, textAlign: "right" }}>
+                    <span style={{ color: C.faint }}>{it.oldV ? it.oldV.toFixed(2) : "—"}</span>
+                    <span style={{ margin: "0 6px", color: C.faint }}>→</span>
+                    <span style={{ color: C.brand, fontWeight: 700 }}>{it.amount.toFixed(2)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>确认密码</div>
+            <input type="password" value={pwd} autoFocus
+              onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
+              onKeyDown={e => { if (e.key === "Enter") confirmBatch(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
+              placeholder="输入密码"
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
+              <button onClick={confirmBatch} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
