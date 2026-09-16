@@ -1607,7 +1607,8 @@ function Shipments() {
     });
   }, []);
   const isAdmin = shipRole === "admin";
-  const canEdit = shipRole === "admin" || shipRole === "cd_promotion" || shipRole === "cd_procurement";
+  // 可更新: admin + 成都推广 + 成都采购(黄丹) + 成都供应链(陈雪梅) — 2026-09-16 KK 定
+  const canEdit = shipRole === "admin" || shipRole === "cd_promotion" || shipRole === "cd_procurement" || shipRole === "cd_supplier";
 
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");
@@ -1762,7 +1763,7 @@ function Shipments() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>发货记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺 / 发货批次号筛选 · 26 列(按 Excel) · 金额单位人民币(¥) · 日期降序 · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/管理员可更新" : "只读"}
+            按店铺 / 发货批次号筛选 · 26 列(按 Excel) · 金额单位人民币(¥) · 日期降序 · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/供应链/采购/管理员可更新" : "只读"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -2124,7 +2125,8 @@ function InventoryStats() {
       if (data && data.user) setInvRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  const canEditInv = invRole === "admin" || invRole === "cd_promotion";
+  // 可编辑: admin + 成都推广 + 成都供应链(陈雪梅) — 2026-09-16 KK 定
+  const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier";
   const load = () => {
     let q = supabase.from("inventory").select("*").order("ship_date", { ascending: true });
     if (filterStore) q = q.eq("store", filterStore);
