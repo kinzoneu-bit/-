@@ -3165,7 +3165,15 @@ function StoreMonthly() {
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
   const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
-  const ROWS = ["人工", "场地", "其他", "净利润"];        // 截图中可见的科目, 其余待 KK 补全
+  // 科目 (KK 2026-09-16 定): 净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他
+  const ROWS = [
+    { k: "收入", auto: false },
+    { k: "各项成本", auto: false },
+    { k: "人工", auto: false },
+    { k: "场地", auto: false },
+    { k: "其他", auto: false },
+    { k: "净利润", auto: true },
+  ];
   const COLS = OPS_FIXED_STORES;                          // 每个店铺一列
   const GRID = `220px repeat(${COLS.length}, 1fr)`;
   const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, textAlign: "right" };
@@ -3176,7 +3184,7 @@ function StoreMonthly() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺月度核算</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            每月独立一张 · 行 = 科目(人工/场地/其他/净利润…) · 列 = 店铺 · 空骨架待填充
+            每月独立一张 · 单位：人民币 ¥ · 净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 · 空骨架待填充
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
@@ -3195,21 +3203,24 @@ function StoreMonthly() {
 
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
         <div style={{ background: "#1f3a68", display: "grid", gridTemplateColumns: GRID }}>
-          <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 项目</div>
+          <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 项目 (¥)</div>
           {COLS.map(s => <div key={s} style={th}>{s}</div>)}
         </div>
         {ROWS.map((r, i) => (
-          <div key={r} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: r === "净利润" ? C.panel2 : (i % 2 ? C.bg : "transparent") }}>
-            <div style={{ ...td, textAlign: "left", color: C.ink, fontWeight: 600 }}>{r}</div>
-            {COLS.map(s => <div key={s} style={td}>—</div>)}
+          <div key={r.k} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: r.auto ? "rgba(77,182,164,.10)" : (i % 2 ? C.bg : "transparent") }}>
+            <div style={{ ...td, textAlign: "left", color: r.auto ? C.brand : C.ink, fontWeight: 600 }}>
+              {r.k}
+              {r.auto && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}>自动计算</span>}
+            </div>
+            {COLS.map(s => <div key={s} style={{ ...td, color: r.auto ? C.sub : C.faint }}>{r.auto ? "自动" : "—"}</div>)}
           </div>
         ))}
       </div>
 
-      <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.7 }}>
-        · 上表为布局骨架, 尚未接数据 (表格里的「—」等你确认字段后接)<br />
-        · 截图里「人工」上面还有科目被我裁掉了, 请把完整科目清单发我, 我按顺序补到表里<br />
-        · 单位(¥ / €) 与「净利润」的算法口径也请一并确认
+      <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.8 }}>
+        · 上表为布局骨架, 尚未接数据 (表格里的「—」等字段确认后接)<br />
+        · <b>净利润</b> = 收入 − 各项成本 − 人工 − 场地 − 其他（自动算, 不用手填）<br />
+        · 待确认: ①「收入」来源(订单/SP-API?) ②「各项成本」是否 = 店铺运维费用合计 ③「人工/场地/其他」是否手工录入
       </div>
     </div>
   );
