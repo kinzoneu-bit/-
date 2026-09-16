@@ -1650,7 +1650,9 @@ function Shipments() {
   const [shipForm, setShipForm] = useState({});
   const SHIP_TEXT = ["store", "ship_warehouse", "ship_batch", "product_name", "asin", "logistics_provider", "channel", "last_mile_no", "insurance_no", "note"];
   const SHIP_DATE = ["ship_date", "listed_date"];
-  const SHIP_NUM  = ["qty", "listed_qty", "loss_qty", "purchase_price", "goods_value", "total_value", "freight", "misc_fee", "duty", "insurance_fee", "share_fee", "landed_cost", "unit_price", "compensation_eur", "loss_amount", "insured_amount"];
+  const SHIP_NUM  = ["qty", "listed_qty", "loss_qty", "purchase_price", "goods_value", "share_fee", "landed_cost", "unit_price", "compensation_eur", "loss_amount", "insured_amount"];
+  // 批次级字段(整批合并显示): 在编辑弹窗里只读, 改要到表格上点合并格 → 整批生效
+  const SHIP_BATCH_FIELDS = ["ship_date", "ship_warehouse", "ship_batch", "freight", "misc_fee", "duty", "insurance_fee", "logistics_provider", "channel"];
   const SHIP_LABEL = {
     store: "店铺", ship_date: "发货日期", ship_warehouse: "发货仓库", ship_batch: "发货批次",
     product_name: "名称", asin: "ASIN", qty: "数量", purchase_price: "采购价", goods_value: "货值",
@@ -1703,18 +1705,123 @@ function Shipments() {
     load();
   };
 
-  // 批次着色: 同一批次 (ship_batch 为空继承上一个非空) 同色, 不同批次不同颜色
-  const batchColorOf = useMemo(() => {
-    const PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
-    const sorted = [...rows].sort((a, b) => new Date(a.ship_date) - new Date(b.ship_date));
-    const colorOf = {};
-    let idx = -1, lastBatch = null;
-    sorted.forEach(r => {
-      if (r.ship_batch && r.ship_batch !== lastBatch) { idx++; lastBatch = r.ship_batch; }
-      colorOf[r.id] = PALETTE[Math.max(0, idx) % PALETTE.length];
+  // —— 批次分组: 同一批次合并显示 (KK 2026-09-16) ——
+  // 列类型: batch=批次级(整批合并成一格) / sum=自动算 / row=逐行
+  const BCOLS = [
+    { k: "ship_date", l: "发货日期", w: 85, t: "batch", ty: "text" },
+    { k: "ship_warehouse", l: "发货仓库", w: 110, t: "batch", ty: "text" },
+    { k: "ship_batch", l: "发货批次", w: 120, t: "batch", ty: "text" },
+    { k: "product_name", l: "名称", w: 130, t: "row" },
+    { k: "asin", l: "ASIN", w: 100, t: "row" },
+    { k: "qty", l: "数量", w: 60, t: "row" },
+    { k: "purchase_price", l: "采购价", w: 80, t: "row" },
+    { k: "goods_value", l: "货值", w: 80, t: "row" },
+    { k: "total_value", l: "总值", w: 95, t: "sum" },
+    { k: "freight", l: "头程", w: 80, t: "batch", ty: "num" },
+    { k: "misc_fee", l: "杂费", w: 70, t: "batch", ty: "num" },
+    { k: "duty", l: "关税", w: 70, t: "batch", ty: "num" },
+    { k: "insurance_fee", l: "保险费", w: 70, t: "batch", ty: "num" },
+    { k: "share_fee", l: "分摊费", w: 80, t: "row" },
+    { k: "landed_cost", l: "到仓价", w: 85, t: "row" },
+    { k: "logistics_provider", l: "物流商", w: 80, t: "batch", ty: "text" },
+    { k: "channel", l: "渠道", w: 90, t: "batch", ty: "text" },
+    { k: "unit_price", l: "单价", w: 60, t: "row" },
+    { k: "last_mile_no", l: "尾程单号", w: 130, t: "row" },
+    { k: "listed_date", l: "上架日期", w: 90, t: "row" },
+    { k: "listed_qty", l: "上架数量", w: 80, t: "row" },
+    { k: "loss_qty", l: "损耗", w: 60, t: "row" },
+    { k: "compensation_eur", l: "赔付", w: 70, t: "row" },
+    { k: "loss_amount", l: "亏损", w: 70, t: "row" },
+    { k: "insurance_no", l: "保险单号", w: 90, t: "row" },
+    { k: "insured_amount", l: "投保金额", w: 90, t: "row" },
+    { k: "days", l: "累计天数", w: 80, t: "row" },
+    { k: "bill_checked", l: "账单核对", w: 70, t: "row" },
+    { k: "freight_paid", l: "运费已付", w: 70, t: "row" },
+    { k: "note", l: "备注", w: 90, t: "row" },
+    { k: "ops", l: "操作", w: 90, t: "row" },
+  ];
+  const GRID_T = BCOLS.map(c => `${c.w}px`).join(" ");
+  const colIdx = (k) => BCOLS.findIndex(c => c.k === k) + 1;
+  const BATCH_COLS = BCOLS.filter(c => c.t === "batch");
+  const SUM_COLS = BCOLS.filter(c => c.t === "sum");
+  const ROW_COLS = BCOLS.filter(c => c.t === "row");
+
+  const B_PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
+  // 批次分组 (ship_batch 为空则继承上一个非空批次; 完全没有批次的单行独立成组)
+  const batches = useMemo(() => {
+    const list = [], map = {};
+    let lastBatch = null;
+    rows.forEach(r => {
+      let key;
+      if (r.ship_batch) { lastBatch = r.ship_batch; key = r.ship_batch; }
+      else key = lastBatch || `__single_${r.id}`;
+      if (!map[key]) { map[key] = { key, rows: [] }; list.push(map[key]); }
+      map[key].rows.push(r);
     });
-    return colorOf;
+    list.forEach((g, i) => {
+      g.color = B_PALETTE[i % B_PALETTE.length];
+      g.total = g.rows.reduce((s, r) => s + Number(r.goods_value || 0), 0);   // 总值 = Σ货值
+    });
+    return list;
   }, [rows]);
+
+  // 批次级字段取整批第一个非空值
+  const batchVal = (g, k) => {
+    const hit = g.rows.find(r => r[k] !== null && r[k] !== undefined && r[k] !== "");
+    return hit ? hit[k] : null;
+  };
+  // —— 批次级录入: 点合并格 → 输入 → 失焦入待提交 → 底部确认提交 → 输密码 → 整批写库 ——
+  const [bEditKey, setBEditKey] = useState(null);
+  const [bVal, setBVal] = useState("");
+  const [bPending, setBPending] = useState({});
+  const [bPwdOpen, setBPwdOpen] = useState(false);
+  const [bPwd, setBPwd] = useState("");
+  const [bPwdErr, setBPwdErr] = useState("");
+  const bPendingCount = Object.keys(bPending).length;
+  const openBatchCell = (g, c) => {
+    if (!canEdit) return;
+    const v = batchVal(g, c.k);
+    setBVal(v === null ? "" : String(v));
+    setBEditKey(`${g.key}|${c.k}`);
+  };
+  const commitBatchCell = (g, c) => {
+    const key = `${g.key}|${c.k}`;
+    if (bEditKey !== key) return;
+    const raw = bVal.trim();
+    const oldV = batchVal(g, c.k);
+    const val = raw === "" ? null : (c.ty === "num" ? Number(raw) : raw);
+    if (c.ty === "num" && raw !== "" && isNaN(Number(raw))) { alert("必须是数字"); setBEditKey(null); return; }
+    const same = (val === null && (oldV === null || oldV === undefined)) || String(val) === String(oldV === null ? "" : oldV);
+    setBEditKey(null);
+    if (same) { setBPending(p => { const n = { ...p }; delete n[key]; return n; }); return; }
+    setBPending(p => ({ ...p, [key]: { key, field: c.k, label: c.l, val, oldV, ty: c.ty, ids: g.rows.map(r => r.id), batchName: batchVal(g, "ship_batch") || "(无批次)" } }));
+  };
+  const writeBatchAll = async () => {
+    const list = Object.values(bPending);
+    if (!list.length) return;
+    let errMsg = "";
+    const done = [];
+    for (const it of list) {
+      const { error } = await supabase.from("shipments").update({ [it.field]: it.val }).in("id", it.ids);
+      if (error) { errMsg = error.message; continue; }
+      done.push(it);
+    }
+    if (done.length) {
+      setRows(prev => prev.map(r => {
+        const hit = done.find(o => o.ids.includes(r.id));
+        return hit ? { ...r, [hit.field]: hit.val } : r;
+      }));
+      setBPending(p => { const n = { ...p }; done.forEach(o => delete n[o.key]); return n; });
+    }
+    setBPwdOpen(false); setBPwd(""); setBPwdErr("");
+    if (errMsg) alert("部分保存失败: " + errMsg);
+  };
+  const submitBatchAll = () => { if (!bPendingCount) return; setBPwd(""); setBPwdErr(""); setBPwdOpen(true); };
+  const confirmBatchAll = () => {
+    if (bPwd.trim() !== "852963") { setBPwdErr("密码不正确, 请重新输入"); return; }
+    writeBatchAll();
+  };
+  const discardBatchAll = () => { setBPending({}); setBPwdOpen(false); setBPwd(""); setBPwdErr(""); };
 
   // 汇总: 各店铺发货数 + 数量合计 + 到仓成本
   const summary = useMemo(() => {
@@ -1763,7 +1870,7 @@ function Shipments() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>发货记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            按店铺 / 发货批次号筛选 · 26 列(按 Excel) · 金额单位人民币(¥) · 日期降序 · 批次同色区分 · 全员可见 · {canEdit ? "成都推广/供应链/采购/管理员可更新" : "只读"}
+            按批次分组 · 批次级字段(日期/仓库/批次/头程/杂费/关税/保险费/物流商/渠道)整批合并, 点格子即改整批 · 总值=Σ货值(自动) · 金额¥ · 全员可见 · {canEdit ? "成都推广/供应链/采购/管理员可更新" : "只读"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -1826,78 +1933,139 @@ function Shipments() {
         </div>
       )}
 
-      {/* 表格: 26 列太宽, 横向滚动 */}
-      {rows.length ? (
+      {/* 表格: 按批次分组, 批次级列整批合并显示一个值 */}
+      {batches.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
-          <div style={{ minWidth: 2260 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px 80px", background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
-              {["发货日期", "发货仓库", "发货批次", "名称", "ASIN", "数量", "采购价", "货值", "总值", "头程", "杂费", "关税", "保险费", "分摊费", "到仓价", "物流商", "渠道", "单价", "尾程单号", "上架日期", "上架数量", "损耗", "赔付", "亏损", "保险单号", "投保金额", "累计天数", "账单核对", "运费已付", "备注", "操作"].map(h => (
-                <div key={h} style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>{h}</div>
+          <div style={{ minWidth: 2340 }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID_T, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2 }}>
+              {BCOLS.map(c => (
+                <div key={c.k} title={c.t === "batch" ? "批次级字段: 点合并格按批次修改" : (c.t === "sum" ? "自动 = 本批次各行货值之和" : "")}
+                  style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>
+                  {c.l}{c.t === "sum" && <span style={{ fontWeight: 400, color: "#9FE1CB" }}> 自动</span>}
+                </div>
               ))}
             </div>
-            {rows.map((r, i) => {
-              const bColor = batchColorOf[r.id];
-              const o65 = checkOverdue.r65.find(o => o.row.id === r.id);
-              const o14 = checkOverdue.r14.find(o => o.row.id === r.id);
-              const warn = o65 || o14;
-              const warnColor = o65 ? "#c05b52" : "#d9a441";
-              const cumDays = r.ship_date ? Math.floor((Date.now() - new Date(r.ship_date).getTime()) / 86400000) : null;
+            {batches.map(g => {
+              const N = g.rows.length;
+              // 逐行告警 (超 65 天缺上架字段 / 超 14 天缺费用物流字段)
+              const rowWarn = g.rows.map(r => {
+                const o65 = checkOverdue.r65.find(o => o.row.id === r.id);
+                const o14 = checkOverdue.r14.find(o => o.row.id === r.id);
+                return o65 ? { ...o65, color: "#c05b52" } : (o14 ? { ...o14, color: "#d9a441" } : null);
+              });
+              const anyWarn = rowWarn.find(Boolean);
+              const blockColor = anyWarn ? anyWarn.color : null;
               return (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: "85px 110px 120px 130px 100px 60px 80px 80px 80px 80px 70px 70px 70px 80px 80px 80px 90px 60px 130px 90px 80px 60px 70px 70px 90px 90px 90px 70px 70px 70px 80px", borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: warn ? `${warnColor}22` : (bColor ? `${bColor}1f` : (i % 2 ? C.bg : "transparent")), color: C.ink, borderLeft: warn ? `3px solid ${warnColor}` : (bColor ? `3px solid ${bColor}` : "3px solid transparent") }}>
-                <div style={{ padding: "6px", position: "relative" }}>
-                  {r.ship_date}
-                  {warn && canEdit && <span title={`已过 ${warn.days} 天, 待填: ${warn.missing.join(", ")}`} style={{ marginLeft: 4, color: warnColor, fontWeight: 700, cursor: "help" }}>⚠</span>}
+                <div key={g.key} style={{
+                  display: "grid", gridTemplateColumns: GRID_T,
+                  gridTemplateRows: `repeat(${N}, minmax(34px, auto))`,
+                  borderTop: `1px solid ${C.line}`,
+                  background: blockColor ? `${blockColor}1f` : `${g.color}14`,
+                  borderLeft: `3px solid ${blockColor || g.color}`,
+                }}>
+                  {/* 批次级列: 跨整批 */}
+                  {BATCH_COLS.map(c => {
+                    const key = `${g.key}|${c.k}`;
+                    const editing = bEditKey === key;
+                    const v = batchVal(g, c.k);
+                    const changed = !!bPending[key];
+                    return (
+                      <div key={c.k}
+                        onClick={() => !editing && openBatchCell(g, c)}
+                        title={canEdit ? (editing ? "" : "点一下按整批修改") : ""}
+                        style={{
+                          gridColumn: colIdx(c.k), gridRow: `span ${N}`,
+                          display: "flex", alignItems: "center",
+                          padding: "6px", borderRight: `1px solid ${C.line}`,
+                          cursor: canEdit && !editing ? "pointer" : "default",
+                          background: changed ? "#d9a44118" : "transparent",
+                          boxShadow: changed ? "inset 0 0 0 1px #d9a441" : "none",
+                          fontSize: c.k === "ship_batch" ? 10 : 11, color: c.k === "ship_batch" ? C.sub : C.ink,
+                          fontFamily: "inherit", textAlign: "left", overflow: "hidden",
+                        }}>
+                        {editing ? (
+                          <input autoFocus value={bVal}
+                            onChange={e => setBVal(e.target.value)}
+                            onBlur={() => commitBatchCell(g, c)}
+                            onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setBEditKey(null); } }}
+                            style={{ width: "100%", padding: "5px 6px", background: C.bg, border: `1px solid ${C.brand}`, borderRadius: 5, color: C.ink, fontSize: 11, outline: "none" }} />
+                        ) : (v === null || v === undefined || v === "" ? <span style={{ color: C.faint }}>—</span> : String(v))}
+                      </div>
+                    );
+                  })}
+                  {/* 自动列: 总值 = Σ货值 */}
+                  {SUM_COLS.map(c => (
+                    <div key={c.k} style={{
+                      gridColumn: colIdx(c.k), gridRow: `span ${N}`, display: "flex", alignItems: "center",
+                      padding: "6px", borderRight: `1px solid ${C.line}`, fontWeight: 700, color: C.brand, fontSize: 12,
+                    }}>
+                      {g.total ? g.total.toFixed(2) : "—"}
+                    </div>
+                  ))}
+                  {/* 逐行列 */}
+                  {g.rows.map((r, ri) => {
+                    const warn = rowWarn[ri];
+                    const cumDays = r.ship_date ? Math.floor((Date.now() - new Date(r.ship_date).getTime()) / 86400000) : null;
+                    const cell = (k) => ({
+                      gridColumn: colIdx(k), gridRow: ri + 1, padding: "6px",
+                      borderRight: `1px solid ${C.line}`, borderTop: ri ? `1px solid ${C.line}` : "none",
+                      fontSize: 11, color: C.ink, display: "flex", alignItems: "center", overflow: "hidden",
+                      whiteSpace: "nowrap", textOverflow: "ellipsis",
+                    });
+                    return ROW_COLS.map(c => {
+                      if (c.k === "product_name") return (
+                        <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: 600, background: warn ? `${warn.color}18` : "transparent" }}>
+                          {warn && canEdit && <span title={`已过 ${warn.days} 天, 待填: ${warn.missing.join(", ")}`} style={{ color: warn.color, fontWeight: 700, marginRight: 4, cursor: "help" }}>⚠</span>}
+                          {r.product_name}
+                        </div>
+                      );
+                      if (c.k === "asin") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.sub }}>{r.asin || "—"}</div>;
+                      if (c.k === "qty") return <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: 600 }}>{r.qty}</div>;
+                      if (c.k === "purchase_price") return <div key={r.id + c.k} style={cell(c.k)}>{r.purchase_price ? "¥" + Number(r.purchase_price).toFixed(2) : "—"}</div>;
+                      if (c.k === "goods_value") return <div key={r.id + c.k} style={cell(c.k)}>{r.goods_value || "—"}</div>;
+                      if (c.k === "share_fee") return <div key={r.id + c.k} style={cell(c.k)}>{r.share_fee || "—"}</div>;
+                      if (c.k === "landed_cost") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.brand, fontWeight: 600 }}>{r.landed_cost ? "¥" + Number(r.landed_cost).toFixed(2) : "—"}</div>;
+                      if (c.k === "unit_price") return <div key={r.id + c.k} style={cell(c.k)}>{r.unit_price ? "¥" + Number(r.unit_price).toFixed(2) : "—"}</div>;
+                      if (c.k === "last_mile_no") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.faint, fontSize: 10 }}>{r.last_mile_no || "—"}</div>;
+                      if (c.k === "listed_date") return <div key={r.id + c.k} style={cell(c.k)}>{r.listed_date || "—"}</div>;
+                      if (c.k === "listed_qty") return <div key={r.id + c.k} style={cell(c.k)}>{r.listed_qty || "—"}</div>;
+                      if (c.k === "loss_qty") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.drop }}>{r.loss_qty || "—"}</div>;
+                      if (c.k === "compensation_eur") return <div key={r.id + c.k} style={cell(c.k)}>{r.compensation_eur ? "¥" + Number(r.compensation_eur).toFixed(2) : "—"}</div>;
+                      if (c.k === "loss_amount") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.drop }}>{r.loss_amount ? "¥" + Number(r.loss_amount).toFixed(2) : "—"}</div>;
+                      if (c.k === "insurance_no") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>;
+                      if (c.k === "insured_amount") return <div key={r.id + c.k} style={cell(c.k)}>{r.insured_amount ? "¥" + Number(r.insured_amount).toFixed(2) : "—"}</div>;
+                      if (c.k === "days") return <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: 600, color: cumDays > 65 ? "#c05b52" : cumDays > 14 ? "#d9a441" : C.ink }}>{cumDays != null ? `${cumDays}天` : "—"}</div>;
+                      if (c.k === "bill_checked") return (
+                        <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", fontWeight: 600, color: r.bill_checked ? "#4db6a4" : C.faint, cursor: canEdit ? "pointer" : "default", opacity: canEdit ? 1 : 0.6 }}
+                          onClick={canEdit ? () => toggleField(r.id, "bill_checked", r.bill_checked) : undefined}>
+                          {r.bill_checked ? "✓ 已对" : "✗ 未对"}
+                        </div>
+                      );
+                      if (c.k === "freight_paid") return (
+                        <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", fontWeight: 600, color: r.freight_paid ? "#4db6a4" : C.drop, cursor: canEdit ? "pointer" : "default", opacity: canEdit ? 1 : 0.6 }}
+                          onClick={canEdit ? () => toggleField(r.id, "freight_paid", r.freight_paid) : undefined}>
+                          {r.freight_paid ? "✓ 已付" : "✗ 未付"}
+                        </div>
+                      );
+                      if (c.k === "note") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.faint, fontSize: 10 }}>{r.note || "—"}</div>;
+                      if (c.k === "ops") return (
+                        <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", whiteSpace: "nowrap" }}>
+                          {canEdit && !r.listed && (
+                            <span onClick={() => markListed(r)} title="标记已上架 → 写入库存"
+                              style={{ color: "#5DCAA5", cursor: "pointer", fontWeight: 600, fontSize: 11, marginRight: 6 }}>↑上架</span>
+                          )}
+                          {canEdit && r.listed && (
+                            <span title="已写入库存" style={{ color: "#4db6a4", fontWeight: 600, fontSize: 11, marginRight: 6 }}>✓已上架</span>
+                          )}
+                          {canEdit && (
+                            <span onClick={() => openEditShip(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
+                          )}
+                        </div>
+                      );
+                      return <div key={r.id + c.k} style={cell(c.k)}>—</div>;
+                    });
+                  })}
                 </div>
-                <div style={{ padding: "6px" }}>{r.ship_warehouse || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub, fontSize: 10 }}>{r.ship_batch || "—"}</div>
-                <div style={{ padding: "6px", fontWeight: 600 }}>{r.product_name}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.asin || "—"}</div>
-                <div style={{ padding: "6px", fontWeight: 600 }}>{r.qty}</div>
-                <div style={{ padding: "6px" }}>{r.purchase_price ? "¥" + Number(r.purchase_price).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px" }}>{r.goods_value || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.total_value || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.freight || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.misc_fee || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.duty || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.insurance_fee || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.share_fee || "—"}</div>
-                <div style={{ padding: "6px", color: C.brand, fontWeight: 600 }}>{r.landed_cost ? "¥" + Number(r.landed_cost).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px" }}>{r.logistics_provider || "—"}</div>
-                <div style={{ padding: "6px", color: C.sub }}>{r.channel || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.unit_price ? "¥" + Number(r.unit_price).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.last_mile_no || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.listed_date || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.listed_qty || "—"}</div>
-                <div style={{ padding: "6px", color: C.drop }}>{r.loss_qty || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.compensation_eur ? "¥" + Number(r.compensation_eur).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.drop }}>{r.loss_amount ? "¥" + Number(r.loss_amount).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>
-                <div style={{ padding: "6px" }}>{r.insured_amount ? "¥" + Number(r.insured_amount).toFixed(2) : "—"}</div>
-                <div style={{ padding: "6px", fontWeight: 600, color: cumDays > 65 ? "#c05b52" : cumDays > 14 ? "#d9a441" : C.ink }}>{cumDays != null ? `${cumDays}天` : "—"}</div>
-                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.bill_checked ? "#4db6a4" : C.faint, cursor: canEdit ? "pointer" : "default", opacity: canEdit ? 1 : 0.6 }}
-                  onClick={canEdit ? () => toggleField(r.id, "bill_checked", r.bill_checked) : undefined}
-                  title={canEdit ? "点击切换" : "仅管理员/成都推广可改"}>
-                  {r.bill_checked ? "✓ 已对" : "✗ 未对"}
-                </div>
-                <div style={{ padding: "6px", textAlign: "center", fontWeight: 600, color: r.freight_paid ? "#4db6a4" : C.drop, cursor: canEdit ? "pointer" : "default", opacity: canEdit ? 1 : 0.6 }}
-                  onClick={canEdit ? () => toggleField(r.id, "freight_paid", r.freight_paid) : undefined}
-                  title={canEdit ? "点击切换" : "仅管理员/成都推广可改"}>
-                  {r.freight_paid ? "✓ 已付" : "✗ 未付"}
-                </div>
-                <div style={{ padding: "6px", color: C.faint, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
-                <div style={{ padding: "6px", textAlign: "center", whiteSpace: "nowrap" }}>
-                  {canEdit && !r.listed && (
-                    <span onClick={() => markListed(r)} title="标记已上架 → 写入库存"
-                      style={{ color: "#3B6D11", cursor: "pointer", fontWeight: 600, fontSize: 11, marginRight: 6 }}>↑上架</span>
-                  )}
-                  {canEdit && r.listed && (
-                    <span title="已写入库存, 可点编辑改数量/日期" style={{ color: "#4db6a4", fontWeight: 600, fontSize: 11, marginRight: 6 }}>✓已上架</span>
-                  )}
-                  {canEdit && (
-                    <span onClick={() => openEditShip(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎ 编辑</span>
-                  )}
-                </div>
-              </div>
               );
             })}
           </div>
@@ -1908,19 +2076,71 @@ function Shipments() {
         </div>
       )}
 
+      {/* 批次级改动: 待提交浮条 + 密码确认 */}
+      {bPendingCount > 0 && !bPwdOpen && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ fontSize: 12, color: C.ink }}>
+            批次级改动 <b style={{ color: C.brand, fontSize: 14 }}>{bPendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
+          </span>
+          <button onClick={discardBatchAll} style={{ padding: "6px 12px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer" }}>撤销全部</button>
+          <button onClick={submitBatchAll} style={{ padding: "6px 16px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
+        </div>
+      )}
+      {bPwdOpen && (
+        <div onClick={() => { setBPwdOpen(false); setBPwd(""); setBPwdErr(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 121 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 460, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认提交 {bPendingCount} 项批次级改动</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>核对无误后输入密码, 一次性写入该批次的所有行</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 14 }}>
+              <div style={{ display: "flex", color: C.sub, fontSize: 11, paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ width: 80 }}>字段</span>
+                <span style={{ flex: 1 }}>批次</span>
+                <span style={{ textAlign: "right" }}>原值 → 新值</span>
+              </div>
+              {Object.values(bPending).map(it => (
+                <div key={it.key} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <span style={{ width: 80, color: C.ink }}>{it.label}</span>
+                  <span style={{ flex: 1, color: C.sub, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.batchName}</span>
+                  <span style={{ textAlign: "right" }}>
+                    <span style={{ color: C.faint }}>{it.oldV === null || it.oldV === undefined || it.oldV === "" ? "—" : String(it.oldV)}</span>
+                    <span style={{ margin: "0 6px", color: C.faint }}>→</span>
+                    <span style={{ color: C.brand, fontWeight: 700 }}>{it.val === null || it.val === "" ? "清空" : String(it.val)}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>确认密码</div>
+            <input type="password" value={bPwd} autoFocus
+              onChange={e => { setBPwd(e.target.value); setBPwdErr(""); }}
+              onKeyDown={e => { if (e.key === "Enter") confirmBatchAll(); if (e.key === "Escape") { setBPwdOpen(false); setBPwd(""); setBPwdErr(""); } }}
+              placeholder="输入密码"
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${bPwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {bPwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{bPwdErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={() => { setBPwdOpen(false); setBPwd(""); setBPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
+              <button onClick={confirmBatchAll} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 编辑弹窗 */}
       {editShip && (
         <div onClick={() => setEditShip(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 620, maxHeight: "85vh", overflow: "auto" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>编辑发货记录</div>
-            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>带 * 为必填 · 数值留空会清空 · 保存后表格即时更新</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>带 * 为必填 · 数值留空会清空 · 保存后表格即时更新 · 灰色虚线框 = 批次级字段(表格上点合并格改, 整批生效)</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               {SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).map(k => (
                 <div key={k}>
                   <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>
-                    {SHIP_LABEL[k] || k}{k === "product_name" || k === "qty" || k === "ship_date" ? " *" : ""}
+                    {SHIP_LABEL[k] || k}{k === "product_name" || k === "qty" ? " *" : ""}
+                    {SHIP_BATCH_FIELDS.includes(k) && <span style={{ marginLeft: 4, fontSize: 10, color: C.faint }}>(批次级)</span>}
                   </div>
-                  {SHIP_DATE.includes(k) ? (
+                  {SHIP_BATCH_FIELDS.includes(k) ? (
+                    <input value={shipForm[k] || ""} disabled title="批次级字段: 请在表格上点合并格修改, 整批生效"
+                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 6, color: C.faint, fontSize: 12, outline: "none" }} />
+                  ) : SHIP_DATE.includes(k) ? (
                     <input type="date" value={shipForm[k] || ""} onChange={(e) => setShipForm(s => ({ ...s, [k]: e.target.value }))}
                       style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
                   ) : (
