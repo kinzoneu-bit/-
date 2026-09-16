@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./lib/supabase";
 
 // =============================================================
@@ -1612,28 +1612,33 @@ function Shipments() {
 
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");
-  const [filterBatch, setFilterBatch] = useState("");     // 按发货批次号查询
+  const [filterBatch, setFilterBatch] = useState([]);     // 多选: 发货批次(可同时选几个)
+  const [batchOpts, setBatchOpts] = useState([]);
   const [storeOpts, setStoreOpts] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   const load = async () => {
     let q = supabase.from("shipments").select("*");
     if (filterStore) q = q.eq("store", filterStore);
-    if (filterBatch.trim()) q = q.ilike("ship_batch", `%${filterBatch.trim()}%`);
+    if (filterBatch.length) q = q.in("ship_batch", filterBatch);
     const { data, error } = await q.order("ship_date", { ascending: true }).limit(2000);
     if (error) { alert("读取失败(请先建表 shipments): " + error.message); return; }
     setRows(data || []);
     if (!loaded) {
-      const { data: all } = await supabase.from("shipments").select("store");
+      const { data: all } = await supabase.from("shipments").select("store, ship_batch, ship_date");
       const st = [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
-      setStoreOpts(st); setLoaded(true);
+      setStoreOpts(st);
+      const m = {};
+      (all || []).forEach(r => { if (r.ship_batch) m[r.ship_batch] = m[r.ship_batch] && m[r.ship_batch] > r.ship_date ? m[r.ship_batch] : (r.ship_date || ""); });
+      setBatchOpts(Object.keys(m).sort((a, b) => String(m[b]).localeCompare(String(m[a]))));
+      setLoaded(true);
     }
   };
   useEffect(() => { if (shipRole) load(); }, [shipRole]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!shipRole || !loaded) return;
-    const t = setTimeout(load, 300);        // 输入防抖
+    const t = setTimeout(load, 300);
     return () => clearTimeout(t);
   }, [filterStore, filterBatch]);
 
@@ -1887,22 +1892,14 @@ function Shipments() {
             <option value="">全部店铺</option>
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-          <span style={{ fontSize: 12, color: C.sub }}>发货批次号:</span>
-          <div style={{ position: "relative" }}>
-            <input value={filterBatch} onChange={e => setFilterBatch(e.target.value)}
-              placeholder="输入批次号, 支持部分匹配"
-              style={{ width: 260, padding: "6px 30px 6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
-            {filterBatch && (
-              <span onClick={() => setFilterBatch("")} title="清空"
-                style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: C.faint, fontSize: 13, lineHeight: 1 }}>✕</span>
-            )}
-          </div>
-          {(filterStore || filterBatch.trim()) && (
-            <span onClick={() => { setFilterStore(""); setFilterBatch(""); }}
+          <span style={{ fontSize: 12, color: C.sub }}>发货批次:</span>
+          <MultiSelect label="批次" options={batchOpts} value={filterBatch} onChange={setFilterBatch} width={280} allText="全部批次" />
+          {(filterStore || filterBatch.length > 0) && (
+            <span onClick={() => { setFilterStore(""); setFilterBatch([]); }}
               style={{ fontSize: 12, color: C.brand, cursor: "pointer", fontWeight: 600 }}>重置</span>
           )}
           <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
-            {rows.length} 条{filterBatch.trim() ? ` · 批次含「${filterBatch.trim()}」` : ""}
+            {rows.length} 条{filterBatch.length ? ` · 已选 ${filterBatch.length} 个批次` : ""} · 共 {batches.length} 批
           </span>
         </div>
       </div>
@@ -2333,6 +2330,58 @@ function LinkProgress() {
 }
 
 // ---------------- 库存统计 (空骨架, 待 KK 提供维度与数据源) ----------------
+// 多选下拉筛选器 (可同时选多个值; 同字段内 OR, 跨字段 AND)
+function MultiSelect({ label, options, value, onChange, width = 230, allText }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const boxRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const kws = q.trim().toLowerCase();
+  const shown = kws ? options.filter(o => String(o).toLowerCase().includes(kws)) : options;
+  const toggle = (o) => onChange(value.includes(o) ? value.filter(x => x !== o) : [...value, o]);
+  return (
+    <div ref={boxRef} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6, minWidth: 120, maxWidth: width,
+          padding: "5px 10px", background: C.bg, borderRadius: 6, fontSize: 12, cursor: "pointer",
+          border: `1px solid ${value.length ? C.brand : C.line}`, color: value.length ? C.ink : C.sub,
+        }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {value.length === 0 ? (allText || `全部${label}`) : `${label} (${value.length})${value.length === 1 ? "：" + value[0] : ""}`}
+        </span>
+        <span style={{ marginLeft: "auto", color: C.faint, fontSize: 10 }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, width, maxHeight: 320, display: "flex", flexDirection: "column", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, zIndex: 40, boxShadow: "0 10px 30px rgba(0,0,0,.4)" }}>
+          <div style={{ padding: 6, borderBottom: `1px solid ${C.line}` }}>
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜索选项…" autoFocus
+              style={{ width: "100%", padding: "5px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 5, color: C.ink, fontSize: 12, outline: "none" }} />
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: 4 }}>
+            {shown.map(o => (
+              <label key={o} style={{ display: "flex", alignItems: "center", gap: 7, padding: "5px 7px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: C.ink }}>
+                <input type="checkbox" checked={value.includes(o)} onChange={() => toggle(o)} style={{ cursor: "pointer" }} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o || "(空)"}</span>
+              </label>
+            ))}
+            {!shown.length && <div style={{ padding: 10, color: C.faint, fontSize: 11, textAlign: "center" }}>无匹配选项</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, padding: 6, borderTop: `1px solid ${C.line}` }}>
+            <button onClick={() => onChange([])} style={{ flex: 1, padding: "5px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 5, fontSize: 11, cursor: "pointer" }}>清空</button>
+            <button onClick={() => setOpen(false)} style={{ flex: 1, padding: "5px", background: C.brand, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, cursor: "pointer", fontWeight: 600 }}>完成</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InventoryStats() {
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState("");
@@ -2367,22 +2416,31 @@ function InventoryStats() {
   useEffect(() => { load(); }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (invRole) load(); }, [filterStore]);
-  // 筛选: 仓库(下拉) / 发货批次 / 款式 / ASIN (后三个为包含匹配, 不区分大小写)
-  const [fWh, setFWh] = useState("");
-  const [fBatch, setFBatch] = useState("");
-  const [fStyle, setFStyle] = useState("");
-  const [fAsin, setFAsin] = useState("");
-  const whOpts = useMemo(() => [...new Set(rows.map(r => r.ship_warehouse).filter(Boolean))].sort(), [rows]);
-  const kw = (s) => String(s == null ? "" : s).trim().toLowerCase();
-  const view = useMemo(() => rows.filter(r => {
-    if (fWh && r.ship_warehouse !== fWh) return false;
-    if (kw(fBatch) && !kw(r.ship_batch).includes(kw(fBatch))) return false;
-    if (kw(fStyle) && !kw(r.product_name).includes(kw(fStyle))) return false;
-    if (kw(fAsin) && !kw(r.asin).includes(kw(fAsin))) return false;
-    return true;
-  }), [rows, fWh, fBatch, fStyle, fAsin]);
-  const hasFilter = !!(fWh || fBatch.trim() || fStyle.trim() || fAsin.trim());
-  const resetInvFilter = () => { setFWh(""); setFBatch(""); setFStyle(""); setFAsin(""); };
+  // 筛选: 仓库 / 发货批次 / 款式 / ASIN —— 均为**多选下拉**(同字段内 OR, 跨字段 AND)
+  const [fWh, setFWh] = useState([]);
+  const [fBatch, setFBatch] = useState([]);
+  const [fStyle, setFStyle] = useState([]);
+  const [fAsin, setFAsin] = useState([]);
+  const optsOf = (key, sortDesc) => {
+    const s = [...new Set(rows.map(r => r[key]).filter(v => v !== null && v !== undefined && v !== ""))];
+    return sortDesc ? s.sort((a, b) => String(b).localeCompare(String(a))) : s.sort((a, b) => String(a).localeCompare(String(b)));
+  };
+  const whOpts = useMemo(() => optsOf("ship_warehouse"), [rows]);
+  const styleOpts = useMemo(() => optsOf("product_name"), [rows]);
+  const asinOpts = useMemo(() => optsOf("asin"), [rows]);
+  // 批次按发货时间倒序, 最近的在上面
+  const batchOpts = useMemo(() => {
+    const m = {};
+    rows.forEach(r => { if (r.ship_batch) m[r.ship_batch] = m[r.ship_batch] && m[r.ship_batch] > r.ship_date ? m[r.ship_batch] : (r.ship_date || ""); });
+    return Object.keys(m).sort((a, b) => String(m[b]).localeCompare(String(m[a])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+  const hit = (sel, v) => sel.length === 0 || sel.includes(v);
+  const view = useMemo(() => rows.filter(r =>
+    hit(fWh, r.ship_warehouse) && hit(fBatch, r.ship_batch) && hit(fStyle, r.product_name) && hit(fAsin, r.asin)
+  ), [rows, fWh, fBatch, fStyle, fAsin]);
+  const hasFilter = !!(fWh.length || fBatch.length || fStyle.length || fAsin.length);
+  const resetInvFilter = () => { setFWh([]); setFBatch([]); setFStyle([]); setFAsin([]); };
   const openEditInv = (r) => {
     const f = {
       store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
@@ -2506,23 +2564,16 @@ function InventoryStats() {
           </select>
 
           <span style={{ fontSize: 12, color: C.sub, marginLeft: 6 }}>仓库:</span>
-          <select value={fWh} onChange={e => setFWh(e.target.value)}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
-            <option value="">全部仓库</option>
-            {whOpts.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <MultiSelect label="仓库" options={whOpts} value={fWh} onChange={setFWh} width={200} />
 
           <span style={{ fontSize: 12, color: C.sub }}>发货批次:</span>
-          <input value={fBatch} onChange={e => setFBatch(e.target.value)} placeholder="输入批次号, 支持部分匹配"
-            style={{ width: 170, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+          <MultiSelect label="批次" options={batchOpts} value={fBatch} onChange={setFBatch} width={260} allText="全部批次" />
 
           <span style={{ fontSize: 12, color: C.sub }}>款式:</span>
-          <input value={fStyle} onChange={e => setFStyle(e.target.value)} placeholder="如 9mm / 国黑"
-            style={{ width: 140, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+          <MultiSelect label="款式" options={styleOpts} value={fStyle} onChange={setFStyle} width={240} />
 
           <span style={{ fontSize: 12, color: C.sub }}>ASIN:</span>
-          <input value={fAsin} onChange={e => setFAsin(e.target.value)} placeholder="如 B0DX87XTSB"
-            style={{ width: 150, padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+          <MultiSelect label="ASIN" options={asinOpts} value={fAsin} onChange={setFAsin} width={240} />
 
           {hasFilter && (
             <span onClick={resetInvFilter} style={{ fontSize: 12, color: C.brand, cursor: "pointer", fontWeight: 600 }}>重置</span>
