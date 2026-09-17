@@ -569,7 +569,9 @@ export default function App() {
           // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹) — KK 2026-09-16 定
           ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
           // 财务核算: 仅 admin
-          ...(curRole === "admin" ? [["finance", "财务核算"]] : [])
+          ...(curRole === "admin" ? [["finance", "财务核算"]] : []),
+          // 办公室费用明细: 管理层 (admin + 法国成员 + 成都采购 黄丹) — 2026-09-17 KK 定
+          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["officeexpense", "办公室费用明细"]] : [])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
@@ -594,6 +596,7 @@ export default function App() {
         {tab === "opsfee" && <OpsFee />}
         {tab === "storemonthly" && <StoreMonthly />}
         {tab === "finance" && <Finance />}
+        {tab === "officeexpense" && <OfficeExpense />}
       </div>
     </div>
   );
@@ -3414,6 +3417,29 @@ function AdAnalysis() {
   );
 }
 
+// ---------------- 办公室费用明细 (空骨架, 待 KK 提供内容) ----------------
+// 2026-09-17 KK 要求新增, 位置: 财务核算 之后; 承接「店铺月度核算」里的办公室费用, 具体字段由 KK 后续指定
+function OfficeExpense() {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>办公室费用明细</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            办公室各项费用逐条明细 · 待 KK 确认口径与数据源
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+        </div>
+      </div>
+      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+        办公室费用明细 · 待 KK 提供内容 (字段 / 口径 / 数据源)
+      </div>
+    </div>
+  );
+}
+
 // ---------------- 店铺运维费用 / 店铺月度核算 共用常量 ----------------
 // 站点列 = 欧元(€); 「月固定」类别 = 人民币(¥), 不区分国家(站点)
 const OPS_SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
@@ -3863,7 +3889,8 @@ function StoreMonthly() {
   const ALL_STORES = OPS_FIXED_STORES;
   // 科目 (KK 2026-09-17 定):
   //   店铺利润 = 收入 − 各项成本 − 店铺其他费用
-  //   净利润   = 店铺利润 − 人工 − 场地 − 其他
+  //   净利润   = 店铺利润 − 人工 − 场地 − 办公室费用明细
+  // 注意: k = 数据库里的 item 键(保持不动, 历史数据不丢); l = 显示名
   const ROWS = [
     { k: "收入", type: "manual" },
     { k: "各项成本", type: "auto" },
@@ -3871,7 +3898,7 @@ function StoreMonthly() {
     { k: "店铺利润", type: "calc" },
     { k: "人工", type: "manual" },
     { k: "场地", type: "manual" },
-    { k: "其他", type: "manual" },
+    { k: "其他", l: "办公室费用明细", type: "manual" },
     { k: "净利润", type: "net" },
   ];
   const MANUAL = ROWS.filter(r => r.type === "manual").map(r => r.k);
@@ -4056,10 +4083,10 @@ function StoreMonthly() {
               return (
                 <div key={row.k} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: isNet ? "rgba(77,182,164,.10)" : (isCalc ? "rgba(77,182,164,.05)" : (i % 2 ? C.bg : "transparent")) }}>
                   <div style={{ ...td, textAlign: "left", fontWeight: 600, color: (isNet || isCalc) ? C.brand : C.ink }}>
-                    {row.k}
+                    {row.l || row.k}
                     {isAuto && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>自动·运维费用</span>}
                     {isCalc && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="收入 − 各项成本 − 店铺其他费用">自动计算</span>}
-                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="三店合计: 店铺利润合计 − 共享人工 − 共享场地 − 其他合计">自动计算</span>}
+                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="三店合计: 店铺利润合计 − 共享人工 − 共享场地 − 办公室费用合计">自动计算</span>}
                     {shareOn && isShared && <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>三家共享·只扣一次</span>}
                   </div>
                   {STORES.map(st => {
@@ -4133,9 +4160,9 @@ function StoreMonthly() {
 
       <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.8 }}>
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
-        · <b>收入 / 店铺其他费用 / 其他</b> 按店铺手工录入; <b>人工 / 场地</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 只在右侧「{SHARE_GROUP.join("+")} 合计」列填一次<br />
+        · <b>收入 / 店铺其他费用 / 办公室费用明细</b> 按店铺手工录入; <b>人工 / 场地</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 只在右侧「{SHARE_GROUP.join("+")} 合计」列填一次<br />
         · 单店 <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用<br />
-        · <b>净利润</b>: {SHARE_GROUP.join("/")} 取三家合计 = 店铺利润合计 − 共享人工 − 共享场地 − 其他合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 其他<br />
+        · <b>净利润</b>: {SHARE_GROUP.join("/")} 取三家合计 = 店铺利润合计 − 共享人工 − 共享场地 − 办公室费用合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细<br />
         · 收入的长期来源待定 (后续可接订单数据), 现在先手工填
       </div>
 
