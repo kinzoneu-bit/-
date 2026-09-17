@@ -3845,7 +3845,7 @@ function OpsFee() {
 //   单位 = 人民币 ¥; 每个月独立一张表 (顶部选月份)
 //   各项成本 = 店铺运维费用 (自动: 欧元合计 × 汇率 + 月固定¥)
 //   人工 / 场地 / 其他 = 手工录入 (表 store_monthly_costs)
-//   净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 (自动, 收入为 0 时显示「—」)
+//   店铺利润 = 收入 − 各项成本 − 店铺其他费用 ; 净利润 = 店铺利润 − 人工 − 场地 − 其他 (自动)
 // 录入规则与店铺运维费用一致: 改动先缓存 → 底部「确认提交」→ 输密码 852963 → 一次性入库
 // 权限: 管理层 = admin + 法国成员(fr) + 成都采购(黄丹, cd_procurement), 读写都只给这三个角色
 function StoreMonthly() {
@@ -3853,9 +3853,14 @@ function StoreMonthly() {
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
   const STORES = OPS_FIXED_STORES;
+  // 科目 (KK 2026-09-17 定):
+  //   店铺利润 = 收入 − 各项成本 − 店铺其他费用
+  //   净利润   = 店铺利润 − 人工 − 场地 − 其他
   const ROWS = [
     { k: "收入", type: "manual" },
     { k: "各项成本", type: "auto" },
+    { k: "店铺其他费用", type: "manual" },
+    { k: "店铺利润", type: "calc" },
     { k: "人工", type: "manual" },
     { k: "场地", type: "manual" },
     { k: "其他", type: "manual" },
@@ -3918,7 +3923,8 @@ function StoreMonthly() {
     return r ? Number(r.amount || 0) : null;
   };
   const manNum = (store, item) => { const v = manVal(store, item); return v === null ? 0 : v; };
-  const netOf = (store) => manNum(store, "收入") - opsCost(store) - manNum(store, "人工") - manNum(store, "场地") - manNum(store, "其他");
+  const shopProfit = (store) => manNum(store, "收入") - opsCost(store) - manNum(store, "店铺其他费用");
+  const netOf = (store) => shopProfit(store) - manNum(store, "人工") - manNum(store, "场地") - manNum(store, "其他");
   const incomeEntered = (store) => manVal(store, "收入") !== null;
 
   // —— 录入: 同店铺运维费用 (缓存 → 确认提交 → 密码 → 入库) ——
@@ -3986,7 +3992,7 @@ function StoreMonthly() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺月度核算</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            每月独立一张 · 单位：人民币 ¥ · 净利润 = 收入 − 各项成本 − 人工 − 场地 − 其他 · {
+            每月独立一张 · 单位：人民币 ¥ · 店铺利润 = 收入−各项成本−店铺其他费用 · 净利润 = 店铺利润−人工−场地−其他 · {
               !canEdit ? "只读" : "改动改完点底部「确认提交」输密码入库"
             }
           </div>
@@ -4016,13 +4022,15 @@ function StoreMonthly() {
             </div>
             {ROWS.map((row, i) => {
               const isAuto = row.type === "auto";
+              const isCalc = row.type === "calc";
               const isNet = row.type === "net";
               return (
-                <div key={row.k} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: isNet ? "rgba(77,182,164,.10)" : (i % 2 ? C.bg : "transparent") }}>
-                  <div style={{ ...td, textAlign: "left", fontWeight: 600, color: isNet ? C.brand : C.ink }}>
+                <div key={row.k} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: isNet ? "rgba(77,182,164,.10)" : (isCalc ? "rgba(77,182,164,.05)" : (i % 2 ? C.bg : "transparent")) }}>
+                  <div style={{ ...td, textAlign: "left", fontWeight: 600, color: (isNet || isCalc) ? C.brand : C.ink }}>
                     {row.k}
                     {isAuto && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>自动·运维费用</span>}
-                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}>自动计算</span>}
+                    {isCalc && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="收入 − 各项成本 − 店铺其他费用">自动计算</span>}
+                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="店铺利润 − 人工 − 场地 − 其他">自动计算</span>}
                   </div>
                   {STORES.map(st => {
                     const k = `${st}|${row.k}`;
@@ -4030,9 +4038,9 @@ function StoreMonthly() {
                       const v = opsCost(st);
                       return <div key={st} style={{ ...td, padding: "12px 10px", color: v ? C.ink : C.faint, fontWeight: v ? 600 : 400 }}>{v ? v.toFixed(2) : "—"}</div>;
                     }
-                    if (isNet) {
+                    if (isCalc || isNet) {
                       const ok = incomeEntered(st);
-                      const v = netOf(st);
+                      const v = isNet ? netOf(st) : shopProfit(st);
                       return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: 700, color: !ok ? C.faint : (v >= 0 ? C.ink : "#e0857a") }}>{ok ? v.toFixed(2) : "—"}</div>;
                     }
                     const v = manVal(st, row.k);
@@ -4061,7 +4069,8 @@ function StoreMonthly() {
 
       <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.8 }}>
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
-        · <b>收入 / 人工 / 场地 / 其他</b> 手工录入 · <b>净利润</b> 自动算 (收入未填时显示「—」)<br />
+        · <b>收入 / 店铺其他费用 / 人工 / 场地 / 其他</b> 手工录入<br />
+        · <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用 &nbsp;·&nbsp; <b>净利润</b> = 店铺利润 − 人工 − 场地 − 其他 (收入未填时都显示「—」)<br />
         · 收入的长期来源待定 (后续可接订单数据), 现在先手工填
       </div>
 
