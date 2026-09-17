@@ -2424,6 +2424,7 @@ function InventoryStats() {
   const [fBatch, setFBatch] = useState([]);
   const [fStyle, setFStyle] = useState([]);
   const [fAsin, setFAsin] = useState([]);
+  const [fAge, setFAge] = useState(0);        // 库龄筛选: 0=不限 / 30 / 60 / 90 / 180 天
   const optsOf = (key, sortDesc) => {
     const s = [...new Set(rows.map(r => r[key]).filter(v => v !== null && v !== undefined && v !== ""))];
     return sortDesc ? s.sort((a, b) => String(b).localeCompare(String(a))) : s.sort((a, b) => String(a).localeCompare(String(b)));
@@ -2439,11 +2440,38 @@ function InventoryStats() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
   const hit = (sel, v) => sel.length === 0 || sel.includes(v);
-  const view = useMemo(() => rows.filter(r =>
-    hit(fWh, r.ship_warehouse) && hit(fBatch, r.ship_batch) && hit(fStyle, r.product_name) && hit(fAsin, r.asin)
-  ), [rows, fWh, fBatch, fStyle, fAsin]);
-  const hasFilter = !!(fWh.length || fBatch.length || fStyle.length || fAsin.length);
-  const resetInvFilter = () => { setFWh([]); setFBatch([]); setFStyle([]); setFAsin([]); };
+  const view = useMemo(() => rows.filter(r => {
+    if (!(hit(fWh, r.ship_warehouse) && hit(fBatch, r.ship_batch) && hit(fStyle, r.product_name) && hit(fAsin, r.asin))) return false;
+    if (fAge > 0) {                                   // 滞销: 还有库存 且 库龄 > N 天
+      if (!(stockOf(r) > 0)) return false;
+      const a = ageDays(r);
+      if (a === null || a <= fAge) return false;
+    }
+    return true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [rows, fWh, fBatch, fStyle, fAsin, fAge]);
+  const hasFilter = !!(fWh.length || fBatch.length || fStyle.length || fAsin.length || fAge > 0);
+  const resetInvFilter = () => { setFWh([]); setFBatch([]); setFStyle([]); setFAsin([]); setFAge(0); };
+  // 导出当前筛选结果为 CSV (Excel 可直接打开)
+  const exportInvCsv = () => {
+    const esc = (v) => {
+      const s = (v === null || v === undefined) ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const head = ["店铺", "仓库", "发货批次", "款式", "ASIN", "货发日期", "上架日期", "库龄(天)", "在仓天数", "上架天数", "上架数量", "当前库存", "盈亏价", "库存金额", "售完时间"];
+    const body = view.map(r => [
+      r.store, r.ship_warehouse, r.ship_batch, r.product_name, r.asin, r.ship_date, r.listed_date,
+      ageDays(r), daysBetween(r.ship_date, new Date().toISOString().slice(0, 10)), daysBetween(r.listed_date, new Date().toISOString().slice(0, 10)),
+      r.listed_qty, stockOf(r), r.landed_cost,
+      (stockOf(r) && r.landed_cost) ? (stockOf(r) * Number(r.landed_cost)).toFixed(2) : "",
+      r.sold_date,
+    ].map(esc).join(","));
+    const csv = "\ufeff" + [head.join(","), ...body].join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+    a.download = `库存明细_${fAge > 0 ? "超" + fAge + "天_" : ""}${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
+  };
   const openEditInv = (r) => {
     const f = {
       store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
@@ -2477,6 +2505,15 @@ function InventoryStats() {
     const ms = new Date(b).getTime() - new Date(a).getTime();
     return Math.round(ms / 86400000);
   };
+  // 库龄: 有上架日期按「上架 → 今天」, 没有则按「发货 → 今天」(滞销筛选用)
+  const ageDays = (r) => {
+    const base = r.listed_date || r.ship_date;
+    if (!base) return null;
+    const d = new Date(base);
+    if (isNaN(d)) return null;
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+  };
+  const stockOf = (r) => Number(r.stock_qty ?? r.listed_qty ?? 0);
   const INV_FIELDS = [
     { k: "ship_date", l: "货发日期", t: "date" }, { k: "ship_warehouse", l: "仓库" },
     { k: "ship_batch", l: "发货批次" }, { k: "product_name", l: "款式" },
@@ -2493,6 +2530,7 @@ function InventoryStats() {
     { k: "asin",           l: "ASIN" },
     { k: "listed_qty",     l: "上架数量", bold: true },
     { k: "stock_qty",      l: "库存数量", bold: true },
+    { k: "age_days",       l: "库龄(天)", calc: r => ageDays(r) },
     { k: "landed_cost",    l: "盈亏价", fmt: "money" },
     { k: "purchase_date",  l: "采购时间" },
     { k: "ship_date_disp", l: "发货时间", disp: r => r.ship_date },
@@ -2521,7 +2559,7 @@ function InventoryStats() {
   const INV_BATCH_KEYS = ["ship_date", "ship_warehouse", "ship_batch"];
   const INV_BATCH_COLS = COLS.filter(c => INV_BATCH_KEYS.includes(c.k));
   const INV_ROW_COLS = COLS.filter(c => !INV_BATCH_KEYS.includes(c.k));
-  const W_INV = [100, 100, 100, 130, 130, 90, 90, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
+  const W_INV = [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
   const GRID_INV = (canEditInv ? W_INV : W_INV.slice(0, W_INV.length - 1)).map(w => `${w}px`).join(" ");
   const colIdxInv = (k) => COLS.findIndex(c => c.k === k) + 1;
   const invBatches = useMemo(() => {
@@ -2578,11 +2616,25 @@ function InventoryStats() {
           <span style={{ fontSize: 12, color: C.sub }}>ASIN:</span>
           <MultiSelect label="ASIN" options={asinOpts} value={fAsin} onChange={setFAsin} width={240} />
 
+          <span style={{ fontSize: 12, color: C.sub }} title="库龄 = 上架日期到今天(无上架日期则从发货日期算); 只统计仍有库存的行">库龄:</span>
+          <select value={fAge} onChange={e => setFAge(Number(e.target.value))}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${fAge ? C.drop : C.line}`, borderRadius: 6, color: fAge ? C.ink : C.sub, fontSize: 12 }}>
+            <option value={0}>不限</option>
+            <option value={30}>库存超 30 天</option>
+            <option value={60}>库存超 60 天</option>
+            <option value={90}>库存超 90 天</option>
+            <option value={180}>库存超 180 天</option>
+          </select>
+
           {hasFilter && (
             <span onClick={resetInvFilter} style={{ fontSize: 12, color: C.brand, cursor: "pointer", fontWeight: 600 }}>重置</span>
           )}
 
-          <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+          <button onClick={exportInvCsv} title="把当前筛选结果导出成 Excel 可打开的 CSV"
+            style={{ marginLeft: "auto", padding: "6px 14px", background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+            ↓ 导出明细 ({view.length})
+          </button>
+          <span style={{ fontSize: 11, color: C.faint }}>
             {hasFilter ? `筛选出 ${view.length} / ${rows.length} 条` : `共 ${rows.length} 条`}
           </span>
           <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
@@ -2632,9 +2684,17 @@ function InventoryStats() {
                       borderRight: `1px solid ${C.line}`, borderTop: ri ? `1px solid ${C.line}` : "none",
                       color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     });
-                    return INV_ROW_COLS.map(c => (
-                      <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: c.bold ? 600 : 400 }}>{fmt(c, r[c.k], r)}</div>
-                    ));
+                    return INV_ROW_COLS.map(c => {
+                      const v = fmt(c, r[c.k], r);
+                      const isAge = c.k === "age_days";
+                      const ageN = isAge ? Number(v) : null;
+                      return (
+                        <div key={r.id + c.k} style={{
+                          ...cell(c.k), fontWeight: (c.bold || isAge) ? 600 : 400,
+                          color: isAge ? (ageN > 90 ? "#e0857a" : ageN > 60 ? C.watch : C.ink) : C.ink,
+                        }}>{v}</div>
+                      );
+                    });
                   })}
                   {/* 操作列 (整批一个, 点 ✎ 改该批次第一行的记录) */}
                   {canEditInv && (
