@@ -3911,6 +3911,7 @@ function StoreMonthly() {
   const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
   const [loaded, setLoaded] = useState(false);
   const [role, setRole] = useState(null);
+  const [roleReady, setRoleReady] = useState(false);   // 角色未取回前不渲染表格, 防止越权店铺闪现
   // 可见店铺 (按角色收窄) + 三店共享开关 + 表格模板
   const STORES = (role && ROLE_STORES[role]) || ALL_STORES;
   const shareOn = SHARE_GROUP.every(s => STORES.includes(s));
@@ -3925,7 +3926,7 @@ function StoreMonthly() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data && data.user) setRole(getUserRole(data.user.email || ""));
-    });
+    }).catch(() => {}).finally(() => setRoleReady(true));
   }, []);
   // 仅管理层: admin + 法国成员 fr + 成都采购(黄丹) — KK 2026-09-16 定
   const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
@@ -4054,9 +4055,9 @@ function StoreMonthly() {
         </div>
       </div>
 
-      {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
+      {(!loaded || !roleReady) && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
 
-      {loaded && (
+      {loaded && roleReady && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
           <div style={{ minWidth: 900 }}>
             <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
