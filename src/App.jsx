@@ -573,8 +573,8 @@ export default function App() {
         {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹, 财务核对) — 2026-09-17 KK 定
           ...(["admin", "cd_supplier", "cd_procurement"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
-          // 店铺其他费用: 财务侧 (admin + 法国成员 fr + 成都采购 黄丹) — 2026-09-17 KK 定
-          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["storeother", "店铺其他费用"]] : []),
+          // 店铺其他费用: 全部成员 — 2026-09-17 KK 定
+          ["storeother", "店铺其他费用"],
           // 单品月度订单统计: 仅 admin
           ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"]] : []),
           // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹) — KK 2026-09-16 定
@@ -3734,7 +3734,7 @@ function StoreOtherExpense() {
       if (data && data.user) setRole(getUserRole(data.user.email || ""));
     }).catch(() => {}).finally(() => setRoleReady(true));
   }, []);
-  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
+  const canEdit = !!role;   // 全部成员可写 — KK 2026-09-17 定
 
   const load = () => {
     const start = `${ym}-01`;
