@@ -4132,9 +4132,10 @@ function StoreMonthly() {
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
   // —— 三家共享人工/场地 (KK 2026-09-17) ——
   // 飞鸟/野趣/屿阔 三家共用人工+场地: 只在「三家合计」列填一次, 三家合计利润里只扣一次
+  // 「其他」(办公室费用明细) 改成自动从「办公室费用明细」Tab 汇总当月 office_expense 合计 (KK 2026-09-17)
   const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];
-  const SHARE_ITEMS = ["人工", "场地", "其他"];   // 其他=办公室费用明细
-  const SHARE_STORE = "__shared__";        // 共享费用在 store_monthly_costs 里的存放键
+  const SHARE_ITEMS = ["人工", "场地", "其他"];   // 其他=办公室费用明细, 三家合并格里只读显示
+  const SHARE_STORE = "__shared__";        // 共享费用在 store_monthly_costs 里的存放键 (仅人工/场地写入)
   // 黄丹(成都采购)只负责这三家 → 只让她看到这三家的数据
   const ROLE_STORES = { cd_procurement: SHARE_GROUP };
   // 共享组被隐藏时也要留着基准店列表 (仅用于全量兜底)
@@ -4161,6 +4162,7 @@ function StoreMonthly() {
   const [rate, setRate] = useState(8.0);
   const [opsRows, setOpsRows] = useState([]);       // 店铺运维费用 (当月)
   const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
+  const [officeRows, setOfficeRows] = useState([]); // 办公室费用明细 (当月, 取合计填入「其他」行)
   const [loaded, setLoaded] = useState(false);
   const [role, setRole] = useState(null);
   const [roleReady, setRoleReady] = useState(false);   // 角色未取回前不渲染表格, 防止越权店铺闪现
@@ -4186,13 +4188,18 @@ function StoreMonthly() {
 
   const load = () => {
     setLoaded(false);
+    const [yy, mm] = month.slice(0, 7).split("-").map(Number);
+    const offStart = `${month.slice(0, 7)}-01`;
+    const offEnd = `${mm === 12 ? yy + 1 : yy}-${String(mm === 12 ? 1 : mm + 1).padStart(2, "0")}-01`;
     Promise.all([
       supabase.from("opsfee_monthly").select("*").eq("month", month),
       supabase.from("store_monthly_costs").select("*").eq("month", month),
-    ]).then(([a, b]) => {
+      supabase.from("office_expense").select("amount").gte("exp_date", offStart).lt("exp_date", offEnd),
+    ]).then(([a, b, c]) => {
       if (a.error) alert("读取运维费用失败: " + a.error.message);
       if (b.error) alert("读取手工录入失败(请先建表 store_monthly_costs): " + b.error.message);
-      setOpsRows(a.data || []); setCostRows(b.data || []); setLoaded(true);
+      if (c.error) console.warn("读取办公室费用明细失败(请跑 sql/create_office_expense.sql): " + c.error.message);
+      setOpsRows(a.data || []); setCostRows(b.data || []); setOfficeRows(c.data || []); setLoaded(true);
     });
   };
   useEffect(() => { if (role !== null) load(); }, [month, role]);
@@ -4209,18 +4216,20 @@ function StoreMonthly() {
     return eur * rate + fixed;
   };
   // 手工录入值 (null = 还没录)
+  // 「其他」(办公室费用明细) = 当月 office_expense 合计 (自动汇总, 三家合计利润里扣一次)
+  const officeTotal = officeRows.reduce((s, r) => s + Number(r.amount || 0), 0);
   const manVal = (store, item) => {
     const r = costRows.find(x => x.store === store && x.item === item);
     return r ? Number(r.amount || 0) : null;
   };
   const manNum = (store, item) => { const v = manVal(store, item); return v === null ? 0 : v; };
   const shopProfit = (store) => manNum(store, "收入") - opsCost(store) - manNum(store, "店铺其他费用");
-  const netOf = (store) => shopProfit(store) - manNum(store, "人工") - manNum(store, "场地") - manNum(store, "其他");
-  // 三家共享组的合计净利润 = 三家店铺利润合计 − 共享人工 − 共享场地 − 三家「其他」合计
+  const netOf = (store) => shopProfit(store) - manNum(store, "人工") - manNum(store, "场地") - (SHARE_GROUP.includes(store) && shareOn ? 0 : manNum(store, "其他"));
+  // 三家共享组的合计净利润 = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计 (自动汇总)
   const shareIncomeEntered = () => SHARE_GROUP.some(st => incomeEntered(st));
   const shareGroupProfit = () => SHARE_GROUP.reduce((s, st) => s + shopProfit(st), 0)
     - manNum(SHARE_STORE, "人工") - manNum(SHARE_STORE, "场地")
-    - SHARE_GROUP.reduce((s, st) => s + manNum(st, "其他"), 0);
+    - officeTotal;
   const incomeEntered = (store) => manVal(store, "收入") !== null;
 
   // —— 录入: 同店铺运维费用 (缓存 → 确认提交 → 密码 → 入库) ——
@@ -4288,9 +4297,7 @@ function StoreMonthly() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>店铺月度核算</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            每月独立一张 · 单位：人民币 ¥ · 店铺利润 = 收入−各项成本−店铺其他费用 · 净利润 = 店铺利润−人工−场地−办公室费用明细 · {
-              !canEdit ? "只读" : "改动改完点底部「确认提交」输密码入库"
-            }
+            每月独立一张 · 单位：人民币 ¥ · 店铺利润 = 收入−各项成本−店铺其他费用 · 净利润 = 店铺利润−人工−场地−办公室费用明细 · {month.slice(0, 7)} 办公室费用明细汇总 ¥{officeTotal.toFixed(2)} {officeRows.length ? `(${officeRows.length} 条)` : "(尚无明细)"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
@@ -4316,7 +4323,7 @@ function StoreMonthly() {
               <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 项目 (¥)</div>
               {STORES.map(s => (
                 <div key={s} style={{ ...th, ...(shareOn && SHARE_GROUP.includes(s) ? { background: "#2a4a78" } : {}) }}
-                  title={shareOn && SHARE_GROUP.includes(s) ? `${SHARE_GROUP.join(" / ")} 三家: 人工/场地/办公室费用明细 共享(只扣一次), 净利润按三家合计` : undefined}>
+                  title={shareOn && SHARE_GROUP.includes(s) ? `${SHARE_GROUP.join(" / ")} 三家: 人工/场地 共享(只扣一次), 办公室费用明细 = 当月明细页合计, 净利润按三家合计` : undefined}>
                   {s}
                 </div>
               ))}
@@ -4335,8 +4342,9 @@ function StoreMonthly() {
                     {row.l || row.k}
                     {isAuto && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>自动·运维费用</span>}
                     {isCalc && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="收入 − 各项成本 − 店铺其他费用">自动计算</span>}
-                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title={`${SHARE_GROUP.join("/")} 三家合计: 店铺利润合计 − 共享人工 − 共享场地 − 共享办公室费用(其他); 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细`}>自动计算</span>}
-                    {shareOn && isShared && <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>三家共享·只扣一次</span>}
+                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title={`${SHARE_GROUP.join("/")} 三家合计: 店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细`}>自动计算</span>}
+                    {shareOn && isShared && row.k !== "其他" && <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>三家共享·只扣一次</span>}
+                    {shareOn && row.k === "其他" && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="由「办公室费用明细」Tab 自动汇总, 不可手填">自动·明细页</span>}
                   </div>
                   {STORES.map((st, idx) => {
                     const k = `${st}|${row.k}`;
@@ -4354,9 +4362,19 @@ function StoreMonthly() {
                           </div>
                         );
                       }
-                      const v = manVal(SHARE_STORE, row.k);            // 人工 / 场地 / 办公室费用明细: 填一次
+                      const v = manVal(SHARE_STORE, row.k);            // 人工 / 场地: 共享输入
                       if (!canEdit) {
                         return <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>{v === null ? "—" : v.toFixed(2)}</div>;
+                      }
+                      // 人工 / 场地 在三家合并格内可填一次
+                      if (row.k === "其他") {                                // 办公室费用明细 = 当月 office_expense 合计 (自动汇总, 只读)
+                        return (
+                          <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: officeTotal ? 700 : 400, color: officeTotal ? C.ink : C.faint }}>
+                            {officeTotal ? "¥" + officeTotal.toFixed(2) : "—"}
+                            <span style={{ marginLeft: 8, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}
+                              title="由「办公室费用明细」Tab 当月合计自动填入, 这里只读, 改去明细页维护">自动·明细页</span>
+                          </div>
+                        );
                       }
                       return (
                         <div key="merged" style={{ ...style, padding: "4px 8px" }}>
@@ -4408,9 +4426,10 @@ function StoreMonthly() {
       <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.8 }}>
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
         · <b>收入 / 店铺其他费用</b> 按店铺手工录入<br />
-        · <b>人工 / 场地 / 办公室费用明细</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
+        · <b>人工 / 场地</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
+        · <b>办公室费用明细</b> 由「办公室费用明细」Tab 自动汇总当月 office_expense 合计, 三家合并格里只读显示(非 share 店铺仍可按店手填)<br />
         · 单店 <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用<br />
-        · <b>净利润</b>: {SHARE_GROUP.join("/")} = 三家店铺利润合计 − 共享人工 − 共享场地 − 共享办公室费用; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细<br />
+        · <b>净利润</b>: {SHARE_GROUP.join("/")} = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细<br />
         · 收入的长期来源待定 (后续可接订单数据), 现在先手工填
       </div>
 
