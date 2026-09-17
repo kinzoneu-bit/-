@@ -4507,7 +4507,9 @@ function Finance() {
   const [fStore, setFStore] = useState("");       // 店铺
   const [fSite, setFSite] = useState("");         // 站点
   const [fAsin, setFAsin] = useState("");         // ASIN
-  const [storeOpts, setStoreOpts] = useState([]);
+  // 店铺下拉: 固定用当前 6 家店铺 (OPS_FIXED_STORES) — KK 2026-09-17
+  // 「财务核算」的 store 口径 = 店铺 (不是品牌), 与发货/库存/运维/月度核算 统一为中文店名, 不再从库里去重
+  const [storeOpts] = useState(OPS_FIXED_STORES);
   const [siteOpts, setSiteOpts] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -4521,12 +4523,11 @@ function Finance() {
     const { data, error } = await q.order("sale_date", { ascending: false }).limit(2000);
     if (error) { alert("读取失败(请先建表 finance_daily_sales): " + error.message); return; }
     setRows(data || []);
-    // 首次加载时填充筛选下拉
+    // 首次加载时填充站点下拉 (店铺下拉固定用 OPS_FIXED_STORES)
     if (!loaded) {
-      const { data: all } = await supabase.from("finance_daily_sales").select("store, site");
-      const st = [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
+      const { data: all } = await supabase.from("finance_daily_sales").select("site");
       const si = [...new Set((all || []).map(r => r.site).filter(Boolean))].sort();
-      setStoreOpts(st); setSiteOpts(si); setLoaded(true);
+      setSiteOpts(si); setLoaded(true);
     }
   };
   useEffect(() => { if (isAdmin) loadSales(); }, [isAdmin]);
@@ -4542,7 +4543,7 @@ function Finance() {
   const [cfD2, setCfD2] = useState("");       // 止
   const [cfStore, setCfStore] = useState(""); // 店铺
   const [cfChannel, setCfChannel] = useState(""); // 渠道
-  const [cfStoreOpts, setCfStoreOpts] = useState([]);
+  const [cfStoreOpts] = useState(OPS_FIXED_STORES);   // 同上: 固定 6 家中文店铺
   const [cfChannelOpts, setCfChannelOpts] = useState([]);
   const [cfLoaded, setCfLoaded] = useState(false);
 
@@ -4555,11 +4556,11 @@ function Finance() {
     const { data, error } = await q.order("tx_date", { ascending: false }).limit(3000);
     if (error) { alert("读取失败(请先建表 finance_cashflow): " + error.message); return; }
     setCfRows(data || []);
+    // 首次加载时填充渠道下拉 (店铺下拉固定用 OPS_FIXED_STORES)
     if (!cfLoaded) {
-      const { data: all } = await supabase.from("finance_cashflow").select("store, channel");
-      const st = [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
+      const { data: all } = await supabase.from("finance_cashflow").select("channel");
       const ch = [...new Set((all || []).map(r => r.channel).filter(Boolean))].sort();
-      setCfStoreOpts(st); setCfChannelOpts(ch); setCfLoaded(true);
+      setCfChannelOpts(ch); setCfLoaded(true);
     }
   };
   useEffect(() => { if (isAdmin) loadCashflow(); }, [isAdmin]);
