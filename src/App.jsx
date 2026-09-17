@@ -3852,7 +3852,15 @@ function StoreMonthly() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
-  const STORES = OPS_FIXED_STORES;
+  // —— 三家共享人工/场地 (KK 2026-09-17) ——
+  // 飞鸟/野趣/屿阔 三家共用人工+场地: 只在「三家合计」列填一次, 三家合计利润里只扣一次
+  const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];
+  const SHARE_ITEMS = ["人工", "场地"];
+  const SHARE_STORE = "__shared__";        // 共享费用在 store_monthly_costs 里的存放键
+  // 黄丹(成都采购)只负责这三家 → 只让她看到这三家的数据
+  const ROLE_STORES = { cd_procurement: SHARE_GROUP };
+  // 共享组被隐藏时也要留着基准店列表 (仅用于全量兜底)
+  const ALL_STORES = OPS_FIXED_STORES;
   // 科目 (KK 2026-09-17 定):
   //   店铺利润 = 收入 − 各项成本 − 店铺其他费用
   //   净利润   = 店铺利润 − 人工 − 场地 − 其他
@@ -3867,7 +3875,6 @@ function StoreMonthly() {
     { k: "净利润", type: "net" },
   ];
   const MANUAL = ROWS.filter(r => r.type === "manual").map(r => r.k);
-  const GRID = `220px repeat(${STORES.length}, 1fr)`;
   const PWD = "852963";
 
   const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
@@ -3877,6 +3884,10 @@ function StoreMonthly() {
   const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
   const [loaded, setLoaded] = useState(false);
   const [role, setRole] = useState(null);
+  // 可见店铺 (按角色收窄) + 三店共享开关 + 表格模板
+  const STORES = (role && ROLE_STORES[role]) || ALL_STORES;
+  const shareOn = SHARE_GROUP.every(s => STORES.includes(s));
+  const GRID = `220px repeat(${STORES.length}, 1fr)${shareOn ? " 170px" : ""}`;
   const [drafts, setDrafts] = useState({});
   const [pendingMap, setPendingMap] = useState({});
   const [pwdOpen, setPwdOpen] = useState(false);
@@ -3925,6 +3936,11 @@ function StoreMonthly() {
   const manNum = (store, item) => { const v = manVal(store, item); return v === null ? 0 : v; };
   const shopProfit = (store) => manNum(store, "收入") - opsCost(store) - manNum(store, "店铺其他费用");
   const netOf = (store) => shopProfit(store) - manNum(store, "人工") - manNum(store, "场地") - manNum(store, "其他");
+  // 三家共享组的合计净利润 = 三家店铺利润合计 − 共享人工 − 共享场地 − 三家「其他」合计
+  const shareIncomeEntered = () => SHARE_GROUP.some(st => incomeEntered(st));
+  const shareGroupProfit = () => SHARE_GROUP.reduce((s, st) => s + shopProfit(st), 0)
+    - manNum(SHARE_STORE, "人工") - manNum(SHARE_STORE, "场地")
+    - SHARE_GROUP.reduce((s, st) => s + manNum(st, "其他"), 0);
   const incomeEntered = (store) => manVal(store, "收入") !== null;
 
   // —— 录入: 同店铺运维费用 (缓存 → 确认提交 → 密码 → 入库) ——
@@ -4015,25 +4031,43 @@ function StoreMonthly() {
 
       {loaded && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 900 }}>
+          <div style={{ minWidth: shareOn ? 1080 : 900 }}>
             <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
               <div style={{ ...th, textAlign: "left" }}>{month.slice(0, 7)} · 项目 (¥)</div>
               {STORES.map(s => <div key={s} style={th}>{s}</div>)}
+              {shareOn && (
+                <div style={{ ...th, background: "#2a4a78" }} title={`${SHARE_GROUP.join(" / ")} 三家合计; 人工/场地按三家共享, 只扣一次`}>
+                  {SHARE_GROUP.join("+")} 合计
+                </div>
+              )}
             </div>
             {ROWS.map((row, i) => {
               const isAuto = row.type === "auto";
               const isCalc = row.type === "calc";
               const isNet = row.type === "net";
+              const isShared = SHARE_ITEMS.includes(row.k);
+              // 三店合计列: 共享项 = 输入一次; 净利润 = 三家合计利润; 其他 = 求和
+              const shareCellVal = () => {
+                if (isAuto) return SHARE_GROUP.reduce((s, st) => s + opsCost(st), 0);
+                if (isNet) return shareGroupProfit();
+                if (isCalc) return SHARE_GROUP.reduce((s, st) => s + shopProfit(st), 0);
+                return SHARE_GROUP.reduce((s, st) => s + manNum(st, row.k), 0);
+              };
               return (
                 <div key={row.k} style={{ display: "grid", gridTemplateColumns: GRID, borderTop: i ? `1px solid ${C.line}` : "none", background: isNet ? "rgba(77,182,164,.10)" : (isCalc ? "rgba(77,182,164,.05)" : (i % 2 ? C.bg : "transparent")) }}>
                   <div style={{ ...td, textAlign: "left", fontWeight: 600, color: (isNet || isCalc) ? C.brand : C.ink }}>
                     {row.k}
                     {isAuto && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>自动·运维费用</span>}
                     {isCalc && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="收入 − 各项成本 − 店铺其他费用">自动计算</span>}
-                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="店铺利润 − 人工 − 场地 − 其他">自动计算</span>}
+                    {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="三店合计: 店铺利润合计 − 共享人工 − 共享场地 − 其他合计">自动计算</span>}
+                    {shareOn && isShared && <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>三家共享·只扣一次</span>}
                   </div>
                   {STORES.map(st => {
                     const k = `${st}|${row.k}`;
+                    // 共享组内: 人工/场地/净利润 不在单店列显示 (统一走右侧合计列)
+                    if (shareOn && SHARE_GROUP.includes(st) && (isShared || isNet)) {
+                      return <div key={st} style={{ ...td, padding: "12px 10px", color: C.faint }} title="三家共享, 见右侧合计列">—</div>;
+                    }
                     if (isAuto) {
                       const v = opsCost(st);
                       return <div key={st} style={{ ...td, padding: "12px 10px", color: v ? C.ink : C.faint, fontWeight: v ? 600 : 400 }}>{v ? v.toFixed(2) : "—"}</div>;
@@ -4060,6 +4094,36 @@ function StoreMonthly() {
                       </div>
                     );
                   })}
+                  {/* 三店合计列 */}
+                  {shareOn && (() => {
+                    if (isShared) {                                  // 人工 / 场地: 三家共享, 填一次
+                      const k = `${SHARE_STORE}|${row.k}`;
+                      const v = manVal(SHARE_STORE, row.k);
+                      if (!canEdit) return <div key="sum" style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint, background: "rgba(127,119,221,.10)" }}>{v === null ? "—" : v.toFixed(2)}</div>;
+                      return (
+                        <div key="sum" style={{ padding: "4px 8px", background: "rgba(127,119,221,.10)" }}>
+                          <input
+                            value={drafts[k] !== undefined ? drafts[k] : (v === null ? "" : String(v))}
+                            onChange={e => setDraft(SHARE_STORE, row.k, e.target.value)}
+                            onFocus={e => e.target.select()}
+                            onBlur={() => requestCell(SHARE_STORE, row.k)}
+                            onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                            placeholder="三家共享" inputMode="decimal" title="三家共用的这笔费用, 只在这里填一次, 合计利润里只扣一次"
+                            style={{ width: "100%", padding: "6px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : "#534AB7"}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: pendingMap[k] ? 600 : 400, outline: "none" }} />
+                        </div>
+                      );
+                    }
+                    const sv = shareCellVal();
+                    const strong = isNet;
+                    const blank = isNet && !shareIncomeEntered();   // 三家都没填收入时不给假利润
+                    return (
+                      <div key="sum" style={{
+                        ...td, padding: "12px 10px", background: strong ? "rgba(77,182,164,.10)" : "transparent",
+                        fontWeight: strong ? 700 : 600,
+                        color: blank ? C.faint : (strong && sv < 0 ? "#e0857a" : (strong ? C.brand : C.ink)),
+                      }}>{blank || !sv ? "—" : sv.toFixed(2)}</div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -4069,8 +4133,9 @@ function StoreMonthly() {
 
       <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.8 }}>
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
-        · <b>收入 / 店铺其他费用 / 人工 / 场地 / 其他</b> 手工录入<br />
-        · <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用 &nbsp;·&nbsp; <b>净利润</b> = 店铺利润 − 人工 − 场地 − 其他 (收入未填时都显示「—」)<br />
+        · <b>收入 / 店铺其他费用 / 其他</b> 按店铺手工录入; <b>人工 / 场地</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 只在右侧「{SHARE_GROUP.join("+")} 合计」列填一次<br />
+        · 单店 <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用<br />
+        · <b>净利润</b>: {SHARE_GROUP.join("/")} 取三家合计 = 店铺利润合计 − 共享人工 − 共享场地 − 其他合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 其他<br />
         · 收入的长期来源待定 (后续可接订单数据), 现在先手工填
       </div>
 
