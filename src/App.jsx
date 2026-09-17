@@ -4470,7 +4470,7 @@ function StoreMonthly() {
   const ROWS = [
     { k: "收入", type: "manual" },
     { k: "各项成本", type: "auto" },
-    { k: "店铺其他费用", type: "manual" },
+    { k: "店铺其他费用", type: "storeother" },   // 自动汇总 store_other_expense 按店 (KK 2026-09-17 选 A 联动)
     { k: "店铺利润", type: "calc" },
     { k: "人工", type: "manual" },
     { k: "场地", type: "manual" },
@@ -4486,6 +4486,7 @@ function StoreMonthly() {
   const [opsRows, setOpsRows] = useState([]);       // 店铺运维费用 (当月)
   const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
   const [officeRows, setOfficeRows] = useState([]); // 办公室费用明细 (当月, 取合计填入「其他」行)
+  const [otherRows, setOtherRows] = useState([]);   // 店铺其他费用明细 (当月, 按店汇总填入「店铺其他费用」行)
   const [loaded, setLoaded] = useState(false);
   const [role, setRole] = useState(null);
   const [roleReady, setRoleReady] = useState(false);   // 角色未取回前不渲染表格, 防止越权店铺闪现
@@ -4518,11 +4519,13 @@ function StoreMonthly() {
       supabase.from("opsfee_monthly").select("*").eq("month", month),
       supabase.from("store_monthly_costs").select("*").eq("month", month),
       supabase.from("office_expense").select("amount").gte("exp_date", offStart).lt("exp_date", offEnd),
-    ]).then(([a, b, c]) => {
+      supabase.from("store_other_expense").select("store, amount").gte("exp_date", offStart).lt("exp_date", offEnd),
+    ]).then(([a, b, c, d]) => {
       if (a.error) alert("读取运维费用失败: " + a.error.message);
       if (b.error) alert("读取手工录入失败(请先建表 store_monthly_costs): " + b.error.message);
       if (c.error) console.warn("读取办公室费用明细失败(请跑 sql/create_office_expense.sql): " + c.error.message);
-      setOpsRows(a.data || []); setCostRows(b.data || []); setOfficeRows(c.data || []); setLoaded(true);
+      if (d.error) console.warn("读取店铺其他费用失败(请跑 sql/create_store_other_expense.sql): " + d.error.message);
+      setOpsRows(a.data || []); setCostRows(b.data || []); setOfficeRows(c.data || []); setOtherRows(d.data || []); setLoaded(true);
     });
   };
   useEffect(() => { if (role !== null) load(); }, [month, role]);
@@ -4541,12 +4544,14 @@ function StoreMonthly() {
   // 手工录入值 (null = 还没录)
   // 「其他」(办公室费用明细) = 当月 office_expense 合计 (自动汇总, 三家合计利润里扣一次)
   const officeTotal = officeRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  // 「店铺其他费用」= 当月 store_other_expense 按店合计 (自动汇总, 各店利润里扣各自的)
+  const storeOtherTotal = (store) => otherRows.filter(r => r.store === store).reduce((s, r) => s + Number(r.amount || 0), 0);
   const manVal = (store, item) => {
     const r = costRows.find(x => x.store === store && x.item === item);
     return r ? Number(r.amount || 0) : null;
   };
   const manNum = (store, item) => { const v = manVal(store, item); return v === null ? 0 : v; };
-  const shopProfit = (store) => manNum(store, "收入") - opsCost(store) - manNum(store, "店铺其他费用");
+  const shopProfit = (store) => manNum(store, "收入") - opsCost(store) - storeOtherTotal(store);
   const netOf = (store) => shopProfit(store) - manNum(store, "人工") - manNum(store, "场地") - (SHARE_GROUP.includes(store) && shareOn ? 0 : manNum(store, "其他"));
   // 三家共享组的合计净利润 = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计 (自动汇总)
   const shareIncomeEntered = () => SHARE_GROUP.some(st => incomeEntered(st));
@@ -4665,6 +4670,7 @@ function StoreMonthly() {
                     {row.l || row.k}
                     {isAuto && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>自动·运维费用</span>}
                     {isCalc && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="收入 − 各项成本 − 店铺其他费用">自动计算</span>}
+                    {row.type === "storeother" && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="由「店铺其他费用」Tab 当月按店合计自动填入, 这里只读, 改去明细页维护">自动·明细页</span>}
                     {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title={`${SHARE_GROUP.join("/")} 三家合计: 店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细`}>自动计算</span>}
                     {shareOn && isShared && row.k !== "其他" && <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>三家共享·只扣一次</span>}
                     {shareOn && row.k === "其他" && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="由「办公室费用明细」Tab 自动汇总, 不可手填">自动·明细页</span>}
@@ -4717,6 +4723,15 @@ function StoreMonthly() {
                       const v = opsCost(st);
                       return <div key={st} style={{ ...td, padding: "12px 10px", color: v ? C.ink : C.faint, fontWeight: v ? 600 : 400 }}>{v ? v.toFixed(2) : "—"}</div>;
                     }
+                    if (row.type === "storeother") {            // 店铺其他费用 = 当月 store_other_expense 按店合计 (自动, 只读)
+                      const v = storeOtherTotal(st);
+                      return (
+                        <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}
+                          title="由「店铺其他费用」Tab 当月按店合计自动填入">
+                          {v ? "¥" + v.toFixed(2) : "—"}
+                        </div>
+                      );
+                    }
                     if (isCalc || isNet) {
                       const ok = incomeEntered(st);
                       const v = isNet ? netOf(st) : shopProfit(st);
@@ -4748,7 +4763,8 @@ function StoreMonthly() {
 
       <div style={{ marginTop: 10, fontSize: 11, color: C.faint, lineHeight: 1.8 }}>
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
-        · <b>收入 / 店铺其他费用</b> 按店铺手工录入<br />
+        · <b>收入</b> 按店铺手工录入<br />
+        · <b>店铺其他费用</b> 由「店铺其他费用」Tab 当月按店合计自动填入 (只读, 改去明细页维护)<br />
         · <b>人工 / 场地</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
         · <b>办公室费用明细</b> 由「办公室费用明细」Tab 自动汇总当月 office_expense 合计, 三家合并格里只读显示(非 share 店铺仍可按店手填)<br />
         · 单店 <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用<br />
