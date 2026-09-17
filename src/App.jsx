@@ -123,6 +123,15 @@ const EMAIL_TO_ROLE = {
 const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
 const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (role ? "未授权" : "未登录");
 
+// ---------------- 店铺口径常量 (全局唯一来源) ----------------
+// 所有财务/运营表的 store 一律用这 6 家中文店名 (不是品牌!)
+// 「三家共享店」= 飞鸟 / 野趣 / 屿阔, 固定排最前, 保证月度核算的合并格连续
+const OPS_FIXED_STORES = ["飞鸟", "野趣", "屿阔", "俊业", "乾霖", "胤顺"];   // KK 2026-09-17 定
+const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];                                // 三家共享 (人工/场地)
+const ALL_STORES = OPS_FIXED_STORES;
+// 角色 → 可见店铺范围 (不在此表内的角色 = 全部 6 家)
+const ROLE_STORES = { cd_procurement: SHARE_GROUP };
+
 // 是否能拖动指定框里的项
 const canDrag = (boxId, role) => {
   if (!role) return false;
@@ -564,6 +573,8 @@ export default function App() {
         {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹, 财务核对) — 2026-09-17 KK 定
           ...(["admin", "cd_supplier", "cd_procurement"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
+          // 店铺其他费用: 财务侧 (admin + 法国成员 fr + 成都采购 黄丹) — 2026-09-17 KK 定
+          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["storeother", "店铺其他费用"]] : []),
           // 单品月度订单统计: 仅 admin
           ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"]] : []),
           // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹) — KK 2026-09-16 定
@@ -594,6 +605,7 @@ export default function App() {
         {tab === "score" && <LinkScore />}
         {tab === "ordersummary" && <OrderSummary />}
         {tab === "opsfee" && <OpsFee />}
+        {tab === "storeother" && <StoreOtherExpense />}
         {tab === "storemonthly" && <StoreMonthly />}
         {tab === "finance" && <Finance />}
         {tab === "officeexpense" && <OfficeExpense />}
@@ -3692,13 +3704,328 @@ function OfficeExpense() {
   );
 }
 
+// ---------------- 店铺其他费用 (KK 2026-09-17: 参照办公室费用明细格式 + 头部 6 店筛选栏) ----------------
+// 表 store_other_expense (sql/create_store_other_expense.sql)
+// 列: 日期 / 店铺 / 项目明细 / 费用(¥) · 每月一张明细表(顶部选月份) · 头部「分店」栏按 6 家店筛选分类
+// 录入规则与办公室费用一致: 改动只进待提交队列 → 底部「确认提交」→ 输密码 → 一次性入库
+// 权限: 可见 + 可写 = admin + 法国成员(fr) + 成都采购(黄丹, cd_procurement)
+function StoreOtherExpense() {
+  const cur = new Date();
+  const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
+  const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+  const STORES = OPS_FIXED_STORES;
+  const [ym, setYm] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`);
+  const [storeFilter, setStoreFilter] = useState("");       // "" = 全部店铺
+  const [list, setList] = useState([]);                     // 当月明细 { key, id, date, store, item, amount }
+  const [dirty, setDirty] = useState({});
+  const [removed, setRemoved] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState("");
+  const [role, setRole] = useState(null);
+  const [roleReady, setRoleReady] = useState(false);
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const PWD = "852963";
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) setRole(getUserRole(data.user.email || ""));
+    }).catch(() => {}).finally(() => setRoleReady(true));
+  }, []);
+  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
+
+  const load = () => {
+    const start = `${ym}-01`;
+    const [yy, mm] = ym.split("-").map(Number);
+    const end = `${mm === 12 ? yy + 1 : yy}-${String(mm === 12 ? 1 : mm + 1).padStart(2, "0")}-01`;
+    supabase.from("store_other_expense").select("*").gte("exp_date", start).lt("exp_date", end).order("exp_date")
+      .then(({ data, error }) => {
+        if (error) { setErr(error.message); setList([]); }
+        else {
+          setErr("");
+          setList((data || []).map(r => ({
+            key: `id:${r.id}`, id: r.id, date: r.exp_date || "", store: r.store || "",
+            item: r.item || "",
+            amount: (r.amount === null || r.amount === undefined) ? "" : Number(r.amount),
+          })));
+        }
+        setLoaded(true);
+      });
+  };
+  useEffect(() => { setDirty({}); setRemoved([]); setList([]); setLoaded(false); load(); }, [ym]);
+
+  const setField = (key, field, v) => {
+    setList(p => p.map(r => (r.key === key ? { ...r, [field]: v } : r)));
+    setDirty(p => ({ ...p, [key]: true }));
+  };
+  const addRow = () => {
+    const today = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+    const def = today.slice(0, 7) === ym ? today : `${ym}-01`;
+    const key = `new:${Date.now()}`;
+    // 新增行默认带上当前筛选的分店; 若为「全部店铺」则默认第一家
+    setList(p => [...p, { key, id: null, date: def, store: storeFilter || STORES[0], item: "", amount: "" }]);
+    setDirty(p => ({ ...p, [key]: true }));
+  };
+  const delRow = (r) => {
+    if (r.id) setRemoved(p => [...p, r.id]);
+    setList(p => p.filter(x => x.key !== r.key));
+    setDirty(p => { const n = { ...p }; delete n[r.key]; return n; });
+  };
+
+  // 视图 (按分店筛选) · 待提交统计 (全局, 不受筛选影响)
+  const view = storeFilter ? list.filter(r => r.store === storeFilter) : list;
+  const viewSum = view.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const dirtyRows = list.filter(r => dirty[r.key]);
+  const pendingUpd = dirtyRows.filter(r => r.id);
+  const pendingNew = dirtyRows.filter(r => !r.id && (String(r.item).trim() !== "" || String(r.amount).trim() !== ""));
+  const pendingCount = pendingUpd.length + pendingNew.length + removed.length;
+  // 按店铺小计 (「全部店铺」时展示分类汇总)
+  const byStore = STORES.map(s => ({ s, sum: list.filter(r => r.store === s).reduce((a, r) => a + Number(r.amount || 0), 0) }));
+
+  const submitAll = () => {
+    const all = [...pendingUpd, ...pendingNew];
+    const bad = all.find(r => !r.date) || all.find(r => !String(r.store || "").trim()) || all.find(r => String(r.item).trim() === "") || all.find(r => String(r.amount).trim() !== "" && isNaN(Number(r.amount)));
+    if (bad) {
+      alert(!bad.date ? "有行的日期为空, 请补全"
+        : !String(bad.store || "").trim() ? "有行的「店铺」为空, 请选择店铺"
+          : String(bad.item).trim() === "" ? "有行的「项目明细」为空, 请补全"
+            : "「费用」必须是数字");
+      return;
+    }
+    setPwdOpen(true);
+  };
+  const discardAll = () => { setDirty({}); setRemoved([]); setPwdOpen(false); setPwd(""); setPwdErr(""); load(); };
+  const confirmSubmit = async () => {
+    if (pwd !== PWD) { setPwdErr("密码不正确"); return; }
+    setSaving(true);
+    let errMsg = "";
+    if (removed.length) {
+      const { error } = await supabase.from("store_other_expense").delete().in("id", removed);
+      if (error) errMsg = error.message;
+    }
+    if (!errMsg) for (const r of pendingUpd) {
+      const { error } = await supabase.from("store_other_expense")
+        .update({ exp_date: r.date, store: String(r.store).trim(), item: String(r.item).trim(), amount: Number(r.amount || 0) })
+        .eq("id", r.id);
+      if (error) { errMsg = error.message; break; }
+    }
+    if (!errMsg) for (const r of pendingNew) {
+      const { error } = await supabase.from("store_other_expense")
+        .insert({ exp_date: r.date, store: String(r.store).trim(), item: String(r.item).trim(), amount: Number(r.amount || 0) });
+      if (error) { errMsg = error.message; break; }
+    }
+    setSaving(false); setPwdOpen(false); setPwd(""); setPwdErr("");
+    if (errMsg) { alert("保存失败(请先在 Supabase 跑 sql/create_store_other_expense.sql): " + errMsg); return; }
+    setDirty({}); setRemoved([]);
+    load();
+  };
+
+  const SOC_GRID = "56px 158px 126px minmax(260px, 1fr) 158px 70px";
+  const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78" };
+  const cellInput = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
+  const cellText = { padding: "10px 12px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const selStyle = { padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, colorScheme: "dark" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>店铺其他费用</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            按店铺逐条明细 · 日期 / 店铺 / 项目明细 / 费用(¥) · 每月独立 · {!canEdit ? "只读" : "改动改完点底部「确认提交」输密码入库"}
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {canEdit && (
+            <button onClick={addRow} style={{ padding: "6px 14px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ 新增一行</button>
+          )}
+          <span style={{ fontSize: 11, color: C.faint }}>共 {view.length} 条</span>
+          <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "4px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
+            {storeFilter || "全部店铺"} 合计 ¥{viewSum.toFixed(2)}
+          </span>
+          {/* 分店栏: 按 6 家店筛选分类 */}
+          <span style={{ fontSize: 12, color: C.sub }}>分店:</span>
+          <select value={storeFilter} onChange={e => setStoreFilter(e.target.value)} style={selStyle}>
+            <option value="">全部店铺</option>
+            {STORES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
+          <select value={ym.slice(0, 4)} onChange={e => { setYm(`${e.target.value}-${ym.slice(5, 7)}`); }}
+            style={{ padding: "6px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 12 }}>
+            {YEARS.map(y => <option key={y} value={String(y)}>{y}年</option>)}
+          </select>
+          <select value={ym.slice(5, 7)} onChange={e => { setYm(`${ym.slice(0, 4)}-${e.target.value}`); }}
+            style={{ padding: "6px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 12 }}>
+            {MONTHS.map(m => <option key={m} value={m}>{Number(m)}月</option>)}
+          </select>
+        </div>
+      </div>
+
+      {err && (
+        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+          读取失败(请先在 Supabase 跑 sql/create_store_other_expense.sql): {err}
+        </div>
+      )}
+
+      {(!loaded || !roleReady) && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
+
+      {/* 全部店铺视图: 6 家分店小计一览 */}
+      {loaded && roleReady && !storeFilter && list.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {byStore.map(b => (
+            <div key={b.s} style={{ fontSize: 11, color: C.sub, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 12px" }}>
+              {b.s} <b style={{ color: b.sum ? C.brand : C.faint, marginLeft: 4 }}>¥{b.sum.toFixed(2)}</b>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loaded && roleReady && (
+        <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+          <div style={{ minWidth: 900 }}>
+            <div style={{ display: "grid", gridTemplateColumns: SOC_GRID, background: "#1f3a68" }}>
+              <div style={{ ...th, textAlign: "center" }}>#</div>
+              <div style={th}>日期</div>
+              <div style={th}>店铺</div>
+              <div style={th}>项目明细</div>
+              <div style={{ ...th, textAlign: "right" }}>{ym} · 费用 ¥</div>
+              <div style={{ ...th, borderRight: "none", textAlign: "center" }}>操作</div>
+            </div>
+
+            {view.map((r, i) => {
+              const pend = !!dirty[r.key];
+              const bgc = pend ? "#d9a44118" : (i % 2 ? C.bg : "transparent");
+              return (
+                <div key={r.key} style={{ display: "grid", gridTemplateColumns: SOC_GRID, borderTop: `1px solid ${C.line}`, background: bgc }}>
+                  <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center", borderRight: `1px solid ${C.line}` }}>{i + 1}</div>
+                  {canEdit ? (
+                    <>
+                      <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                        <input type="date" value={r.date} onChange={e => setField(r.key, "date", e.target.value)} style={cellInput} />
+                      </div>
+                      <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                        <select value={r.store} onChange={e => setField(r.key, "store", e.target.value)} style={cellInput}>
+                          {STORES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                        <input value={r.item} onChange={e => setField(r.key, "item", e.target.value)} placeholder="费用项目 / 明细说明"
+                          title={r.item} style={cellInput} />
+                      </div>
+                      <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                        <input value={r.amount} onChange={e => setField(r.key, "amount", e.target.value)} onFocus={e => e.target.select()}
+                          placeholder="0.00" inputMode="decimal" title="人民币金额 (¥)"
+                          style={{ ...cellInput, textAlign: "right", fontWeight: 600 }} />
+                      </div>
+                      <div style={{ padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <button onClick={() => delRow(r)} title="删除此行 (提交后生效)"
+                          style={{ padding: "4px 10px", background: "transparent", color: "#e0857a", border: "1px solid #c05b52", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={cellText}>{r.date || "—"}</div>
+                      <div style={{ ...cellText, fontWeight: 600 }}>{r.store || "—"}</div>
+                      <div style={{ ...cellText, color: r.item ? C.ink : C.faint }} title={r.item}>{r.item || "—"}</div>
+                      <div style={{ ...cellText, textAlign: "right", fontWeight: 600, color: r.amount === "" ? C.faint : C.ink }}>{r.amount === "" ? "—" : Number(r.amount).toFixed(2)}</div>
+                      <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center" }}>—</div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+
+            {view.length === 0 && (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: C.faint, fontSize: 13, borderTop: `1px solid ${C.line}` }}>
+                {ym} {storeFilter ? `${storeFilter} ` : ""}暂无店铺其他费用{canEdit ? "，点右上「+ 新增一行」开始录入" : ""}
+              </div>
+            )}
+
+            {view.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: SOC_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12, fontWeight: 700 }}>
+                <div style={{ padding: "10px 8px" }} />
+                <div style={{ padding: "10px 12px", color: C.brand }}>合计</div>
+                <div style={{ padding: "10px 12px", color: C.sub, fontWeight: 400 }}>{storeFilter || "全部店铺"}</div>
+                <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 400 }}>{ym} 共 {view.length} 条明细</div>
+                <div style={{ padding: "10px 12px", textAlign: "right", color: C.brand }}>¥{viewSum.toFixed(2)}</div>
+                <div style={{ padding: "10px 8px" }} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 待提交浮条: 改动只缓存在页面, 点确认提交才输密码一次性入库 */}
+      {pendingCount > 0 && !pwdOpen && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ fontSize: 12, color: C.ink }}>
+            本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
+          </span>
+          <button onClick={discardAll} style={{ padding: "6px 12px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer" }}>撤销全部</button>
+          <button onClick={submitAll} style={{ padding: "6px 16px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
+        </div>
+      )}
+
+      {/* 提交确认框: 列出全部改动 + 输密码 852963 */}
+      {pwdOpen && (
+        <div onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 560, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认提交 {pendingCount} 项改动</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>核对无误后输入密码, 一次性写入数据库</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 14 }}>
+              <div style={{ display: "flex", color: C.sub, fontSize: 11, paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ width: 52 }}>动作</span>
+                <span style={{ width: 92 }}>日期</span>
+                <span style={{ width: 60 }}>店铺</span>
+                <span style={{ flex: 1 }}>项目明细</span>
+                <span style={{ width: 100, textAlign: "right" }}>费用</span>
+              </div>
+              {removed.map(id => (
+                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#e0857a" }}>
+                  <span style={{ width: 52 }}>删除</span>
+                  <span style={{ width: 92 }}>—</span>
+                  <span style={{ width: 60 }}>—</span>
+                  <span style={{ flex: 1 }}>已删除的一行</span>
+                  <span style={{ width: 100, textAlign: "right" }}>→ 移除</span>
+                </div>
+              ))}
+              {[...pendingUpd, ...pendingNew].map(r => (
+                <div key={r.key} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <span style={{ width: 52, color: r.id ? C.sub : C.brand }}>{r.id ? "修改" : "新增"}</span>
+                  <span style={{ width: 92, color: C.ink }}>{r.date || "—"}</span>
+                  <span style={{ width: 60, color: C.ink }}>{r.store || "—"}</span>
+                  <span style={{ flex: 1, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.item}>{r.item}</span>
+                  <span style={{ width: 100, textAlign: "right", color: C.brand, fontWeight: 700 }}>¥{Number(r.amount || 0).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>确认密码</div>
+            <input type="password" value={pwd} autoFocus
+              onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
+              onKeyDown={e => { if (e.key === "Enter" && !saving) confirmSubmit(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
+              placeholder="输入密码"
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
+              <button onClick={confirmSubmit} disabled={saving} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: saving ? "wait" : "pointer", fontWeight: 600, opacity: saving ? .7 : 1 }}>{saving ? "提交中…" : "确认提交"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------------- 店铺运维费用 / 店铺月度核算 共用常量 ----------------
 // 站点列 = 欧元(€); 「月固定」类别 = 人民币(¥), 不区分国家(站点)
 const OPS_SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
 const OPS_MONTHLY_SITE = "月固定";
 const OPS_MONTHLY_CATS = { "网络IP费用": 88 };
 const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
-const OPS_FIXED_STORES = ["飞鸟", "野趣", "屿阔", "俊业", "乾霖", "胤顺"];   // 三家共享店排最前 (KK 2026-09-17)
+// 店铺口径常量 (OPS_FIXED_STORES / SHARE_GROUP / ALL_STORES / ROLE_STORES) 已提到文件顶部统一定义
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
 // 批次配色 (发货记录 / 库存记录 共用): 每个批次一块底色, 循环取色
 const BATCH_PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
@@ -4133,13 +4460,9 @@ function StoreMonthly() {
   // —— 三家共享人工/场地 (KK 2026-09-17) ——
   // 飞鸟/野趣/屿阔 三家共用人工+场地: 只在「三家合计」列填一次, 三家合计利润里只扣一次
   // 「其他」(办公室费用明细) 改成自动从「办公室费用明细」Tab 汇总当月 office_expense 合计 (KK 2026-09-17)
-  const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];
+  // 注: SHARE_GROUP / ALL_STORES / ROLE_STORES 已提到文件顶部统一定义
   const SHARE_ITEMS = ["人工", "场地", "其他"];   // 其他=办公室费用明细, 三家合并格里只读显示
   const SHARE_STORE = "__shared__";        // 共享费用在 store_monthly_costs 里的存放键 (仅人工/场地写入)
-  // 黄丹(成都采购)只负责这三家 → 只让她看到这三家的数据
-  const ROLE_STORES = { cd_procurement: SHARE_GROUP };
-  // 共享组被隐藏时也要留着基准店列表 (仅用于全量兜底)
-  const ALL_STORES = OPS_FIXED_STORES;
   // 科目 (KK 2026-09-17 定):
   //   店铺利润 = 收入 − 各项成本 − 店铺其他费用
   //   净利润   = 店铺利润 − 人工 − 场地 − 办公室费用明细
