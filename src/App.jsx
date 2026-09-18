@@ -133,6 +133,9 @@ const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];                             
 const ALL_STORES = OPS_FIXED_STORES;
 // 角色 → 可见店铺范围 (不在此表内的角色 = 全部 6 家)
 const ROLE_STORES = { cd_procurement: SHARE_GROUP };
+// 「店铺其他费用」行没有明细时: 这些店铺确认「本来就没有费用」→ 显示 0.00;
+// 其他店铺代表「还没录入」→ 显示「—」。KK 2026-09-18 定 (目前只有胤顺)
+const ZERO_OTHER_STORES = ["胤顺"];
 
 // 是否能拖动指定框里的项
 const canDrag = (boxId, role) => {
@@ -4764,11 +4767,12 @@ function StoreMonthly() {
                     }
                     if (row.type === "storeother") {            // 店铺其他费用 = 当月 store_other_expense 按店合计 (自动, 只读)
                       const v = storeOtherTotal(st);
-                      // 没有明细的月份一律显示 0.00 (KK 2026-09-18: 没有就是 0, 不用「—」)
+                      // 该月没有明细: 胤顺等「确认无此费用」的店铺显示 0.00; 其余店铺显示「—」(表示还没录)
+                      const knownZero = ZERO_OTHER_STORES.includes(st);
                       return (
-                        <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.sub }}
-                          title="由「店铺其他费用」Tab 当月按店合计自动填入; 该月没有明细记录时按 0 计">
-                          ¥{v.toFixed(2)}
+                        <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : (knownZero ? C.sub : C.faint) }}
+                          title={v ? "由「店铺其他费用」Tab 当月按店合计自动填入" : (knownZero ? "该店铺确认无此项费用 → 按 0 计" : "该月尚未录入店铺其他费用")}>
+                          {v ? "¥" + v.toFixed(2) : (knownZero ? "¥0.00" : "—")}
                         </div>
                       );
                     }
