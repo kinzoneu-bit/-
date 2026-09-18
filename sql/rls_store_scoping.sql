@@ -13,7 +13,8 @@
 -- 实现方式: 用 AS RESTRICTIVE 策略「叠加收窄」——
 --   PostgreSQL 会把 RESTRICTIVE 策略与已有的 PERMISSIVE 策略做 AND,
 --   因此不需要改动/删除任何现存策略, 也不会影响其他角色。
--- 另外补两条 PERMISSIVE 策略: 黄丹的库存写权限 + 财务核算读权限。
+-- 另外补三条 PERMISSIVE 策略: 黄丹的库存写权限 + 财务核算两张表的读写权限
+--   (写也放行, 但同样被三店 RESTRICTIVE 策略框住, 写不了别的店铺)
 -- 在 Supabase → SQL Editor 整段粘贴执行, 幂等可重复跑
 -- ============================================================
 
@@ -41,16 +42,23 @@ CREATE POLICY inv_write_role ON inventory FOR ALL TO authenticated
                       WHERE up.user_id = auth.uid()
                         AND up.role IN ('admin', 'cd_promotion', 'cd_supplier', 'cd_procurement')));
 
--- ---------- 2. 财务核算两张表: 补上黄丹的读权限 (写仍仅 admin) ----------
+-- ---------- 2. 财务核算两张表: 补上黄丹的读写权限 (写也放行, 但受第 3 步三店收窄约束) ----------
+-- KK 2026-09-18: 「这个她可以写」—— 可写 store 仍限 飞鸟/野趣/屿阔
 DROP POLICY IF EXISTS fin_read_procurement ON finance_daily_sales;
-CREATE POLICY fin_read_procurement ON finance_daily_sales FOR SELECT TO authenticated
+DROP POLICY IF EXISTS fin_write_procurement ON finance_daily_sales;
+CREATE POLICY fin_write_procurement ON finance_daily_sales FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM public.user_profiles up
-                 WHERE up.user_id = auth.uid() AND up.role = 'cd_procurement'));
+                 WHERE up.user_id = auth.uid() AND up.role = 'cd_procurement'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up
+                      WHERE up.user_id = auth.uid() AND up.role = 'cd_procurement'));
 
 DROP POLICY IF EXISTS cf_read_procurement ON finance_cashflow;
-CREATE POLICY cf_read_procurement ON finance_cashflow FOR SELECT TO authenticated
+DROP POLICY IF EXISTS cf_write_procurement ON finance_cashflow;
+CREATE POLICY cf_write_procurement ON finance_cashflow FOR ALL TO authenticated
   USING (EXISTS (SELECT 1 FROM public.user_profiles up
-                 WHERE up.user_id = auth.uid() AND up.role = 'cd_procurement'));
+                 WHERE up.user_id = auth.uid() AND up.role = 'cd_procurement'))
+  WITH CHECK (EXISTS (SELECT 1 FROM public.user_profiles up
+                      WHERE up.user_id = auth.uid() AND up.role = 'cd_procurement'));
 
 -- ---------- 3. 按店铺收窄 (RESTRICTIVE, 只对黄丹生效) ----------
 -- 发货记录
@@ -96,9 +104,9 @@ CREATE POLICY sc_cf_store ON finance_cashflow AS RESTRICTIVE FOR ALL TO authenti
   WITH CHECK  (NOT public.is_cd_procurement() OR store IN ('飞鸟', '野趣', '屿阔'));
 
 -- ============================================================
--- 校验: 应看到 7 条 sc_* (RESTRICTIVE) + inv_write_role + 2 条 fin/cf_read_procurement
+-- 校验: 应看到 7 条 sc_* (RESTRICTIVE) + inv_write_role + fin_write_procurement + cf_write_procurement
 -- ============================================================
 SELECT tablename, policyname, cmd, permissive
 FROM pg_policies
-WHERE policyname LIKE 'sc\_%' OR policyname IN ('inv_write_role', 'fin_read_procurement', 'cf_read_procurement')
+WHERE policyname LIKE 'sc\_%' OR policyname IN ('inv_write_role', 'fin_write_procurement', 'cf_write_procurement')
 ORDER BY tablename, policyname;
