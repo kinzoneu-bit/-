@@ -623,8 +623,8 @@ export default function App() {
           ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["storemonthly", "月度核算"]] : []),
           // 财务核算: admin + 成都采购(黄丹) + 财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["finance", "财务核算"]] : []),
-          // 办公室费用明细: 管理层 (admin + 法国成员 + 成都采购 黄丹 + 财务专员) — 2026-09-17/18 KK 定
-          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用"]] : [])
+          // 办公室费用明细: 仅 你(admin) + 法国成员(泺伊) + 成都采购(黄丹) 可见; 登记只有黄丹 — KK 2026-09-18 定
+          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["officeexpense", "办公室费用"]] : [])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
@@ -3887,7 +3887,8 @@ function AdAnalysis() {
 // ---------------- 办公室费用明细 (KK 2026-09-17 格式: 日期 / 项目明细 / 费用) ----------------
 // 表 office_expense (sql/create_office_expense.sql); 每月一张明细表(顶部选月份)
 // 录入规则与运维费用/月度核算一致: 改动只进待提交队列 → 底部「确认提交」→ 输密码 → 一次性入库
-// 权限: 可见 + 可写 = admin + 法国成员(fr) + 成都采购(黄丹, cd_procurement)
+// 权限 (KK 2026-09-18 定): 可见 = admin(你) + fr(泺伊) + cd_procurement(黄丹); 登记/编辑 = 只有黄丹(+admin兜底)
+// RLS 同步: sql/office_expense_access.sql
 function OfficeExpense() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
@@ -3911,7 +3912,7 @@ function OfficeExpense() {
       if (data && data.user) setRole(getUserRole(data.user.email || ""));
     }).catch(() => {}).finally(() => setRoleReady(true));
   }, []);
-  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement" || role === "finance";
+  const canEdit = role === "admin" || role === "cd_procurement";   // 登记只有黄丹(+admin兜底) — KK 2026-09-18 定
 
   const load = () => {
     const start = `${ym}-01`;
