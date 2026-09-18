@@ -4764,10 +4764,11 @@ function StoreMonthly() {
                     }
                     if (row.type === "storeother") {            // 店铺其他费用 = 当月 store_other_expense 按店合计 (自动, 只读)
                       const v = storeOtherTotal(st);
+                      // 没有明细的月份一律显示 0.00 (KK 2026-09-18: 没有就是 0, 不用「—」)
                       return (
-                        <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}
-                          title="由「店铺其他费用」Tab 当月按店合计自动填入">
-                          {v ? "¥" + v.toFixed(2) : "—"}
+                        <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.sub }}
+                          title="由「店铺其他费用」Tab 当月按店合计自动填入; 该月没有明细记录时按 0 计">
+                          ¥{v.toFixed(2)}
                         </div>
                       );
                     }
