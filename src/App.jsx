@@ -4979,7 +4979,8 @@ function StoreMonthly() {
     }).catch(() => {}).finally(() => setRoleReady(true));
   }, []);
   // 仅管理层: admin + 法国成员 fr + 成都采购(黄丹) — KK 2026-09-16 定
-  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement" || role === "finance";
+  // 可写: admin(你) + 成都采购(黄丹) + 财务专员(夏蕾) —— 法国成员(泺伊)只读 — KK 2026-09-18 定
+  const canEdit = role === "admin" || role === "cd_procurement" || role === "finance";
   const canEditRate = canEdit;
 
   const load = () => {
