@@ -110,6 +110,7 @@ const ROLE_PERMISSIONS = {
   cd_link:      { from: ["h2"], to: ["h3"], label: "成都·链接" },
   cd_promotion: { from: ["h3"], to: ["h4"], label: "成都·推广" },
   cd_procurement: { from: [], to: [], label: "成都·采购" },
+  finance:      { from: [], to: [], label: "财务专员" },   // KK 2026-09-18 新增: 六家店全可见可写, 不参与产品交接拖拽
 };
 // 邮箱 → 角色
 const EMAIL_TO_ROLE = {
@@ -119,6 +120,7 @@ const EMAIL_TO_ROLE = {
   "2386332469@qq.com":    "cd_link",        // 成都·链接 (2026-08-07 确认)
   "2990206556@qq.com":    "cd_supplier",    // 成都·供应链 (2026-08-07 确认)
   "yellowdashi@sina.com": "cd_procurement", // 成都·采购 (财务核对, 2026-08-08 确认)
+  "1416952931@qq.com":    "finance",        // 财务专员 (2026-09-18 确认)
 };
 const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
 const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (role ? "未授权" : "未登录");
@@ -571,18 +573,18 @@ export default function App() {
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
         {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
-          // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹 — 2026-09-18 KK 定
-          ...(curRole === "admin" || curRole === "cd_procurement" ? [["ordersummary", "单品月度订单统计"]] : []),
-          // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹, 财务核对) — 2026-09-17 KK 定
-          ...(["admin", "cd_supplier", "cd_procurement"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
+          // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹/财务专员 — 2026-09-18 KK 定
+          ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品月度订单统计"]] : []),
+          // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 — 2026-09-18 KK 定
+          ...(["admin", "cd_supplier", "cd_procurement", "finance"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
           // 店铺其他费用: 全部成员 — 2026-09-17 KK 定
           ["storeother", "店铺其他费用"],
-          // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹) — KK 2026-09-16 定
-          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
-          // 财务核算: admin + 成都采购(黄丹, 不按店收窄) — 2026-09-18 KK 定
-          ...(curRole === "admin" || curRole === "cd_procurement" ? [["finance", "财务核算"]] : []),
-          // 办公室费用明细: 管理层 (admin + 法国成员 + 成都采购 黄丹) — 2026-09-17 KK 定
-          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["officeexpense", "办公室费用明细"]] : [])
+          // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹 + 财务专员) — KK 2026-09-16/18 定
+          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
+          // 财务核算: admin + 成都采购(黄丹) + 财务专员 — 2026-09-18 KK 定
+          ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["finance", "财务核算"]] : []),
+          // 办公室费用明细: 管理层 (admin + 法国成员 + 成都采购 黄丹 + 财务专员) — 2026-09-17/18 KK 定
+          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用明细"]] : [])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
@@ -1626,7 +1628,7 @@ function Shipments() {
   }, []);
   const isAdmin = shipRole === "admin";
   // 可更新: admin + 成都推广 + 成都采购(黄丹) + 成都供应链(陈雪梅) — 2026-09-16 KK 定
-  const canEdit = shipRole === "admin" || shipRole === "cd_promotion" || shipRole === "cd_procurement" || shipRole === "cd_supplier";
+  const canEdit = shipRole === "admin" || shipRole === "cd_promotion" || shipRole === "cd_procurement" || shipRole === "cd_supplier" || shipRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (shipRole && ROLE_STORES[shipRole]) || null;
 
@@ -2419,7 +2421,7 @@ function InventoryStats() {
     });
   }, []);
   // 可编辑: admin + 成都推广 + 成都供应链(陈雪梅) + 成都采购(黄丹) — 2026-09-18 KK 定
-  const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier" || invRole === "cd_procurement";
+  const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier" || invRole === "cd_procurement" || invRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (invRole && ROLE_STORES[invRole]) || null;
   const load = () => {
@@ -3466,7 +3468,7 @@ function OfficeExpense() {
       if (data && data.user) setRole(getUserRole(data.user.email || ""));
     }).catch(() => {}).finally(() => setRoleReady(true));
   }, []);
-  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
+  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement" || role === "finance";
 
   const load = () => {
     const start = `${ym}-01`;
@@ -4155,7 +4157,7 @@ function OpsFee() {
     });
   }, []);
   // 可录入: admin + 成都·供应链 + 成都·采购(黄丹) — 2026-09-17 KK 定
-  const canEdit = opsRole === "admin" || opsRole === "cd_supplier" || opsRole === "cd_procurement";
+  const canEdit = opsRole === "admin" || opsRole === "cd_supplier" || opsRole === "cd_procurement" || opsRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (opsRole && ROLE_STORES[opsRole]) || null;
   const load = () => {
@@ -4201,7 +4203,7 @@ function OpsFee() {
   // 站点里录的都是欧元(€); 网络IP费用等"月固定"类别直接是人民币(¥), 不参与汇率折算
   // 汇率按「月」各自记录 (表 fx_rates) 且改动需密码: 见 <RateField />
   const [rate, setRate] = useState(8.0);
-  const canEditRate = ["admin", "fr", "cd_procurement"].includes(opsRole);
+  const canEditRate = ["admin", "fr", "cd_procurement", "finance"].includes(opsRole);
   const eurTotal = SITE_CATS.reduce((s, c) => s + total(c), 0);                   // 欧元合计
   const monthlyRmb = CATS.filter(isMonthly).reduce((s, c) => s + monthlyVal(c), 0); // 月固定(人民币)小计
   const rmbTotal = eurTotal * rate + monthlyRmb;                                  // 月度核算费用(¥)
@@ -4532,7 +4534,7 @@ function StoreMonthly() {
     }).catch(() => {}).finally(() => setRoleReady(true));
   }, []);
   // 仅管理层: admin + 法国成员 fr + 成都采购(黄丹) — KK 2026-09-16 定
-  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement";
+  const canEdit = role === "admin" || role === "fr" || role === "cd_procurement" || role === "finance";
   const canEditRate = canEdit;
 
   const load = () => {
@@ -4866,7 +4868,7 @@ function Finance() {
     });
   }, []);
   // 可见/可查: admin + 成都采购(黄丹) — 2026-09-18 KK 定
-  const isAdmin = finRole === "admin" || finRole === "cd_procurement";
+  const isAdmin = finRole === "admin" || finRole === "cd_procurement" || finRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只见三家 (飞鸟/野趣/屿阔) — 2026-09-18 KK 定
   const myStores = (finRole && ROLE_STORES[finRole]) || null;
 
