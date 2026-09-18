@@ -623,8 +623,8 @@ export default function App() {
           ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["storemonthly", "月度核算"]] : []),
           // 财务核算: admin + 成都采购(黄丹) + 财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["finance", "财务核算"]] : []),
-          // 办公室费用明细: 仅 你(admin) + 法国成员(泺伊) + 成都采购(黄丹) 可见; 登记只有黄丹 — KK 2026-09-18 定
-          ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["officeexpense", "办公室费用"]] : [])
+          // 办公室费用明细: 可见 = admin(你) + fr(泺伊) + 黄丹 + 财务专员(夏蕾); 登记只有黄丹 — KK 2026-09-18 定
+          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用"]] : [])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
