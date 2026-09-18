@@ -483,6 +483,34 @@ function Login() {
   );
 }
 
+// 页面级错误兜底: 捕获子组件渲染异常, 把报错显示出来而不是整页白屏
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error("[页面渲染出错]", err, info); }
+  render() {
+    if (this.state.err) {
+      const e = this.state.err;
+      return (
+        <div style={{ background: C.panel, border: "1px solid #c05b52", borderRadius: 12, padding: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#e0857a", marginBottom: 6 }}>这个页面渲染出错了</div>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
+            把下面这段文字发给 KK 就能定位问题; 也可以先点「重试」。
+          </div>
+          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 11, color: C.ink, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: 12, maxHeight: 260, overflow: "auto", margin: 0 }}>
+            {String((e && (e.stack || e.message)) || e)}
+          </pre>
+          <button onClick={() => this.setState({ err: null })}
+            style={{ marginTop: 12, padding: "6px 14px", background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer" }}>
+            重试
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined=loading, null=not logged in
   const [tab, setTab] = useState("overview");
@@ -606,6 +634,8 @@ export default function App() {
       </div>
 
       <div style={{ padding: "20px 24px 60px" }}>
+        {/* 页面级错误兜底: 任何页面渲染报错都不再白屏, 而是把原因显示出来 (便于排查) */}
+        <ErrorBoundary key={tab}>
         {tab === "shelf" && <Shelf />}
         {tab === "overview" && <Overview siteEvals={siteEvals} onPick={(p) => { setSel(p); setTab("cross"); }} />}
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
@@ -623,6 +653,7 @@ export default function App() {
         {tab === "storemonthly" && <StoreMonthly />}
         {tab === "finance" && <Finance />}
         {tab === "officeexpense" && <OfficeExpense />}
+        </ErrorBoundary>
       </div>
     </div>
   );
@@ -3830,8 +3861,6 @@ function StoreOtherExpense() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
-  const STORES = (role && ROLE_STORES[role]) || OPS_FIXED_STORES;   // 黄丹(采购)只见三家 — KK 2026-09-18
-  const myStores = (role && ROLE_STORES[role]) || null;
   const [ym, setYm] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`);
   const [storeFilter, setStoreFilter] = useState("");       // "" = 全部店铺
   const [list, setList] = useState([]);                     // 当月明细 { key, id, date, store, item, amount }
@@ -3853,6 +3882,9 @@ function StoreOtherExpense() {
     }).catch(() => {}).finally(() => setRoleReady(true));
   }, []);
   const canEdit = !!role;   // 全部成员可写 — KK 2026-09-17 定
+  // ⚠️ 必须放在 role 的 useState 声明之后 (否则 TDZ: Cannot access 'role' before initialization → 整页白屏)
+  const STORES = (role && ROLE_STORES[role]) || OPS_FIXED_STORES;   // 黄丹(采购)只见三家 — KK 2026-09-18
+  const myStores = (role && ROLE_STORES[role]) || null;
 
   const load = () => {
     const start = `${ym}-01`;
