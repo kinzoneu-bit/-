@@ -571,16 +571,16 @@ export default function App() {
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
         {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
-          // 单品月度订单统计: 紧跟「订单记录」— 2026-09-18 KK 定
-          ...(curRole === "admin" ? [["ordersummary", "单品月度订单统计"]] : []),
+          // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹 — 2026-09-18 KK 定
+          ...(curRole === "admin" || curRole === "cd_procurement" ? [["ordersummary", "单品月度订单统计"]] : []),
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹, 财务核对) — 2026-09-17 KK 定
           ...(["admin", "cd_supplier", "cd_procurement"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
           // 店铺其他费用: 全部成员 — 2026-09-17 KK 定
           ["storeother", "店铺其他费用"],
           // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹) — KK 2026-09-16 定
           ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
-          // 财务核算: 仅 admin
-          ...(curRole === "admin" ? [["finance", "财务核算"]] : []),
+          // 财务核算: admin + 成都采购(黄丹, 不按店收窄) — 2026-09-18 KK 定
+          ...(curRole === "admin" || curRole === "cd_procurement" ? [["finance", "财务核算"]] : []),
           // 办公室费用明细: 管理层 (admin + 法国成员 + 成都采购 黄丹) — 2026-09-17 KK 定
           ...(["admin", "fr", "cd_procurement"].includes(curRole) ? [["officeexpense", "办公室费用明细"]] : [])
         ].map(([k, l]) => (
@@ -1627,6 +1627,8 @@ function Shipments() {
   const isAdmin = shipRole === "admin";
   // 可更新: admin + 成都推广 + 成都采购(黄丹) + 成都供应链(陈雪梅) — 2026-09-16 KK 定
   const canEdit = shipRole === "admin" || shipRole === "cd_promotion" || shipRole === "cd_procurement" || shipRole === "cd_supplier";
+  // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
+  const myStores = (shipRole && ROLE_STORES[shipRole]) || null;
 
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");
@@ -1637,14 +1639,17 @@ function Shipments() {
 
   const load = async () => {
     let q = supabase.from("shipments").select("*");
+    if (myStores) q = q.in("store", myStores);
     if (filterStore) q = q.eq("store", filterStore);
     if (filterBatch.length) q = q.in("ship_batch", filterBatch);
     const { data, error } = await q.order("ship_date", { ascending: true }).limit(2000);
     if (error) { alert("读取失败(请先建表 shipments): " + error.message); return; }
     setRows(data || []);
     if (!loaded) {
-      const { data: all } = await supabase.from("shipments").select("store, ship_batch, ship_date");
-      const st = [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
+      let qa = supabase.from("shipments").select("store, ship_batch, ship_date");
+      if (myStores) qa = qa.in("store", myStores);
+      const { data: all } = await qa;
+      const st = myStores ? myStores.slice().sort() : [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
       setStoreOpts(st);
       const m = {};
       (all || []).forEach(r => { if (r.ship_batch) m[r.ship_batch] = m[r.ship_batch] && m[r.ship_batch] > r.ship_date ? m[r.ship_batch] : (r.ship_date || ""); });
@@ -2413,25 +2418,30 @@ function InventoryStats() {
       if (data && data.user) setInvRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  // 可编辑: admin + 成都推广 + 成都供应链(陈雪梅) — 2026-09-16 KK 定
-  const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier";
+  // 可编辑: admin + 成都推广 + 成都供应链(陈雪梅) + 成都采购(黄丹) — 2026-09-18 KK 定
+  const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier" || invRole === "cd_procurement";
+  // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
+  const myStores = (invRole && ROLE_STORES[invRole]) || null;
   const load = () => {
     let q = supabase.from("inventory").select("*").order("ship_date", { ascending: true });
+    if (myStores) q = q.in("store", myStores);
     if (filterStore) q = q.eq("store", filterStore);
     q.then(({ data, error }) => {
       if (error) { setErr(error.message); setRows([]); return; }
       setRows(data || []); setErr("");
-      // 拉 store 字段去重, 合并 KK 写死的 6 家
-      supabase.from("inventory").select("store").then(({ data: all }) => {
+      // 拉 store 字段去重, 合并 KK 写死的 6 家 (收窄角色固定只给三家)
+      let qa = supabase.from("inventory").select("store");
+      if (myStores) qa = qa.in("store", myStores);
+      qa.then(({ data: all }) => {
         const fromDb = [...new Set((all || []).map(r => r.store).filter(Boolean))];
-        setStoreOpts(prev => {
-          const merged = [...new Set([...prev, ...fromDb])];
+        setStoreOpts(() => {
+          const merged = myStores ? [...new Set([...myStores, ...fromDb.filter(s => myStores.includes(s))])] : [...new Set([...ALL_STORES, ...fromDb])];
           return merged.sort();
         });
       });
     });
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { if (invRole) load(); }, [invRole]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (invRole) load(); }, [filterStore]);
   // 筛选: 仓库 / 发货批次 / 款式 / ASIN —— 均为**多选下拉**(同字段内 OR, 跨字段 AND)
@@ -3713,7 +3723,8 @@ function StoreOtherExpense() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
-  const STORES = OPS_FIXED_STORES;
+  const STORES = (role && ROLE_STORES[role]) || OPS_FIXED_STORES;   // 黄丹(采购)只见三家 — KK 2026-09-18
+  const myStores = (role && ROLE_STORES[role]) || null;
   const [ym, setYm] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`);
   const [storeFilter, setStoreFilter] = useState("");       // "" = 全部店铺
   const [list, setList] = useState([]);                     // 当月明细 { key, id, date, store, item, amount }
@@ -3740,7 +3751,9 @@ function StoreOtherExpense() {
     const start = `${ym}-01`;
     const [yy, mm] = ym.split("-").map(Number);
     const end = `${mm === 12 ? yy + 1 : yy}-${String(mm === 12 ? 1 : mm + 1).padStart(2, "0")}-01`;
-    supabase.from("store_other_expense").select("*").gte("exp_date", start).lt("exp_date", end).order("exp_date")
+    let q = supabase.from("store_other_expense").select("*").gte("exp_date", start).lt("exp_date", end);
+    if (myStores) q = q.in("store", myStores);
+    q.order("exp_date")
       .then(({ data, error }) => {
         if (error) { setErr(error.message); setList([]); }
         else {
@@ -3754,7 +3767,11 @@ function StoreOtherExpense() {
         setLoaded(true);
       });
   };
-  useEffect(() => { setDirty({}); setRemoved([]); setList([]); setLoaded(false); load(); }, [ym]);
+  // 角色取回后才拉数 (黄丹只会拉到三家, 不闪现其他店) — KK 2026-09-18
+  useEffect(() => {
+    if (!roleReady) return;
+    setDirty({}); setRemoved([]); setList([]); setLoaded(false); load();
+  }, [ym, roleReady]);
 
   const setField = (key, field, v) => {
     setList(p => p.map(r => (r.key === key ? { ...r, [field]: v } : r)));
@@ -4139,21 +4156,29 @@ function OpsFee() {
   }, []);
   // 可录入: admin + 成都·供应链 + 成都·采购(黄丹) — 2026-09-17 KK 定
   const canEdit = opsRole === "admin" || opsRole === "cd_supplier" || opsRole === "cd_procurement";
+  // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
+  const myStores = (opsRole && ROLE_STORES[opsRole]) || null;
   const load = () => {
-    supabase.from("opsfee_monthly").select("*").eq("month", month).order("site, category")
-      .then(({ data, error }) => {
+    let q = supabase.from("opsfee_monthly").select("*").eq("month", month).order("site, category");
+    if (myStores) q = q.in("store", myStores);
+    q.then(({ data, error }) => {
         if (error) { alert("读取失败(请先建表 opsfee_monthly): " + error.message); setRows([]); return; }
         setRows(data || []); setLoaded(true);
-        // 拉 store 字段去重, 合并固定店铺清单
-        supabase.from("opsfee_monthly").select("store").then(({ data: all }) => {
+        // 拉 store 字段去重, 合并固定店铺清单 (收窄角色固定只给三家)
+        let qa = supabase.from("opsfee_monthly").select("store");
+        if (myStores) qa = qa.in("store", myStores);
+        qa.then(({ data: all }) => {
           const fromDb = [...new Set((all || []).map(r => r.store).filter(Boolean))];
-          setStoreOpts(prev => [...new Set([...prev, ...fromDb])].sort());
+          setStoreOpts(() => {
+            const merged = myStores ? [...new Set([...myStores, ...fromDb.filter(s => myStores.includes(s))])] : [...new Set([...ALL_STORES, ...fromDb])];
+            return merged.sort();
+          });
         });
       });
   };
-  useEffect(() => { load(); }, [month]);
+  // 角色取回后才拉数 (黄丹只取三家, 不闪现其他店) — KK 2026-09-18
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (opsRole) load(); }, [opsRole]);
+  useEffect(() => { if (opsRole) load(); }, [month, opsRole]);
   // 不选店铺 = 全部店铺汇总(只读); 选店铺 = 该店铺数据(单元格直接输入)
   const getVal = (site, category) => {
     const m = rows.filter(x => x.site === site && x.category === category);
@@ -4515,11 +4540,14 @@ function StoreMonthly() {
     const [yy, mm] = month.slice(0, 7).split("-").map(Number);
     const offStart = `${month.slice(0, 7)}-01`;
     const offEnd = `${mm === 12 ? yy + 1 : yy}-${String(mm === 12 ? 1 : mm + 1).padStart(2, "0")}-01`;
+    // 数据按角色收窄: 黄丹(采购)只取三家的行 (store_monthly_costs 还需带上共享键 __shared__) — KK 2026-09-18
+    const sc = (role && ROLE_STORES[role]) || null;
+    const scoped = (q, withShared) => sc ? q.in("store", withShared ? [...sc, SHARE_STORE] : sc) : q;
     Promise.all([
-      supabase.from("opsfee_monthly").select("*").eq("month", month),
-      supabase.from("store_monthly_costs").select("*").eq("month", month),
+      scoped(supabase.from("opsfee_monthly").select("*").eq("month", month)),
+      scoped(supabase.from("store_monthly_costs").select("*").eq("month", month), true),
       supabase.from("office_expense").select("amount").gte("exp_date", offStart).lt("exp_date", offEnd),
-      supabase.from("store_other_expense").select("store, amount").gte("exp_date", offStart).lt("exp_date", offEnd),
+      scoped(supabase.from("store_other_expense").select("store, amount").gte("exp_date", offStart).lt("exp_date", offEnd)),
     ]).then(([a, b, c, d]) => {
       if (a.error) alert("读取运维费用失败: " + a.error.message);
       if (b.error) alert("读取手工录入失败(请先建表 store_monthly_costs): " + b.error.message);
@@ -4837,7 +4865,10 @@ function Finance() {
       if (data && data.user) setFinRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  const isAdmin = finRole === "admin";
+  // 可见/可查: admin + 成都采购(黄丹) — 2026-09-18 KK 定
+  const isAdmin = finRole === "admin" || finRole === "cd_procurement";
+  // 数据按角色收窄: 黄丹(采购)只见三家 (飞鸟/野趣/屿阔) — 2026-09-18 KK 定
+  const myStores = (finRole && ROLE_STORES[finRole]) || null;
 
   // ---- ① 订单量与营业额 ----
   const [rows, setRows] = useState([]);
@@ -4848,12 +4879,13 @@ function Finance() {
   const [fAsin, setFAsin] = useState("");         // ASIN
   // 店铺下拉: 固定用当前 6 家店铺 (OPS_FIXED_STORES) — KK 2026-09-17
   // 「财务核算」的 store 口径 = 店铺 (不是品牌), 与发货/库存/运维/月度核算 统一为中文店名, 不再从库里去重
-  const [storeOpts] = useState(OPS_FIXED_STORES);
+  const storeOpts = myStores || OPS_FIXED_STORES;   // 黄丹只见三家, 下拉同步收窄
   const [siteOpts, setSiteOpts] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   const loadSales = async () => {
     let q = supabase.from("finance_daily_sales").select("*");
+    if (myStores) q = q.in("store", myStores);
     if (fDate1) q = q.gte("sale_date", fDate1);
     if (fDate2) q = q.lte("sale_date", fDate2);
     if (fStore) q = q.eq("store", fStore);
@@ -4882,12 +4914,13 @@ function Finance() {
   const [cfD2, setCfD2] = useState("");       // 止
   const [cfStore, setCfStore] = useState(""); // 店铺
   const [cfChannel, setCfChannel] = useState(""); // 渠道
-  const [cfStoreOpts] = useState(OPS_FIXED_STORES);   // 同上: 固定 6 家中文店铺
+  const cfStoreOpts = storeOpts;   // 同上: 固定 6 家中文店铺 (黄丹只见三家)
   const [cfChannelOpts, setCfChannelOpts] = useState([]);
   const [cfLoaded, setCfLoaded] = useState(false);
 
   const loadCashflow = async () => {
     let q = supabase.from("finance_cashflow").select("*");
+    if (myStores) q = q.in("store", myStores);
     if (cfD1) q = q.gte("tx_date", cfD1);
     if (cfD2) q = q.lte("tx_date", cfD2);
     if (cfStore) q = q.eq("store", cfStore);
@@ -4922,7 +4955,9 @@ function Finance() {
   const [shipRows, setShipRows] = useState([]);
   useEffect(() => {
     if (!isAdmin) return;
-    supabase.from("shipments").select("store, ship_date, landed_cost, qty").then(({ data }) => setShipRows(data || []));
+    let q = supabase.from("shipments").select("store, ship_date, landed_cost, qty");
+    if (myStores) q = q.in("store", myStores);
+    q.then(({ data }) => setShipRows(data || []));
   }, [isAdmin]);
 
   const capitalUsage = useMemo(() => {
