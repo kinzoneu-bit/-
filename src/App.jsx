@@ -1664,9 +1664,10 @@ function Track({ selSku, setSelSku }) {
 // 全员可见; 仅 admin / cd_promotion(成都推广) 可更新 (RLS 同步)
 function Shipments() {
   const [shipRole, setShipRole] = useState(null);
+  const [myEmail, setMyEmail] = useState("");
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (data && data.user) setShipRole(getUserRole(data.user.email || ""));
+      if (data && data.user) { setShipRole(getUserRole(data.user.email || "")); setMyEmail(data.user.email || ""); }
     });
   }, []);
   const isAdmin = shipRole === "admin";
@@ -1674,6 +1675,14 @@ function Shipments() {
   const canEdit = shipRole === "admin" || shipRole === "cd_promotion" || shipRole === "cd_procurement" || shipRole === "cd_supplier" || shipRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (shipRole && ROLE_STORES[shipRole]) || null;
+
+  // ===== 复核流程 (KK 2026-09-18 定) =====
+  // 复核按批次; 只有财务专员(夏蕾)能点复核; 复核后金额字段要「申请 → 对方同意」双人确认
+  const FINANCE_EMAIL = "1416952931@qq.com";             // 财务专员(夏蕾) —— 复核人
+  const canReview = shipRole === "finance";              // 谁能点「复核」
+  const LOCK_BATCH_FIELDS = ["freight", "misc_fee", "duty", "insurance_fee"];                      // 批次级金额
+  const LOCK_ROW_FIELDS = ["qty", "purchase_price", "goods_value", "share_fee", "landed_cost"];    // 行级金额
+  const LOCKED_STATUS = ["approved", "change_requested"];   // 这两种状态下的金额字段都不能直接改
 
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("");
@@ -1742,8 +1751,12 @@ function Shipments() {
   };
   const saveShip = async () => {
     if (!editShip) return;
+    const g = batchOfRow(editShip.id);
+    const locked = !!g && isLocked(g);
     const clean = {};
     SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).forEach(k => {
+      // 已复核批次的金额字段(数量/采购价/货值/分摊费/到仓价)不在这里改 —— 走「申请修改」
+      if (locked && LOCK_ROW_FIELDS.includes(k)) return;
       const v = (shipForm[k] || "").trim();
       if (k === "product_name" && !v) { alert("名称必填"); return; }
       if (v === "") { clean[k] = null; return; }
@@ -1751,7 +1764,9 @@ function Shipments() {
       if (SHIP_NUM.includes(k)) { clean[k] = Number(v); return; }
       clean[k] = v;
     });
-    const { error } = await supabase.from("shipments").update(clean).eq("id", editShip.id);
+    // 记「录入人」; 若该批已复核, 非金额字段的改动把它打回「待复核」
+    Object.assign(clean, g ? ownerPatch(g) : { batch_owner: myEmail, batch_owner_at: new Date().toISOString() });
+    const { error } = await writeShip(clean, [editShip.id]);
     if (error) { alert("保存失败: " + error.message); return; }
     setEditShip(null); load();
   };
@@ -1784,6 +1799,7 @@ function Shipments() {
     { k: "ship_date", l: "发货日期", w: 85, t: "batch", ty: "text" },
     { k: "ship_warehouse", l: "发货仓库", w: 110, t: "batch", ty: "text" },
     { k: "ship_batch", l: "发货批次", w: 120, t: "batch", ty: "text" },
+    { k: "review", l: "复核", w: 136, t: "batch", ty: "text" },   // 批次级: 复核状态 / 双人确认入口 (KK 2026-09-18)
     { k: "product_name", l: "名称", w: 130, t: "row" },
     { k: "asin", l: "ASIN", w: 100, t: "row" },
     { k: "qty", l: "数量", w: 60, t: "row" },
@@ -1842,6 +1858,138 @@ function Shipments() {
     const hit = g.rows.find(r => r[k] !== null && r[k] !== undefined && r[k] !== "");
     return hit ? hit[k] : null;
   };
+
+  // ===== 复核状态读取 / 动作 =====
+  const revOf = (g) => {
+    const r0 = g.rows[0] || {};
+    return {
+      status: r0.review_status || "pending",
+      by: r0.reviewed_by || "",
+      at: r0.reviewed_at || "",
+      owner: r0.batch_owner || "",
+      req: r0.change_req || null,
+    };
+  };
+  const isLocked = (g) => LOCKED_STATUS.includes(revOf(g).status);
+  const lockBatchField = (g, k) => isLocked(g) && LOCK_BATCH_FIELDS.includes(k);
+  const lockRowField = (g, k) => isLocked(g) && LOCK_ROW_FIELDS.includes(k);
+  const batchOfRow = (rowId) => batches.find(g => g.rows.some(r => r.id === rowId)) || null;
+  const fmtAt = (s) => (s ? String(s).slice(5, 16).replace("T", " ") : "");
+  // 若还没跑 sql/shipments_review.sql (列不存在), 自动剥掉复核列重试一次 —— 保证普通录入不被卡住
+  const REVIEW_KEYS = ["review_status", "reviewed_by", "reviewed_at", "batch_owner", "batch_owner_at", "change_req"];
+  const writeShip = async (patch, ids) => {
+    let res = await supabase.from("shipments").update(patch).in("id", ids);
+    if (res.error && /column|schema cache|does not exist/i.test(res.error.message || "")) {
+      const p2 = { ...patch };
+      REVIEW_KEYS.forEach(k => delete p2[k]);
+      if (Object.keys(p2).length) res = await supabase.from("shipments").update(p2).in("id", ids);
+      if (!res.error) console.warn("shipments 缺复核列, 本次已跳过复核字段。请跑 sql/shipments_review.sql 启用复核流程");
+    }
+    return res;
+  };
+  // 写整批 (复核相关字段)
+  const patchBatch = async (g, patch) => {
+    const ids = g.rows.map(r => r.id);
+    const { error } = await supabase.from("shipments").update(patch).in("id", ids);
+    if (error) { alert("操作失败: " + error.message + "\n(若提示列不存在, 请先在 Supabase 跑 sql/shipments_review.sql)"); return false; }
+    setRows(prev => prev.map(r => ids.includes(r.id) ? { ...r, ...patch } : r));
+    return true;
+  };
+  // 夏蕾点「复核」
+  const doReview = async (g) => {
+    if (!canReview) return;
+    if (!confirm(`确认复核批次「${batchVal(g, "ship_batch") || "(无批次)"}」的 ${g.rows.length} 行?\n复核后金额字段如需修改, 要走双方确认。`)) return;
+    await patchBatch(g, {
+      review_status: "approved",
+      reviewed_by: myEmail,
+      reviewed_at: new Date().toISOString(),
+      change_req: null,
+    });
+  };
+  // 记「录入人」= 最后提交该批改动的人; 非金额字段变动时把该批打回「待复核」
+  const ownerPatch = (g) => {
+    const rev = revOf(g);
+    const patch = { batch_owner: myEmail, batch_owner_at: new Date().toISOString() };
+    if (rev.status !== "pending") { patch.review_status = "pending"; patch.reviewed_by = null; patch.reviewed_at = null; patch.change_req = null; }
+    return patch;
+  };
+
+  // —— 修改申请 (已复核批次要改金额字段时) ——
+  const [chgOpen, setChgOpen] = useState(null);        // 批次分组
+  const [chgForm, setChgForm] = useState({ batch: {}, rows: {} });
+  const [chgBusy, setChgBusy] = useState(false);
+  const openChange = (g) => {
+    if (!canEdit) return;
+    const rev = revOf(g);
+    if (rev.req) { alert("该批次已有一笔待同意的修改申请, 等对方处理后再发起"); return; }
+    const batch = {}, rws = {};
+    LOCK_BATCH_FIELDS.forEach(k => { const v = batchVal(g, k); batch[k] = v === null || v === undefined ? "" : String(v); });
+    g.rows.forEach(r => {
+      const o = {};
+      LOCK_ROW_FIELDS.forEach(k => { o[k] = r[k] === null || r[k] === undefined ? "" : String(r[k]); });
+      rws[r.id] = o;
+    });
+    setChgForm({ batch, rows: rws });
+    setChgOpen(g);
+  };
+  const submitChange = async () => {
+    if (!chgOpen) return;
+    const rev = revOf(chgOpen);
+    // 另一方: 我不是财务 → 财务专员; 我是财务 → 该批录入人
+    const approver = canReview ? rev.owner : FINANCE_EMAIL;
+    if (!approver) { alert("该批次没有录入人记录(老数据), 无法确定「另一方」。请先随便改一个非金额字段由录入人重存一次, 或找 KK 处理"); return; }
+    if (approver === myEmail) { alert("「另一方」是你自己, 无法双人确认"); return; }
+    // 只提交真正变化的字段
+    const fields = {}, rowEdits = {};
+    LOCK_BATCH_FIELDS.forEach(k => {
+      const nv = String(chgForm.batch[k] ?? "").trim();
+      const ov = batchVal(chgOpen, k);
+      const ovs = ov === null || ov === undefined ? "" : String(ov);
+      if (nv !== ovs) fields[k] = nv === "" ? null : Number(nv);
+    });
+    chgOpen.rows.forEach(r => {
+      const o = chgForm.rows[r.id] || {};
+      const diff = {};
+      LOCK_ROW_FIELDS.forEach(k => {
+        const nv = String(o[k] ?? "").trim();
+        const ovs = r[k] === null || r[k] === undefined ? "" : String(r[k]);
+        if (nv !== ovs) diff[k] = nv === "" ? null : Number(nv);
+      });
+      if (Object.keys(diff).length) rowEdits[r.id] = diff;
+    });
+    if (!Object.keys(fields).length && !Object.keys(rowEdits).length) { alert("没有任何改动"); return; }
+    setChgBusy(true);
+    const req = { by: myEmail, at: new Date().toISOString(), approver, fields, rows: rowEdits };
+    const ok = await patchBatch(chgOpen, { review_status: "change_requested", change_req: req });
+    setChgBusy(false);
+    if (ok) { setChgOpen(null); alert(`修改申请已提交, 等「${approver}」同意后才写入。`); }
+  };
+  // 对方同意 → 真正入库
+  const approveChange = async (g) => {
+    const rev = revOf(g);
+    const req = rev.req;
+    if (!req || req.approver !== myEmail) return;
+    if (!confirm(`同意「${req.by}」提交的修改? 同意后新值立即写入该批次。`)) return;
+    let errMsg = "";
+    for (const [k, v] of Object.entries(req.fields || {})) {
+      const { error } = await supabase.from("shipments").update({ [k]: v }).in("id", g.rows.map(r => r.id));
+      if (error) { errMsg = error.message; break; }
+    }
+    if (!errMsg) for (const [rowId, diff] of Object.entries(req.rows || {})) {
+      const { error } = await supabase.from("shipments").update(diff).eq("id", rowId);
+      if (error) { errMsg = error.message; break; }
+    }
+    if (errMsg) { alert("写入失败: " + errMsg); return; }
+    await patchBatch(g, { review_status: "approved", reviewed_by: myEmail, reviewed_at: new Date().toISOString(), change_req: null });
+    load();
+  };
+  // 对方拒绝 → 改动作废, 保留原值
+  const rejectChange = async (g) => {
+    const rev = revOf(g);
+    if (!rev.req || rev.req.approver !== myEmail) return;
+    if (!confirm(`拒绝「${rev.req.by}」的修改申请? 该批保持原值(已复核状态)。`)) return;
+    await patchBatch(g, { review_status: "approved", change_req: null });
+  };
   // —— 批次级录入: 点合并格 → 输入 → 失焦入待提交 → 底部确认提交 → 输密码 → 整批写库 ——
   const [bEditKey, setBEditKey] = useState(null);
   const [bVal, setBVal] = useState("");
@@ -1852,6 +2000,8 @@ function Shipments() {
   const bPendingCount = Object.keys(bPending).length;
   const openBatchCell = (g, c) => {
     if (!canEdit) return;
+    // 已复核/待同意 批次的金额字段: 不能直接改 → 走「申请修改」
+    if (lockBatchField(g, c.k)) { openChange(g); return; }
     const v = batchVal(g, c.k);
     setBVal(v === null ? "" : String(v));
     setBEditKey(`${g.key}|${c.k}`);
@@ -1866,25 +2016,30 @@ function Shipments() {
     const same = (val === null && (oldV === null || oldV === undefined)) || String(val) === String(oldV === null ? "" : oldV);
     setBEditKey(null);
     if (same) { setBPending(p => { const n = { ...p }; delete n[key]; return n; }); return; }
-    setBPending(p => ({ ...p, [key]: { key, field: c.k, label: c.l, val, oldV, ty: c.ty, ids: g.rows.map(r => r.id), batchName: batchVal(g, "ship_batch") || "(无批次)" } }));
+    setBPending(p => ({ ...p, [key]: { key, groupKey: g.key, field: c.k, label: c.l, val, oldV, ty: c.ty, ids: g.rows.map(r => r.id), batchName: batchVal(g, "ship_batch") || "(无批次)" } }));
   };
   const writeBatchAll = async () => {
     const list = Object.values(bPending);
     if (!list.length) return;
     let errMsg = "";
     const done = [];
-    for (const it of list) {
-      const { error } = await supabase.from("shipments").update({ [it.field]: it.val }).in("id", it.ids);
+    // 按批次聚合: 一次 update 写整批 (字段 + 录入人; 非金额字段改动会把该批打回「待复核」)
+    const byGroup = {};
+    list.forEach(it => { (byGroup[it.groupKey] = byGroup[it.groupKey] || []).push(it); });
+    for (const [gkey, items] of Object.entries(byGroup)) {
+      const g = batches.find(x => x.key === gkey);
+      if (!g) continue;
+      const patch = {};
+      items.forEach(it => { patch[it.field] = it.val; });
+      const touchedNonMoney = items.some(it => !LOCK_BATCH_FIELDS.includes(it.field));
+      Object.assign(patch, touchedNonMoney ? ownerPatch(g) : { batch_owner: myEmail, batch_owner_at: new Date().toISOString() });
+      const ids = items[0].ids;
+      const { error } = await writeShip(patch, ids);
       if (error) { errMsg = error.message; continue; }
-      done.push(it);
+      done.push(...items);
+      setRows(prev => prev.map(r => ids.includes(r.id) ? { ...r, ...patch } : r));
     }
-    if (done.length) {
-      setRows(prev => prev.map(r => {
-        const hit = done.find(o => o.ids.includes(r.id));
-        return hit ? { ...r, [hit.field]: hit.val } : r;
-      }));
-      setBPending(p => { const n = { ...p }; done.forEach(o => delete n[o.key]); return n; });
-    }
+    setBPending(p => { const n = { ...p }; done.forEach(o => delete n[o.key]); return n; });
     setBPwdOpen(false); setBPwd(""); setBPwdErr("");
     if (errMsg) alert("部分保存失败: " + errMsg);
   };
@@ -1894,6 +2049,16 @@ function Shipments() {
     writeBatchAll();
   };
   const discardBatchAll = () => { setBPending({}); setBPwdOpen(false); setBPwd(""); setBPwdErr(""); };
+
+  // 待我处理: 财务专员待复核的批次 + 别人申请要我同意的批次 (KK 2026-09-18)
+  const isMyTodo = (g) => {
+    const rev = revOf(g);
+    if (canReview && rev.status === "pending") return true;
+    return rev.status === "change_requested" && !!(rev.req && rev.req.approver === myEmail);
+  };
+  const myTodoCount = batches.filter(isMyTodo).length;
+  const [onlyMine, setOnlyMine] = useState(false);
+  const shownBatches = onlyMine ? batches.filter(isMyTodo) : batches;
 
   // 汇总: 各店铺发货数 + 数量合计 + 到仓成本
   const summary = useMemo(() => {
@@ -1935,6 +2100,10 @@ function Shipments() {
 
   if (shipRole === null) return <div style={{ color: C.faint, padding: 40 }}>加载中…</div>;
 
+  // 编辑弹窗里: 若该行所属批次已复核 → 金额字段只读, 提示走「申请修改」
+  const gEdit = editShip ? batchOfRow(editShip.id) : null;
+  const lockEdit = !!gEdit && isLocked(gEdit);
+
   return (
     <div>
       {/* 顶部 */}
@@ -1969,6 +2138,18 @@ function Shipments() {
           <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
             {rows.length} 条{filterBatch.length ? ` · 已选 ${filterBatch.length} 个批次` : ""} · 共 {batches.length} 批
           </span>
+          {/* 待我处理: 待复核(夏蕾) / 待我同意(任何人都可能) */}
+          {(myTodoCount > 0 || onlyMine) && (
+            <span onClick={() => setOnlyMine(v => !v)} title="只看需要我处理的批次"
+              style={{
+                fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 6, padding: "4px 10px",
+                border: `1px solid ${myTodoCount ? "#d9a441" : C.line}`,
+                background: onlyMine ? "#d9a44118" : "transparent",
+                color: myTodoCount ? "#d9a441" : C.faint,
+              }}>
+              待我处理 {myTodoCount}{onlyMine ? " · 只看这些" : ""}
+            </span>
+          )}
         </div>
       </div>
 
@@ -2000,7 +2181,7 @@ function Shipments() {
       {/* 表格: 按批次分组, 批次级列整批合并显示一个值 */}
       {batches.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "auto" }}>
-          <div style={{ minWidth: 2352, padding: "0 6px 4px" }}>
+          <div style={{ minWidth: 2488, padding: "0 6px 4px" }}>
             <div style={{ display: "grid", gridTemplateColumns: GRID_T, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2, margin: "0 -6px" }}>
               {BCOLS.map(c => (
                 <div key={c.k} title={c.t === "batch" ? "批次级字段: 点合并格按批次修改" : (c.t === "sum" ? "自动 = 本批次各行货值之和" : "")}
@@ -2009,7 +2190,7 @@ function Shipments() {
                 </div>
               ))}
             </div>
-            {batches.map(g => {
+            {shownBatches.map(g => {
               const N = g.rows.length;
               // 逐行告警 (超 65 天缺上架字段 / 超 14 天缺费用物流字段)
               const rowWarn = g.rows.map(r => {
@@ -2031,22 +2212,65 @@ function Shipments() {
                 }}>
                   {/* 批次级列: 跨整批 */}
                   {BATCH_COLS.map(c => {
+                    // 「复核」列: 状态 + 双人确认入口 (KK 2026-09-18)
+                    if (c.k === "review") {
+                      const rev = revOf(g);
+                      const short = (e) => String(e || "").split("@")[0] || "?";
+                      const mine = !!(rev.req && rev.req.approver === myEmail);
+                      const btn = { fontSize: 10, padding: "2px 8px", borderRadius: 5, cursor: "pointer", border: "1px solid", background: "transparent" };
+                      return (
+                        <div key={c.k} style={{
+                          gridColumn: colIdx(c.k), gridRow: `span ${N}`, padding: "6px 8px",
+                          borderRight: `1px solid ${C.line}`, display: "flex", flexDirection: "column",
+                          gap: 3, justifyContent: "center", alignItems: "flex-start",
+                        }}>
+                          {rev.status === "pending" && <span style={{ fontSize: 11, color: C.sub }}>待复核</span>}
+                          {rev.status === "approved" && (
+                            <>
+                              <span style={{ fontSize: 11, color: "#4db6a4", fontWeight: 600 }}>✓ 已复核</span>
+                              <span style={{ fontSize: 10, color: C.faint }}>{short(rev.by)} {fmtAt(rev.at)}</span>
+                            </>
+                          )}
+                          {rev.status === "change_requested" && rev.req && (
+                            <>
+                              <span style={{ fontSize: 11, color: "#d9a441", fontWeight: 600 }}>待同意</span>
+                              <span style={{ fontSize: 10, color: C.faint, lineHeight: 1.4 }}>
+                                {short(rev.req.by)} 申请<br />等 {short(rev.req.approver)}
+                              </span>
+                            </>
+                          )}
+                          {rev.status === "pending" && canReview && (
+                            <button onClick={() => doReview(g)} style={{ ...btn, borderColor: "#4db6a4", color: "#4db6a4", fontWeight: 600 }}>复核</button>
+                          )}
+                          {rev.status === "approved" && canEdit && (
+                            <button onClick={() => openChange(g)} style={{ ...btn, borderColor: C.line, color: C.sub }}>申请修改</button>
+                          )}
+                          {rev.status === "change_requested" && mine && (
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button onClick={() => approveChange(g)} style={{ ...btn, borderColor: "#4db6a4", color: "#4db6a4", fontWeight: 600 }}>同意</button>
+                              <button onClick={() => rejectChange(g)} style={{ ...btn, borderColor: "#c05b52", color: "#e0857a" }}>拒绝</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
                     const key = `${g.key}|${c.k}`;
                     const editing = bEditKey === key;
                     const v = batchVal(g, c.k);
                     const changed = !!bPending[key];
+                    const locked = lockBatchField(g, c.k);
                     return (
                       <div key={c.k}
                         onClick={() => !editing && openBatchCell(g, c)}
-                        title={canEdit ? (editing ? "" : "点一下按整批修改") : ""}
+                        title={!canEdit ? "" : (editing ? "" : (locked ? "已复核 · 点这里发起修改申请(需对方同意)" : "点一下按整批修改"))}
                         style={{
                           gridColumn: colIdx(c.k), gridRow: `span ${N}`,
-                          display: "flex", alignItems: "center",
+                          display: "flex", alignItems: "center", gap: 4,
                           padding: "6px", borderRight: `1px solid ${C.line}`,
                           cursor: canEdit && !editing ? "pointer" : "default",
-                          background: changed ? "#d9a44118" : "transparent",
+                          background: changed ? "#d9a44118" : (locked ? "#5b667010" : "transparent"),
                           boxShadow: changed ? "inset 0 0 0 1px #d9a441" : "none",
-                          fontSize: c.k === "ship_batch" ? 10 : 11, color: c.k === "ship_batch" ? C.sub : C.ink,
+                          fontSize: c.k === "ship_batch" ? 10 : 11, color: c.k === "ship_batch" ? C.sub : (locked ? C.sub : C.ink),
                           fontFamily: "inherit", textAlign: "left", overflow: "hidden",
                         }}>
                         {editing ? (
@@ -2055,7 +2279,12 @@ function Shipments() {
                             onBlur={() => commitBatchCell(g, c)}
                             onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setBEditKey(null); } }}
                             style={{ width: "100%", padding: "5px 6px", background: C.bg, border: `1px solid ${C.brand}`, borderRadius: 5, color: C.ink, fontSize: 11, outline: "none" }} />
-                        ) : (v === null || v === undefined || v === "" ? <span style={{ color: C.faint }}>—</span> : String(v))}
+                        ) : (
+                          <>
+                            {locked && <span title="已复核" style={{ fontSize: 10, color: "#d9a441" }}>🔒</span>}
+                            {v === null || v === undefined || v === "" ? <span style={{ color: C.faint }}>—</span> : String(v)}
+                          </>
+                        )}
                       </div>
                     );
                   })}
@@ -2077,6 +2306,8 @@ function Shipments() {
                       borderRight: `1px solid ${C.line}`, borderTop: ri ? `1px solid ${C.line}` : "none",
                       fontSize: 11, color: C.ink, display: "flex", alignItems: "center", overflow: "hidden",
                       whiteSpace: "nowrap", textOverflow: "ellipsis",
+                      // 已复核批次的金额列: 变暗 + 提示需双人确认 (KK 2026-09-18)
+                      ...(lockRowField(g, k) ? { opacity: 0.55, background: "#5b667010" } : {}),
                     });
                     return ROW_COLS.map(c => {
                       if (c.k === "product_name") return (
@@ -2190,12 +2421,81 @@ function Shipments() {
         </div>
       )}
 
+      {/* 修改申请弹窗: 已复核批次的金额字段要改 → 提交申请, 等对方同意才入库 */}
+      {chgOpen && (
+        <div onClick={() => setChgOpen(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 122 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 720, maxHeight: "86vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
+              发起修改申请 · 批次「{batchVal(chgOpen, "ship_batch") || "(无批次)"}」
+            </div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14, lineHeight: 1.7 }}>
+              该批次已复核, 金额字段的改动需要<b>双方确认</b>才生效。<br />
+              提交后由「另一方」<b style={{ color: C.brand }}>{canReview ? (revOf(chgOpen).owner || "(无录入人记录)") : FINANCE_EMAIL}</b> 点「同意」后才写入; 被拒绝则本次改动作废。<br />
+              只填需要改的字段, 空着 = 不变。
+            </div>
+
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>批次级金额 (整批生效)</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+              {LOCK_BATCH_FIELDS.map(k => (
+                <div key={k}>
+                  <div style={{ fontSize: 11, color: C.faint, marginBottom: 4 }}>
+                    {SHIP_LABEL[k] || k}
+                    <span style={{ marginLeft: 4 }}>(现 {(() => { const v = batchVal(chgOpen, k); return v === null || v === undefined || v === "" ? "—" : String(v); })()})</span>
+                  </div>
+                  <input value={chgForm.batch[k] ?? ""} inputMode="decimal"
+                    onChange={e => setChgForm(s => ({ ...s, batch: { ...s.batch, [k]: e.target.value } }))}
+                    style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 6 }}>行级金额 (按行生效)</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px" }}>
+              {chgOpen.rows.map((r, ri) => (
+                <div key={r.id} style={{ paddingBottom: ri ? 10 : 0, marginBottom: ri ? 10 : 0, borderBottom: ri ? `1px solid ${C.line}` : "none" }}>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 6 }}>
+                    #{ri + 1} {r.product_name || "—"} <span style={{ color: C.faint }}>{r.asin || ""}</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
+                    {LOCK_ROW_FIELDS.map(k => (
+                      <div key={k}>
+                        <div style={{ fontSize: 10, color: C.faint, marginBottom: 3 }}>{SHIP_LABEL[k] || k}</div>
+                        <input value={(chgForm.rows[r.id] || {})[k] ?? ""} inputMode="decimal"
+                          onChange={e => setChgForm(s => ({ ...s, rows: { ...s.rows, [r.id]: { ...(s.rows[r.id] || {}), [k]: e.target.value } } }))}
+                          style={{ width: "100%", padding: "5px 7px", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 5, color: C.ink, fontSize: 11, outline: "none" }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button onClick={() => setChgOpen(null)} disabled={chgBusy}
+                style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>
+                取消
+              </button>
+              <button onClick={submitChange} disabled={chgBusy}
+                style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: chgBusy ? "wait" : "pointer", fontWeight: 600, opacity: chgBusy ? 0.6 : 1 }}>
+                {chgBusy ? "提交中…" : "提交修改申请"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 编辑弹窗 */}
       {editShip && (
         <div onClick={() => setEditShip(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 620, maxHeight: "85vh", overflow: "auto" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>编辑发货记录</div>
             <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>带 * 为必填 · 数值留空会清空 · 保存后表格即时更新 · 灰色虚线框 = 批次级字段(表格上点合并格改, 整批生效)</div>
+            {lockEdit && (
+              <div style={{ background: "#d9a44118", border: "1px solid #d9a441", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 11, color: "#d9a441", lineHeight: 1.7 }}>
+                ⚠️ 该批次<b>已复核</b>: 金额字段（数量 / 采购价 / 货值 / 分摊费 / 到仓价）已锁定, 需双方确认 —— 请在表格「复核」列点「申请修改」。<br />
+                这里仍可改非金额字段（名称/ASIN/尾程单号/上架日期/上架数量等）, 改完该批会回到「待复核」。
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               {SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).map(k => (
                 <div key={k}>
@@ -2206,6 +2506,9 @@ function Shipments() {
                   {SHIP_BATCH_FIELDS.includes(k) ? (
                     <input value={shipForm[k] || ""} disabled title="批次级字段: 请在表格上点合并格修改, 整批生效"
                       style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 6, color: C.faint, fontSize: 12, outline: "none" }} />
+                  ) : (lockEdit && LOCK_ROW_FIELDS.includes(k)) ? (
+                    <input value={shipForm[k] || ""} disabled title="该批次已复核: 金额字段需双方确认, 请在表格「复核」列点「申请修改」"
+                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px dashed #d9a441`, borderRadius: 6, color: C.sub, fontSize: 12, outline: "none" }} />
                   ) : SHIP_DATE.includes(k) ? (
                     <input type="date" value={shipForm[k] || ""} onChange={(e) => setShipForm(s => ({ ...s, [k]: e.target.value }))}
                       style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
