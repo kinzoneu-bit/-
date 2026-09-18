@@ -588,7 +588,7 @@ export default function App() {
     <div style={{ background: C.bg, color: C.ink, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif" }}>
       <style>{`
         * { box-sizing: border-box; }
-        .tab { padding:8px 16px; border-radius:8px; cursor:pointer; font-size:13px; letter-spacing:.02em; border:1px solid transparent; }
+        .tab { padding:5px 8px; border-radius:6px; cursor:pointer; font-size:12px; letter-spacing:0; border:1px solid transparent; white-space:nowrap; }
         .tab:hover { background:${C.panel2}; }
         .cell:hover { background:${C.panel2}; }
         .prow:hover { background:${C.panel2}; cursor:pointer; }
@@ -607,24 +607,24 @@ export default function App() {
         </div>
       </div>
 
-      {/* tabs — 自动换行: Tab 多了不能挤到屏幕外 (KK 2026-09-18: fr 看不到最后两个 Tab) */}
-      <div style={{ display: "flex", gap: 6, rowGap: 6, flexWrap: "wrap", padding: "14px 24px 0" }}>
+      {/* tabs — 紧凑单行 (KK 2026-09-18: 压缩间距, 尽量一行; flexWrap 仅作兜底) */}
+      <div style={{ display: "flex", gap: 4, rowGap: 4, flexWrap: "wrap", padding: "12px 18px 0" }}>
         {[
           // 产品侧 Tab (类目/链接/监控): 财务专员不需要, 全部隐藏 — KK 2026-09-18
-          ...(curRole === "finance" ? [] : [["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"]]),
+          ...(curRole === "finance" ? [] : [["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "跨站点开发"], ["progress", "链接进度"], ["score", "链接评分"], ["track", "日级跟进"], ["asinlife", "ASIN"], ["adanalysis", "广告分析"]]),
           ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
           // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹/财务专员 — 2026-09-18 KK 定
-          ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品月度订单统计"]] : []),
+          ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品统计"]] : []),
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 — 2026-09-18 KK 定
-          ...(["admin", "cd_supplier", "cd_procurement", "finance"].includes(curRole) ? [["opsfee", "店铺运维费用"]] : []),
+          ...(["admin", "cd_supplier", "cd_procurement", "finance"].includes(curRole) ? [["opsfee", "运维费用"]] : []),
           // 店铺其他费用: 全部成员 — 2026-09-17 KK 定
-          ["storeother", "店铺其他费用"],
+          ["storeother", "其他费用"],
           // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹 + 财务专员) — KK 2026-09-16/18 定
-          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["storemonthly", "店铺月度核算"]] : []),
+          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["storemonthly", "月度核算"]] : []),
           // 财务核算: admin + 成都采购(黄丹) + 财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["finance", "财务核算"]] : []),
           // 办公室费用明细: 管理层 (admin + 法国成员 + 成都采购 黄丹 + 财务专员) — 2026-09-17/18 KK 定
-          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用明细"]] : [])
+          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用"]] : [])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
