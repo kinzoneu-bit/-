@@ -1,22 +1,50 @@
 -- ============================================================
--- 黄丹(cd_procurement) 三店数据权限 · RLS 收窄
--- KK 2026-09-18 定: 黄丹在所有「按店铺维度」的业务表里, 只能看/只能写
---   「飞鸟 / 野趣 / 屿阔」三家的数据; 其余店铺(俊业/乾霖/胤顺)对她完全不可见。
--- 涉及表:
---   shipments            发货记录
---   inventory            库存记录
---   opsfee_monthly       店铺运维费用
---   store_monthly_costs  店铺月度核算 (含共享键 __shared__ —— 三家共享的人工/场地)
---   store_other_expense  店铺其他费用
---   finance_daily_sales  财务核算 · 订单量与营业额
---   finance_cashflow     财务核算 · 现金流
--- 实现方式: 用 AS RESTRICTIVE 策略「叠加收窄」——
---   PostgreSQL 会把 RESTRICTIVE 策略与已有的 PERMISSIVE 策略做 AND,
---   因此不需要改动/删除任何现存策略, 也不会影响其他角色。
--- 另外补三条 PERMISSIVE 策略: 黄丹的库存写权限 + 财务核算两张表的读写权限
---   (写也放行, 但同样被三店 RESTRICTIVE 策略框住, 写不了别的店铺)
+-- ① 财务核算 · 店铺口径统一为中文店铺名 + 老英文数据清理
+-- ② 黄丹(cd_procurement) 三店数据权限 · RLS 收窄 + 写权限
+-- KK 2026-09-18 定, 一个文件跑一次全搞定
 -- 在 Supabase → SQL Editor 整段粘贴执行, 幂等可重复跑
 -- ============================================================
+
+
+-- ################################################################
+-- ① 财务核算: store 统一为 6 家中文店铺, 清掉早期英文值
+--   (kila / wild / Vercoryx / woof / kinzon / 未归属 —— 前端下拉已是中文, 老值查不到)
+-- ################################################################
+
+-- ①-1 先看影响范围 (看一眼结果, 确认要删多少)
+SELECT 'finance_daily_sales' AS tbl, store, COUNT(*) AS cnt
+FROM finance_daily_sales GROUP BY store ORDER BY cnt DESC;
+SELECT 'finance_cashflow' AS tbl, store, COUNT(*) AS cnt
+FROM finance_cashflow GROUP BY store ORDER BY cnt DESC;
+
+-- ①-2 清理: 删除 store 不在中文 6 家内的记录
+DELETE FROM finance_daily_sales
+WHERE store IS NULL
+   OR store NOT IN ('飞鸟', '野趣', '屿阔', '俊业', '乾霖', '胤顺');
+
+DELETE FROM finance_cashflow
+WHERE store IS NULL
+   OR store NOT IN ('飞鸟', '野趣', '屿阔', '俊业', '乾霖', '胤顺', '总公司');
+
+
+-- ################################################################
+-- ② 黄丹三店数据权限
+--   黄丹在所有「按店铺维度」的业务表里, 只能读/只能写
+--   「飞鸟 / 野趣 / 屿阔」三家的数据; 其余店铺(俊业/乾霖/胤顺)对她完全不可见。
+--   涉及表:
+--     shipments            发货记录
+--     inventory            库存记录
+--     opsfee_monthly       店铺运维费用
+--     store_monthly_costs  店铺月度核算 (含共享键 __shared__ —— 三家共享的人工/场地)
+--     store_other_expense  店铺其他费用
+--     finance_daily_sales  财务核算 · 订单量与营业额
+--     finance_cashflow     财务核算 · 现金流
+--   实现方式: 用 AS RESTRICTIVE 策略「叠加收窄」——
+--     PostgreSQL 会把 RESTRICTIVE 策略与已有的 PERMISSIVE 策略做 AND,
+--     因此不需要改动/删除任何现存策略, 也不会影响其他角色。
+--   另外补三条 PERMISSIVE 策略: 黄丹的库存写权限 + 财务核算两张表的读写权限
+--     (写也放行, 但同样被三店 RESTRICTIVE 策略框住, 写不了别的店铺)
+-- ################################################################
 
 -- ---------- 0. 判定辅助函数: 当前登录用户是否「黄丹(成都·采购)」 ----------
 CREATE OR REPLACE FUNCTION public.is_cd_procurement()
@@ -103,9 +131,17 @@ CREATE POLICY sc_cf_store ON finance_cashflow AS RESTRICTIVE FOR ALL TO authenti
   USING       (NOT public.is_cd_procurement() OR store IN ('飞鸟', '野趣', '屿阔'))
   WITH CHECK  (NOT public.is_cd_procurement() OR store IN ('飞鸟', '野趣', '屿阔'));
 
+
 -- ============================================================
--- 校验: 应看到 7 条 sc_* (RESTRICTIVE) + inv_write_role + fin_write_procurement + cf_write_procurement
+-- 校验
 -- ============================================================
+-- 校验 A: 财务核算两张表应只剩中文店铺
+SELECT 'finance_daily_sales' AS tbl, store, COUNT(*) AS cnt
+FROM finance_daily_sales GROUP BY store ORDER BY store;
+SELECT 'finance_cashflow' AS tbl, store, COUNT(*) AS cnt
+FROM finance_cashflow GROUP BY store ORDER BY store;
+
+-- 校验 B: 应看到 7 条 sc_* (RESTRICTIVE) + inv_write_role + fin_write_procurement + cf_write_procurement
 SELECT tablename, policyname, cmd, permissive
 FROM pg_policies
 WHERE policyname LIKE 'sc\_%' OR policyname IN ('inv_write_role', 'fin_write_procurement', 'cf_write_procurement')
