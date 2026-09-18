@@ -3408,24 +3408,117 @@ function OrderRecords() {
   );
 }
 
-// ---------------- ASIN 生命周期 (空骨架, 待 KK 提供内容) ----------------
-// 2026-09-16 KK 要求新增, 位置: 链接日级跟进 / 库存统计 之后; 页面内容由 KK 后续指定
+// ---------------- ASIN 生命周期 ----------------
+// KK 2026-09-18 定: 选一个 ASIN → 下面四个板块
+//   ① 上架日期 · 当下排名   ② 关键词排名   ③ 广告数据   ④ 盈利情况
+// 数据来源待接 SP-API, 当前只落结构 (表头 + 空态), 不做录入/不建表
 function AsinLifecycle() {
+  const [asin, setAsin] = useState("");
+  const [store, setStore] = useState("");
+  const [site, setSite] = useState("");
+  const SITES = ["FR", "DE", "UK", "IT", "ES", "BE", "NL", "SE"];
+  const inputStyle = { fontSize: 12, color: C.ink, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 10px", outline: "none" };
+
+  // 空板块骨架: 标题 + 字段表头 + 空态
+  const Block = ({ idx, title, sub, cols, note, wide }) => (
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${C.line}` }}>
+        <span style={{ fontSize: 11, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{idx}</span>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{title}</span>
+        <span style={{ fontSize: 11, color: C.sub }}>{sub}</span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 6px" }}>尚未接入</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <div style={{ display: "grid", gridTemplateColumns: cols.map(w => w.w).join(" "), background: "#1f3a68", minWidth: wide ? 1080 : 720 }}>
+          {cols.map((c, i) => (
+            <div key={i} style={{ padding: "8px 10px", fontSize: 11, color: "#fff", fontWeight: 600, whiteSpace: "nowrap" }}>{c.l}</div>
+          ))}
+        </div>
+        <div style={{ padding: "30px 10px", textAlign: "center", color: C.faint, fontSize: 12, lineHeight: 1.9 }}>
+          {note}<br />
+          <span style={{ fontSize: 11 }}>字段结构已就绪 · 等 SP-API 凭证接入后自动取数</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const BLOCKS = [
+    {
+      idx: "①", title: "上架日期 · 当下排名", sub: "每个 ASIN 一行", wide: true,
+      cols: [
+        { l: "ASIN", w: "150px" }, { l: "SKU", w: "120px" }, { l: "产品名 / 款式", w: "170px" },
+        { l: "店铺", w: "80px" }, { l: "站点", w: "70px" }, { l: "上架日期", w: "100px" },
+        { l: "在售天数", w: "85px" }, { l: "当前 BSR", w: "90px" }, { l: "上期 BSR", w: "90px" },
+        { l: "排名变化", w: "85px" }, { l: "更新日期", w: "100px" },
+      ],
+      note: "在售天数 / 排名变化 由系统自动计算",
+    },
+    {
+      idx: "②", title: "关键词排名", sub: "一个 ASIN 可有多行关键词", wide: true,
+      cols: [
+        { l: "关键词", w: "220px" }, { l: "自然排名", w: "90px" }, { l: "广告排名", w: "90px" },
+        { l: "上期排名", w: "90px" }, { l: "变化", w: "80px" }, { l: "月搜索量", w: "100px" },
+        { l: "统计日期", w: "100px" },
+      ],
+      note: "变化 = 上期排名 − 本期排名 (正数=上升)",
+    },
+    {
+      idx: "③", title: "广告数据", sub: "按周 / 按月汇总", wide: true,
+      cols: [
+        { l: "统计周期", w: "110px" }, { l: "曝光量", w: "90px" }, { l: "点击量", w: "85px" },
+        { l: "点击率", w: "80px" }, { l: "广告花费", w: "100px" }, { l: "广告订单量", w: "95px" },
+        { l: "广告销售额", w: "105px" }, { l: "ACOS", w: "80px" }, { l: "CPC", w: "80px" },
+      ],
+      note: "点击率 / ACOS / CPC 由系统自动计算 (花费与销售额按站点币种)",
+    },
+    {
+      idx: "④", title: "盈利情况", sub: "按站点币种", wide: true,
+      cols: [
+        { l: "售价", w: "90px" }, { l: "到仓成本", w: "95px" }, { l: "头程分摊", w: "95px" },
+        { l: "亚马逊佣金", w: "105px" }, { l: "FBA 配送费", w: "105px" }, { l: "广告花费分摊", w: "105px" },
+        { l: "毛利", w: "95px" }, { l: "毛利率", w: "85px" }, { l: "累计销量", w: "90px" },
+        { l: "累计利润", w: "100px" },
+      ],
+      note: "毛利 = 售价 − 到仓成本 − 头程分摊 − 佣金 − FBA − 广告分摊; 累计利润 = 毛利 × 累计销量",
+    },
+  ];
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>ASIN 生命周期</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            单 ASIN 从开发到售完的全周期视图 · 待 KK 确认口径与数据源
+            选一个 ASIN 看全周期: 上架与排名 · 关键词排名 · 广告数据 · 盈利情况
           </div>
         </div>
         <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>结构就绪 · 待接 SP-API</span>
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        ASIN 生命周期 · 待 KK 提供内容 (字段 / 口径 / 数据源)
+
+      {/* 顶部筛选: 选 ASIN / 店铺 / 站点 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+        <span style={{ fontSize: 12, color: C.sub }}>ASIN</span>
+        <input value={asin} onChange={e => setAsin(e.target.value.toUpperCase())} placeholder="例: B0FNWSZZH7"
+          style={{ ...inputStyle, width: 190, fontFamily: "monospace", letterSpacing: ".03em" }} />
+        <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>店铺</span>
+        <select value={store} onChange={e => setStore(e.target.value)} style={{ ...inputStyle, width: 120 }}>
+          <option value="">全部店铺</option>
+          {OPS_FIXED_STORES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: C.sub, marginLeft: 4 }}>站点</span>
+        <select value={site} onChange={e => setSite(e.target.value)} style={{ ...inputStyle, width: 110 }}>
+          <option value="">全部站点</option>
+          {SITES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>
+          查询功能待数据接入后启用
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gap: 12 }}>
+        {BLOCKS.map(b => <Block key={b.idx} {...b} />)}
       </div>
     </div>
   );
