@@ -490,11 +490,17 @@ export default function App() {
   const [siteEvals, setSiteEvals] = useState([]);
   // 当前用户角色 (财务 Tab 仅 admin 可见)
   const [curRole, setCurRole] = useState(null);
+  // 财务专员只有一个板块: 发货记录 → 办公室费用明细 (产品侧 Tab 全部隐藏) — KK 2026-09-18
+  const FINANCE_TAB_KEYS = ["shipments", "inventory", "orderrecords", "opsfee", "storeother", "ordersummary", "storemonthly", "finance", "officeexpense"];
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data && data.user) setCurRole(getUserRole(data.user.email || ""));
     });
   }, []);
+  // 角色取回后, 若当前 Tab 不在该角色可见范围内 → 落到第一个可见 Tab
+  useEffect(() => {
+    if (curRole === "finance" && !FINANCE_TAB_KEYS.includes(tab)) setTab("shipments");
+  }, [curRole, tab]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
@@ -572,7 +578,10 @@ export default function App() {
 
       {/* tabs */}
       <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
-        {[["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
+        {[
+          // 产品侧 Tab (类目/链接/监控): 财务专员不需要, 全部隐藏 — KK 2026-09-18
+          ...(curRole === "finance" ? [] : [["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"]]),
+          ["shipments", "发货记录"], ["inventory", "库存统计"], ["orderrecords", "订单记录"],
           // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹/财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品月度订单统计"]] : []),
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 — 2026-09-18 KK 定
