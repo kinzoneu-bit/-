@@ -607,8 +607,8 @@ export default function App() {
         </div>
       </div>
 
-      {/* tabs */}
-      <div style={{ display: "flex", gap: 6, padding: "14px 24px 0" }}>
+      {/* tabs — 自动换行: Tab 多了不能挤到屏幕外 (KK 2026-09-18: fr 看不到最后两个 Tab) */}
+      <div style={{ display: "flex", gap: 6, rowGap: 6, flexWrap: "wrap", padding: "14px 24px 0" }}>
         {[
           // 产品侧 Tab (类目/链接/监控): 财务专员不需要, 全部隐藏 — KK 2026-09-18
           ...(curRole === "finance" ? [] : [["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "存量产品跨站点开发"], ["progress", "链接制作进度"], ["score", "链接评分"], ["track", "链接日级跟进"], ["asinlife", "ASIN生命周期"], ["adanalysis", "广告分析"]]),
