@@ -3925,6 +3925,7 @@ function OfficeExpense() {
           setErr("");
           setList((data || []).map(r => ({
             key: `id:${r.id}`, id: r.id, date: r.exp_date || "",
+            region: r.region || "",
             item: r.item || "",
             amount: (r.amount === null || r.amount === undefined) ? "" : Number(r.amount),
           })));
@@ -3942,7 +3943,7 @@ function OfficeExpense() {
     const today = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
     const def = today.slice(0, 7) === ym ? today : `${ym}-01`;
     const key = `new:${Date.now()}`;
-    setList(p => [...p, { key, id: null, date: def, item: "", amount: "" }]);
+    setList(p => [...p, { key, id: null, date: def, region: "", item: "", amount: "" }]);
     setDirty(p => ({ ...p, [key]: true }));
   };
   const delRow = (r) => {
@@ -3976,14 +3977,11 @@ function OfficeExpense() {
       if (error) errMsg = error.message;
     }
     if (!errMsg) for (const r of pendingUpd) {
-      const { error } = await supabase.from("office_expense")
-        .update({ exp_date: r.date, item: String(r.item).trim(), amount: Number(r.amount || 0) })
-        .eq("id", r.id);
+      const { error } = await saveRow({ exp_date: r.date, region: String(r.region || "").trim() || null, item: String(r.item).trim(), amount: Number(r.amount || 0) }, r.id);
       if (error) { errMsg = error.message; break; }
     }
     if (!errMsg) for (const r of pendingNew) {
-      const { error } = await supabase.from("office_expense")
-        .insert({ exp_date: r.date, item: String(r.item).trim(), amount: Number(r.amount || 0) });
+      const { error } = await saveRow({ exp_date: r.date, region: String(r.region || "").trim() || null, item: String(r.item).trim(), amount: Number(r.amount || 0) }, null);
       if (error) { errMsg = error.message; break; }
     }
     setSaving(false); setPwdOpen(false); setPwd(""); setPwdErr("");
@@ -3992,7 +3990,20 @@ function OfficeExpense() {
     load();
   };
 
-  const OEC_GRID = "56px 170px minmax(320px, 1fr) 170px 70px";
+  // 写单行: 若 region 列不存在(还没跑 sql/office_expense_region.sql), 自动剥掉 region 重试一次
+  const saveRow = async (payload, id) => {
+    let res = id ? await supabase.from("office_expense").update(payload).eq("id", id)
+                 : await supabase.from("office_expense").insert(payload);
+    if (res.error && /column|schema cache|does not exist/i.test(res.error.message || "")) {
+      const rest = { ...payload }; delete rest.region;
+      res = id ? await supabase.from("office_expense").update(rest).eq("id", id)
+               : await supabase.from("office_expense").insert(rest);
+      if (!res.error) console.warn("office_expense 缺 region 列, 本次跳过区域。请跑 sql/office_expense_region.sql");
+    }
+    return res;
+  };
+
+  const OEC_GRID = "56px 150px 92px minmax(300px, 1fr) 150px 70px";   // 区域列 KK 2026-09-19
   const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78" };
   const cellInput = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
   const cellText = { padding: "10px 12px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
@@ -4003,7 +4014,7 @@ function OfficeExpense() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>办公室费用明细</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            逐条明细 · 日期 / 项目明细 / 费用(¥) · 每月独立 · {!canEdit ? "只读" : "改动改完点底部「确认提交」输密码入库"}
+            逐条明细 · 日期 / 区域(中国·法国) / 项目明细 / 费用(¥) · 每月独立 · {!canEdit ? "只读" : "改动改完点底部「确认提交」输密码入库"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
@@ -4040,6 +4051,7 @@ function OfficeExpense() {
             <div style={{ display: "grid", gridTemplateColumns: OEC_GRID, background: "#1f3a68" }}>
               <div style={{ ...th, textAlign: "center" }}>#</div>
               <div style={th}>日期</div>
+              <div style={th}>区域</div>
               <div style={th}>项目明细</div>
               <div style={{ ...th, textAlign: "right" }}>{ym} · 费用 ¥</div>
               <div style={{ ...th, borderRight: "none", textAlign: "center" }}>操作</div>
@@ -4056,6 +4068,14 @@ function OfficeExpense() {
                       <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
                         <input type="date" value={r.date} onChange={e => setField(r.key, "date", e.target.value)} style={cellInput} />
                       </div>
+                        <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                          <select value={r.region || ""} onChange={e => setField(r.key, "region", e.target.value)}
+                            title="区域: 中国 / 法国" style={cellInput}>
+                            <option value="">—</option>
+                            <option value="中国">中国</option>
+                            <option value="法国">法国</option>
+                          </select>
+                        </div>
                       <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
                         <input value={r.item} onChange={e => setField(r.key, "item", e.target.value)} placeholder="费用项目 / 明细说明"
                           title={r.item} style={cellInput} />
@@ -4073,6 +4093,7 @@ function OfficeExpense() {
                   ) : (
                     <>
                       <div style={cellText}>{r.date || "—"}</div>
+                      <div style={{ ...cellText, color: r.region ? C.ink : C.faint }}>{r.region || "—"}</div>
                       <div style={{ ...cellText, color: r.item ? C.ink : C.faint }} title={r.item}>{r.item || "—"}</div>
                       <div style={{ ...cellText, textAlign: "right", fontWeight: 600, color: r.amount === "" ? C.faint : C.ink }}>{r.amount === "" ? "—" : Number(r.amount).toFixed(2)}</div>
                       <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center" }}>—</div>
@@ -4092,6 +4113,7 @@ function OfficeExpense() {
               <div style={{ display: "grid", gridTemplateColumns: OEC_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12, fontWeight: 700 }}>
                 <div style={{ padding: "10px 8px" }} />
                 <div style={{ padding: "10px 12px", color: C.brand }}>合计</div>
+                <div style={{ padding: "10px 12px" }} />
                 <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 400 }}>{ym} 共 {list.length} 条明细</div>
                 <div style={{ padding: "10px 12px", textAlign: "right", color: C.brand }}>¥{totalSum.toFixed(2)}</div>
                 <div style={{ padding: "10px 8px" }} />
