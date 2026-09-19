@@ -19,7 +19,9 @@ const ANON = "sb_publishable_c8ceRjjLPXK1JmHU6lCKgg_ABaUaYjb";
 const ALL_STORES = ["飞鸟", "野趣", "屿阔", "俊业", "乾霖", "胤顺"];
 const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];
 const SHARE_STORE = "__shared__";
-const MONTHLY_CATS = { "网络IP费用": 88 };   // 月固定项 (没记录时用默认值)
+const MONTHLY_CATS = { "网络IP费用": 88 };
+// 运维费用页面的标准类别 (只有这些计入「各项成本」; 历史变体类别名不计入)
+const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];   // 月固定项 (没记录时用默认值)
 const MONTHLY_SITE = "月固定";
 
 const cfgPath = path.join(os.homedir(), ".kinzon-ops", "config.json");
@@ -87,7 +89,7 @@ for (const ym of months) {
   const officeTotal = officeRows.reduce((s, r) => s + Number(r.amount || 0), 0);
   const opsCost = (st) => {
     if (!opsRows.some(r => r.store === st)) return 0;
-    const eur = opsRows.filter(r => r.store === st && MONTHLY_CATS[r.category] === undefined)
+    const eur = opsRows.filter(r => r.store === st && OPS_CATS.includes(r.category) && MONTHLY_CATS[r.category] === undefined)
       .reduce((s, x) => s + Number(x.amount || 0), 0);
     const fixed = Object.entries(MONTHLY_CATS).reduce((s, [cat, def]) => {
       const rs = opsRows.filter(r => r.store === st && r.category === cat && r.site === MONTHLY_SITE);

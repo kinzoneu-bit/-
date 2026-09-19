@@ -5074,7 +5074,8 @@ function StoreMonthly() {
   // 「各项成本」= 运维费用: 欧元合计 × 汇率 + 月固定¥ (该店铺当月完全没数据则记 0)
   const opsCost = (store) => {
     if (!opsRows.some(r => r.store === store)) return 0;
-    const eur = opsRows.filter(r => r.store === store && !Object.prototype.hasOwnProperty.call(OPS_MONTHLY_CATS, r.category))
+    // 只统计运维费用页面定义的标准类别 (OPS_CATS) —— 历史遗留的变体类别名不计入, 防虚增 (KK 2026-09-19)
+    const eur = opsRows.filter(r => r.store === store && OPS_CATS.includes(r.category) && !Object.prototype.hasOwnProperty.call(OPS_MONTHLY_CATS, r.category))
       .reduce((s, x) => s + Number(x.amount || 0), 0);
     const fixed = Object.entries(OPS_MONTHLY_CATS).reduce((s, [cat, def]) => {
       const rs = opsRows.filter(r => r.store === store && r.category === cat && r.site === OPS_MONTHLY_SITE);
