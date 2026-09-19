@@ -4546,6 +4546,8 @@ const OPS_MONTHLY_CATS = { "网络IP费用": 88 };
 const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "服务订阅", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
 // 店铺口径常量 (OPS_FIXED_STORES / SHARE_GROUP / ALL_STORES / ROLE_STORES) 已提到文件顶部统一定义
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
+// 三家共享场地费: 固定 ¥3800/月, 不可调整 (KK 2026-09-19 定, 2026 年起锁死)
+const SHARED_SITE_FEE = 3800;
 // 批次配色 (发货记录 / 库存记录 共用): 每个批次一块底色, 循环取色
 const BATCH_PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
 
@@ -5102,7 +5104,7 @@ function StoreMonthly() {
   // 三家共享组的合计净利润 = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计 (自动汇总)
   const shareIncomeEntered = () => SHARE_GROUP.some(st => incomeEntered(st));
   const shareGroupProfit = () => SHARE_GROUP.reduce((s, st) => s + shopProfit(st), 0)
-    - manNum(SHARE_STORE, "人工") - manNum(SHARE_STORE, "场地")
+    - manNum(SHARE_STORE, "人工") - SHARED_SITE_FEE
     - officeTotal;
   const incomeEntered = (store) => manVal(store, "收入") !== null;
 
@@ -5237,7 +5239,16 @@ function StoreMonthly() {
                           </div>
                         );
                       }
-                      const v = manVal(SHARE_STORE, row.k);            // 人工 / 场地: 共享输入
+                      if (row.k === "场地") {                          // 场地: 固定 3800, 不可调整 (KK 2026-09-19)
+                        return (
+                          <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: 700, color: C.ink }}>
+                            ¥{SHARED_SITE_FEE.toFixed(2)}
+                            <span style={{ marginLeft: 8, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}
+                              title="三家共享场地费固定 ¥3,800/月, 不可调整 (2026 年起)">固定·不可改</span>
+                          </div>
+                        );
+                      }
+                      const v = manVal(SHARE_STORE, row.k);            // 人工: 共享输入
                       if (!canEdit) {
                         return <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>{v === null ? "—" : v.toFixed(2)}</div>;
                       }
@@ -5320,7 +5331,7 @@ function StoreMonthly() {
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
         · <b>收入</b> 按店铺手工录入<br />
         · <b>店铺其他费用</b> 由「店铺其他费用」Tab 当月按店合计自动填入 (只读, 改去明细页维护)<br />
-        · <b>人工 / 场地</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
+        · <b>场地</b> 固定 ¥3,800/月 (三家共享, 不可调整) · <b>人工</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
         · <b>办公室费用明细</b> 由「办公室费用明细」Tab 自动汇总当月 office_expense 合计, 三家合并格里只读显示(非 share 店铺仍可按店手填)<br />
         · 单店 <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用<br />
         · <b>净利润</b>: {SHARE_GROUP.join("/")} = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细<br />
