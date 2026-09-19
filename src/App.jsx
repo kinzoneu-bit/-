@@ -5304,6 +5304,16 @@ function StoreMonthly() {
                       return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: 700, color: !ok ? C.faint : (v >= 0 ? C.ink : "#e0857a") }}>{ok ? v.toFixed(2) : "—"}</div>;
                     }
                     const v = manVal(st, row.k);
+                    if (row.k === "场地") {                       // 非共享店场地同样锁定, 不可调整 (KK 2026-09-19)
+                      const vv = v === null ? 0 : Number(v);
+                      return (
+                        <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: vv ? 600 : 400, color: vv ? C.ink : C.sub }}>
+                          ¥{vv.toFixed(2)}
+                          <span style={{ marginLeft: 6, fontSize: 10, color: C.faint, border: `1px solid ${C.line}`, borderRadius: 4, padding: "0 4px" }}
+                            title="场地已锁定, 不可调整">固定·不可改</span>
+                        </div>
+                      );
+                    }
                     if (!canEdit) {
                       return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>{v === null ? "—" : v.toFixed(2)}</div>;
                     }
@@ -5331,7 +5341,7 @@ function StoreMonthly() {
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
         · <b>收入</b> 按店铺手工录入<br />
         · <b>店铺其他费用</b> 由「店铺其他费用」Tab 当月按店合计自动填入 (只读, 改去明细页维护)<br />
-        · <b>场地</b> 固定 ¥3,800/月 (三家共享, 不可调整) · <b>人工</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
+        · <b>场地</b> 全部锁定不可调整: {SHARE_GROUP.join("/")} 三家共享 ¥3,800/月, 其余店铺 ¥0 · <b>人工</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
         · <b>办公室费用明细</b> 由「办公室费用明细」Tab 自动汇总当月 office_expense 合计, 三家合并格里只读显示(非 share 店铺仍可按店手填)<br />
         · 单店 <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用<br />
         · <b>净利润</b>: {SHARE_GROUP.join("/")} = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细<br />
