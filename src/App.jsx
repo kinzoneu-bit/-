@@ -3952,6 +3952,23 @@ function OfficeExpense() {
     setDirty(p => { const n = { ...p }; delete n[r.key]; return n; });
   };
 
+  // 按「区域」归集: 中国块 → 法国块 → 未设置块 (KK 2026-09-19)
+  const regionOf = (r) => (r.region === "中国" || r.region === "法国") ? r.region : "";
+  const regionSum = (k) => list.filter(r => regionOf(r) === k).reduce((a, r) => a + Number(r.amount || 0), 0);
+  const viewRows = (() => {
+    const g = { "中国": [], "法国": [], "": [] };
+    list.forEach(r => g[regionOf(r)].push(r));
+    const out = [];
+    let idx = 0;
+    ["中国", "法国", ""].forEach(k => {
+      const arr = g[k];
+      if (!arr.length) return;
+      out.push({ head: true, key: "head:" + k, label: k === "" ? "未设置区域" : k + "公司", count: arr.length, sum: arr.reduce((a, r) => a + Number(r.amount || 0), 0) });
+      arr.forEach(r => out.push({ head: false, key: r.key, row: r, idx: ++idx }));
+    });
+    return out;
+  })();
+
   const dirtyRows = list.filter(r => dirty[r.key]);
   const pendingUpd = dirtyRows.filter(r => r.id);
   const pendingNew = dirtyRows.filter(r => !r.id && (String(r.item).trim() !== "" || String(r.amount).trim() !== ""));
@@ -4025,6 +4042,10 @@ function OfficeExpense() {
           <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "4px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
             本月合计 ¥{totalSum.toFixed(2)}
           </span>
+          <span style={{ fontSize: 11, color: C.sub, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }} title="按「区域」列归集">
+            中国公司 ¥{regionSum("中国").toFixed(2)} · 法国公司 ¥{regionSum("法国").toFixed(2)}
+            {regionSum("") > 0 ? ` · 未设置 ¥${regionSum("").toFixed(2)}` : ""}
+          </span>
           <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
           <select value={ym.slice(0, 4)} onChange={e => { setYm(`${e.target.value}-${ym.slice(5, 7)}`); }}
             style={{ padding: "6px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 12 }}>
@@ -4057,7 +4078,19 @@ function OfficeExpense() {
               <div style={{ ...th, borderRight: "none", textAlign: "center" }}>操作</div>
             </div>
 
-            {list.map((r, i) => {
+            {viewRows.map((item) => {
+              if (item.head) {
+                return (
+                  <div key={item.key} style={{ display: "grid", gridTemplateColumns: OEC_GRID, background: C.panel2, borderTop: `1px solid ${C.line}` }}>
+                    <div style={{ gridColumn: "1 / -1", padding: "6px 12px", fontSize: 11, display: "flex", alignItems: "center", gap: 10, color: item.label === "未设置区域" ? C.faint : C.ink }}>
+                      <b>{item.label}</b>
+                      <span style={{ color: C.sub }}>{item.count} 条</span>
+                      <span style={{ marginLeft: "auto", color: C.brand, fontWeight: 700 }}>小计 ¥{item.sum.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              }
+              const r = item.row, i = item.idx - 1;
               const pend = !!dirty[r.key];
               const bgc = pend ? "#d9a44118" : (i % 2 ? C.bg : "transparent");
               return (
@@ -5016,14 +5049,24 @@ function StoreMonthly() {
     Promise.all([
       scoped(supabase.from("opsfee_monthly").select("*").eq("month", month)),
       scoped(supabase.from("store_monthly_costs").select("*").eq("month", month), true),
-      supabase.from("office_expense").select("amount").gte("exp_date", offStart).lt("exp_date", offEnd),
+      supabase.from("office_expense").select("amount,region").gte("exp_date", offStart).lt("exp_date", offEnd),
       scoped(supabase.from("store_other_expense").select("store, amount").gte("exp_date", offStart).lt("exp_date", offEnd)),
     ]).then(([a, b, c, d]) => {
       if (a.error) alert("读取运维费用失败: " + a.error.message);
       if (b.error) alert("读取手工录入失败(请先建表 store_monthly_costs): " + b.error.message);
       if (c.error) console.warn("读取办公室费用明细失败(请跑 sql/create_office_expense.sql): " + c.error.message);
       if (d.error) console.warn("读取店铺其他费用失败(请跑 sql/create_store_other_expense.sql): " + d.error.message);
-      setOpsRows(a.data || []); setCostRows(b.data || []); setOfficeRows(c.data || []); setOtherRows(d.data || []); setLoaded(true);
+      setOpsRows(a.data || []); setCostRows(b.data || []); setOtherRows(d.data || []); setLoaded(true);
+      // 办公室费用: 带 region 取; 若 region 列还没建 (sql/office_expense_region.sql 未跑) → 退回只取 amount
+      if (c.error && /column|schema cache|does not exist/i.test(c.error.message || "")) {
+        supabase.from("office_expense").select("amount").gte("exp_date", offStart).lt("exp_date", offEnd)
+          .then(({ data, error }) => {
+            if (error) console.warn("读取办公室费用明细失败: " + error.message);
+            setOfficeRows(data || []);
+          });
+      } else {
+        setOfficeRows(c.data || []);
+      }
     });
   };
   useEffect(() => { if (role !== null) load(); }, [month, role]);
@@ -5042,6 +5085,10 @@ function StoreMonthly() {
   // 手工录入值 (null = 还没录)
   // 「其他」(办公室费用明细) = 当月 office_expense 合计 (自动汇总, 三家合计利润里扣一次)
   const officeTotal = officeRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  // 按区域归集 (KK 2026-09-19): 中国公司 / 法国公司 / 未设置
+  const offRegion = (k) => officeRows.filter(r => (r.region || "") === k).reduce((a, r) => a + Number(r.amount || 0), 0);
+  const offCN = offRegion("中国"), offFR = offRegion("法国");
+  const offNA = officeTotal - offCN - offFR;
   // 「店铺其他费用」= 当月 store_other_expense 按店合计 (自动汇总, 各店利润里扣各自的)
   const storeOtherTotal = (store) => otherRows.filter(r => r.store === store).reduce((s, r) => s + Number(r.amount || 0), 0);
   const manVal = (store, item) => {
@@ -5196,10 +5243,17 @@ function StoreMonthly() {
                       // 人工 / 场地 在三家合并格内可填一次
                       if (row.k === "其他") {                                // 办公室费用明细 = 当月 office_expense 合计 (自动汇总, 只读)
                         return (
-                          <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: officeTotal ? 700 : 400, color: officeTotal ? C.ink : C.faint }}>
-                            {officeTotal ? "¥" + officeTotal.toFixed(2) : "—"}
-                            <span style={{ marginLeft: 8, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}
-                              title="由「办公室费用明细」Tab 当月合计自动填入, 这里只读, 改去明细页维护">自动·明细页</span>
+                          <div key="merged" style={{ ...style, ...td, padding: "10px 10px", fontWeight: officeTotal ? 700 : 400, color: officeTotal ? C.ink : C.faint }}>
+                            <div style={{ display: "flex", alignItems: "center" }}>
+                              {officeTotal ? "¥" + officeTotal.toFixed(2) : "—"}
+                              <span style={{ marginLeft: 8, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}
+                                title="由「办公室费用明细」Tab 当月合计自动填入, 这里只读, 改去明细页维护">自动·明细页</span>
+                            </div>
+                            {(offCN > 0 || offFR > 0 || offNA > 0) && (
+                              <div style={{ fontSize: 10, fontWeight: 400, color: C.sub, marginTop: 3 }} title="按「办公室费用明细」的「区域」列归集">
+                                法国公司 ¥{offFR.toFixed(2)} · 中国公司 ¥{offCN.toFixed(2)}{offNA > 0 ? ` · 未设置 ¥${offNA.toFixed(2)}` : ""}
+                              </div>
+                            )}
                           </div>
                         );
                       }
