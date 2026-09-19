@@ -4994,7 +4994,7 @@ function StoreMonthly() {
   //   净利润   = 店铺利润 − 人工 − 场地 − 办公室费用明细
   // 注意: k = 数据库里的 item 键(保持不动, 历史数据不丢); l = 显示名
   const ROWS = [
-    { k: "收入", type: "manual" },
+    { k: "收入", type: "manual", lockAdmin: true },   // 只有 admin 可改 — KK 2026-09-19
     { k: "各项成本", type: "auto" },
     { k: "店铺其他费用", type: "storeother" },   // 自动汇总 store_other_expense 按店 (KK 2026-09-17 选 A 联动)
     { k: "店铺利润", type: "calc" },
@@ -5036,6 +5036,8 @@ function StoreMonthly() {
   // 可写: admin(你) + 成都采购(黄丹) + 财务专员(夏蕾) —— 法国成员(泺伊)只读 — KK 2026-09-18 定
   const canEdit = role === "admin" || role === "cd_procurement" || role === "finance";
   const canEditRate = canEdit;
+  // 「收入」只有 admin(KK) 可改, 其他角色一律只读 — KK 2026-09-19 定
+  const canEditIncome = role === "admin";
 
   const load = () => {
     setLoaded(false);
@@ -5214,6 +5216,7 @@ function StoreMonthly() {
                   <div style={{ ...td, textAlign: "left", fontWeight: 600, color: (isNet || isCalc) ? C.brand : C.ink }}>
                     {row.l || row.k}
                     {isAuto && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}>自动·运维费用</span>}
+                    {row.lockAdmin && <span style={{ marginLeft: 6, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }} title="仅 admin(KK) 可修改, 其他角色只读">仅 admin 可改</span>}
                     {isCalc && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="收入 − 各项成本 − 店铺其他费用">自动计算</span>}
                     {row.type === "storeother" && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="由「店铺其他费用」Tab 当月按店合计自动填入, 这里只读, 改去明细页维护">自动·明细页</span>}
                     {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title={`${SHARE_GROUP.join("/")} 三家合计: 店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细`}>自动计算</span>}
@@ -5310,8 +5313,9 @@ function StoreMonthly() {
                         </div>
                       );
                     }
-                    if (!canEdit) {
-                      return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>{v === null ? "—" : v.toFixed(2)}</div>;
+                    const rowEditable = canEdit && (!row.lockAdmin || canEditIncome);
+                    if (!rowEditable) {
+                      return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }} title={row.lockAdmin ? "收入仅 admin(KK) 可修改" : ""}>{v === null ? "—" : v.toFixed(2)}</div>;
                     }
                     return (
                       <div key={st} style={{ padding: "4px 8px" }}>
