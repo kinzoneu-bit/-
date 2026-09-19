@@ -21,7 +21,7 @@ const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];
 const SHARE_STORE = "__shared__";
 const MONTHLY_CATS = { "网络IP费用": 88 };
 // 运维费用页面的标准类别 (只有这些计入「各项成本」; 历史变体类别名不计入)
-const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];   // 月固定项 (没记录时用默认值)
+const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "服务订阅", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];   // 月固定项 (没记录时用默认值)
 const MONTHLY_SITE = "月固定";
 
 const cfgPath = path.join(os.homedir(), ".kinzon-ops", "config.json");

@@ -4543,7 +4543,7 @@ function StoreOtherExpense() {
 const OPS_SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
 const OPS_MONTHLY_SITE = "月固定";
 const OPS_MONTHLY_CATS = { "网络IP费用": 88 };
-const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
+const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "服务订阅", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
 // 店铺口径常量 (OPS_FIXED_STORES / SHARE_GROUP / ALL_STORES / ROLE_STORES) 已提到文件顶部统一定义
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
 // 批次配色 (发货记录 / 库存记录 共用): 每个批次一块底色, 循环取色
