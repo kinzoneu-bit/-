@@ -2167,6 +2167,41 @@ function Shipments() {
         </div>
       ) : null}
 
+      {/* 未上架货值 (KK 2026-09-20): 只统计还没标记「已上架」的行 */}
+      {rows.length > 0 && (() => {
+        const un = rows.filter(r => !r.listed);
+        const unAmt = un.reduce((a, r) => a + Number(r.goods_value || 0), 0);
+        const unQty = un.reduce((a, r) => a + Number(r.qty || 0), 0);
+        const allAmt = rows.reduce((a, r) => a + Number(r.goods_value || 0), 0);
+        const pct = allAmt > 0 ? (unAmt / allAmt * 100).toFixed(1) : "—";
+        const byStore = {};
+        un.forEach(r => { byStore[r.store] = (byStore[r.store] || 0) + Number(r.goods_value || 0); });
+        return (
+          <div style={{ background: C.panel, border: "1px solid #d9a441", borderRadius: 8, padding: "12px 16px", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 11, color: C.sub }}>未上架货值 · 未标记「已上架」的行</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#d9a441", marginTop: 2 }}>¥{unAmt.toFixed(2)}</div>
+              </div>
+              <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.9 }}>
+                <div><b>{un.length}</b> 条 · <b>{unQty}</b> 件 未上架</div>
+                <div style={{ fontSize: 11, color: C.faint }}>占全部货值 {pct}%（全部 ¥{allAmt.toFixed(2)}）</div>
+              </div>
+              <div style={{ marginLeft: "auto", fontSize: 11, color: C.faint, textAlign: "right", lineHeight: 1.9 }}>
+                {Object.entries(byStore).length ? (
+                  Object.entries(byStore).sort((a, b) => b[1] - a[1]).map(([st, amt]) => (
+                    <div key={st}>{st} ¥{amt.toFixed(2)}</div>
+                  ))
+                ) : <div>全部已上架 ✅</div>}
+              </div>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: C.faint }}>
+              口径：行上没有点「↑上架」（= 还没写入库存）的，按「货值」累加；点了「✓已上架」后自动从本口径扣除。
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 未补字段警告条 (仅 admin/cd_promotion 可见) */}
       {canEdit && checkOverdue.r65.length > 0 && (
         <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
