@@ -519,7 +519,7 @@ export default function App() {
   // 当前用户角色 (财务 Tab 仅 admin 可见)
   const [curRole, setCurRole] = useState(null);
   // 财务专员只有一个板块: 发货记录 → 办公室费用明细 (产品侧 Tab 全部隐藏) — KK 2026-09-18
-  const FINANCE_TAB_KEYS = ["shipments", "inventory", "orderrecords", "opsfee", "storeother", "ordersummary", "storemonthly", "finance", "officeexpense"];
+  const FINANCE_TAB_KEYS = ["shipments", "inventory", "afterstock", "orderrecords", "opsfee", "storeother", "ordersummary", "storemonthly", "finance", "officeexpense"];
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data && data.user) setCurRole(getUserRole(data.user.email || ""));
