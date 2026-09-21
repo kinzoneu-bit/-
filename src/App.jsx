@@ -3637,26 +3637,7 @@ function LinkScore() {
 // ---------------- 海外仓售后库存 (空骨架, 待 KK 确认口径) ----------------
 // KK 2026-09-21 新增: 海外仓退货/售后库存台账
 function AfterStock() {
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>
-          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            海外仓（退货 / 售后）库存台账 · 待 KK 确认口径与数据源
-          </div>
-        </div>
-        <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
-        </div>
-      </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13, lineHeight: 2 }}>
-        海外仓售后库存 · 待 KK 确认口径<br />
-        建议字段: 日期 / 店铺 / ASIN / 品名 / 数量 / 单位成本 / 状态(待检·可再售·已弃置) / 备注<br />
-        数据源待定: 手工录入 or 从「发货记录/库存统计」联动 or SP-API
-      </div>
-    </div>
-  );
+  return <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>;
 }
 
 // ---------------- 单品月度订单统计 (空骨架, 待 KK 填充) ----------------
