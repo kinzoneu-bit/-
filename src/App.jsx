@@ -3637,7 +3637,25 @@ function LinkScore() {
 // ---------------- 海外仓售后库存 (空骨架, 待 KK 确认口径) ----------------
 // KK 2026-09-21 新增: 海外仓退货/售后库存台账
 function AfterStock() {
-  return <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>;
+  // 版面按 KK 2026-09-23 给的稿: 三个区块, 顺序固定
+  const BLOCKS = [
+    { key: "amz_return",    label: "亚马逊退回海外仓记录" },
+    { key: "wh_receipt",    label: "海外仓签收记录" },
+    { key: "wh_saleable",   label: "筛选可售库存，不可售丢弃库存记录" },
+  ];
+  return (
+    <div>
+      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>海外仓售后库存</div>
+      {BLOCKS.map(b => (
+        <div key={b.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
+          <div style={{ padding: "11px 14px", background: "#1f3a68", color: "#fff", fontSize: 12, fontWeight: 600 }}>{b.label}</div>
+          <div style={{ minHeight: 120, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12, padding: 24 }}>
+            尚未接入
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ---------------- 单品月度订单统计 (空骨架, 待 KK 填充) ----------------
