@@ -1705,7 +1705,11 @@ function Shipments() {
       let qa = supabase.from("shipments").select("store, ship_batch, ship_date");
       if (myStores) qa = qa.in("store", myStores);
       const { data: all } = await qa;
-      const st = myStores ? myStores.slice().sort() : [...new Set((all || []).map(r => r.store).filter(Boolean))].sort();
+      // 下拉固定用 6 家店 (OPS_FIXED_STORES 顺序) — 即使该店还没有发货记录也要能选到
+      // (KK 2026-09-29: 屿阔 / 胤顺 之前因为没数据而下拉里看不到)
+      const dataStores = [...new Set((all || []).map(r => r.store).filter(Boolean))];
+      const base = myStores ? myStores.slice() : OPS_FIXED_STORES.slice();
+      const st = [...base, ...dataStores.filter(s => !base.includes(s))];
       setStoreOpts(st);
       const m = {};
       (all || []).forEach(r => { if (r.ship_batch) m[r.ship_batch] = m[r.ship_batch] && m[r.ship_batch] > r.ship_date ? m[r.ship_batch] : (r.ship_date || ""); });
@@ -4603,7 +4607,8 @@ const OPS_MONTHLY_CATS = { "网络IP费用": 88 };
 const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "服务订阅", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
 // 店铺口径常量 (OPS_FIXED_STORES / SHARE_GROUP / ALL_STORES / ROLE_STORES) 已提到文件顶部统一定义
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
-// 三家共享场地费: 固定 ¥3800/月, 不可调整 (KK 2026-09-19 定, 2026 年起锁死)
+// 三家共享场地费的「默认值」= ¥3800/月。
+// 2026-09-27 起场地放开手填: 没单独录过的月份按这个默认值计, 录了就以录的为准 (KK 定)
 const SHARED_SITE_FEE = 3800;
 // 批次配色 (发货记录 / 库存记录 共用): 每个批次一块底色, 循环取色
 const BATCH_PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
@@ -5035,7 +5040,7 @@ function OpsFee() {
 // 口径 (KK 2026-09-16 定):
 //   单位 = 人民币 ¥; 每个月独立一张表 (顶部选月份)
 //   各项成本 = 店铺运维费用 (自动: 欧元合计 × 汇率 + 月固定¥)
-//   人工 / 场地 / 其他 = 手工录入 (表 store_monthly_costs)
+//   人工 = 直接取人力系统(锁定只读); 场地 / 其他 = 手工录入 (表 store_monthly_costs) — KK 2026-09-27
 //   店铺利润 = 收入 − 各项成本 − 店铺其他费用 ; 净利润 = 店铺利润 − 人工 − 场地 − 其他 (自动)
 // 录入规则与店铺运维费用一致: 改动先缓存 → 底部「确认提交」→ 输密码 852963 → 一次性入库
 // 权限: 管理层 = admin + 法国成员(fr) + 成都采购(黄丹, cd_procurement), 读写都只给这三个角色
@@ -5073,6 +5078,7 @@ function StoreMonthly() {
   const [costRows, setCostRows] = useState([]);     // 手工录入 (当月)
   const [officeRows, setOfficeRows] = useState([]); // 办公室费用明细 (当月, 取合计填入「其他」行)
   const [otherRows, setOtherRows] = useState([]);   // 店铺其他费用明细 (当月, 按店汇总填入「店铺其他费用」行)
+  const [hrLabor, setHrLabor] = useState(null);     // 「人工」= 人力系统当月总人力成本 (直接取数, 锁定不可手填) — KK 2026-09-27
   const [loaded, setLoaded] = useState(false);
   const [role, setRole] = useState(null);
   const [roleReady, setRoleReady] = useState(false);   // 角色未取回前不渲染表格, 防止越权店铺闪现
@@ -5132,6 +5138,19 @@ function StoreMonthly() {
   };
   useEffect(() => { if (role !== null) load(); }, [month, role]);
 
+  // 「人工」= 直接取人力系统的当月总人力成本 (public.hr_labor_cost, 口径 = 人力面板底部「总人力成本」)
+  //   取不到数(函数还没建 / 没权限) → 退回库里旧值, 前端一律只读, 谁都不能手填 — KK 2026-09-27
+  useEffect(() => {
+    let alive = true;
+    setHrLabor(null);
+    supabase.rpc("hr_labor_cost", { p_period: month.slice(0, 7) }).then(({ data, error }) => {
+      if (!alive) return;
+      if (error) { console.warn("读取人力系统人工失败(需先跑 打通运营系统_人工取数.sql): " + error.message); setHrLabor(null); return; }
+      setHrLabor(data === null || data === undefined ? null : Number(data));
+    });
+    return () => { alive = false; };
+  }, [month]);
+
   // 「各项成本」= 运维费用: 欧元合计 × 汇率 + 月固定¥ (该店铺当月完全没数据则记 0)
   const opsCost = (store) => {
     if (!opsRows.some(r => r.store === store)) return 0;
@@ -5160,10 +5179,14 @@ function StoreMonthly() {
   const manNum = (store, item) => { const v = manVal(store, item); return v === null ? 0 : v; };
   const shopProfit = (store) => manNum(store, "收入") - opsCost(store) - storeOtherTotal(store);
   const netOf = (store) => shopProfit(store) - manNum(store, "人工") - manNum(store, "场地") - (SHARE_GROUP.includes(store) && shareOn ? 0 : manNum(store, "其他"));
+  // 三家共享「人工」= 人力系统当月总人力成本 (锁定只读); 取不到数时退回库里旧值, 再退回 0 — KK 2026-09-27
+  const laborShared = () => (hrLabor !== null ? hrLabor : manNum(SHARE_STORE, "人工"));
+  // 三家共享「场地」= 可手填; 没单独录过的月份按默认 ¥3,800 计 (历史月份金额因此一分不变) — KK 2026-09-27 放开
+  const siteShared = () => { const v = manVal(SHARE_STORE, "场地"); return v === null ? SHARED_SITE_FEE : Number(v); };
   // 三家共享组的合计净利润 = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计 (自动汇总)
   const shareIncomeEntered = () => SHARE_GROUP.some(st => incomeEntered(st));
   const shareGroupProfit = () => SHARE_GROUP.reduce((s, st) => s + shopProfit(st), 0)
-    - manNum(SHARE_STORE, "人工") - SHARED_SITE_FEE
+    - laborShared() - siteShared()
     - officeTotal;
   const incomeEntered = (store) => manVal(store, "收入") !== null;
 
@@ -5299,20 +5322,25 @@ function StoreMonthly() {
                           </div>
                         );
                       }
-                      if (row.k === "场地") {                          // 场地: 固定 3800, 不可调整 (KK 2026-09-19)
+                      // 「人工」= 人力系统取数, 锁定只读 (本页谁都改不了) — KK 2026-09-27
+                      if (row.k === "人工") {
+                        const lv = laborShared();
                         return (
-                          <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: 700, color: C.ink }}>
-                            ¥{SHARED_SITE_FEE.toFixed(2)}
-                            <span style={{ marginLeft: 8, fontSize: 10, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px" }}
-                              title="三家共享场地费固定 ¥3,800/月, 不可调整 (2026 年起)">固定·不可改</span>
+                          <div key="merged" style={{ ...style, ...td, padding: "10px 10px", fontWeight: lv ? 700 : 400, color: lv ? C.ink : C.faint }}>
+                            <div style={{ display: "flex", alignItems: "center" }}>
+                              {lv ? "¥" + lv.toFixed(2) : "—"}
+                              <span style={{ marginLeft: 8, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }}
+                                title="人工由「人力系统」自动取数 = 成都团队当月总人力成本(应发 + 公司社保 + 公司公积金); 这里只读, 数据在人力面板维护">自动·人力系统</span>
+                            </div>
                           </div>
                         );
                       }
-                      const v = manVal(SHARE_STORE, row.k);            // 人工: 共享输入
-                      if (!canEdit) {
-                        return <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }}>{v === null ? "—" : v.toFixed(2)}</div>;
+                      const v = manVal(SHARE_STORE, row.k);            // 场地: 共享输入
+                      if (!canEdit) {                                  // 只读角色: 同样显示生效值(没录过 = 默认 3,800)
+                        const ro = row.k === "场地" ? siteShared() : v;
+                        return <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: ro ? 600 : 400, color: ro ? C.ink : C.faint }}>{ro === null ? "—" : ro.toFixed(2)}</div>;
                       }
-                      // 人工 / 场地 在三家合并格内可填一次
+                      // 场地 在三家合并格内填一次 (人工已在上面只读返回)
                       if (row.k === "其他") {                                // 办公室费用明细 = 当月 office_expense 合计 (自动汇总, 只读)
                         return (
                           <div key="merged" style={{ ...style, ...td, padding: "10px 10px", fontWeight: officeTotal ? 700 : 400, color: officeTotal ? C.ink : C.faint }}>
@@ -5329,16 +5357,20 @@ function StoreMonthly() {
                           </div>
                         );
                       }
+                      // 场地: 没单独录过的月份预填默认 3,800 (改了就以改的为准)
+                      const shownV = row.k === "场地" ? siteShared() : v;
                       return (
                         <div key="merged" style={{ ...style, padding: "4px 8px" }}>
                           <input
-                            value={drafts[sk] !== undefined ? drafts[sk] : (v === null ? "" : String(v))}
+                            value={drafts[sk] !== undefined ? drafts[sk] : (shownV === null ? "" : String(shownV))}
                             onChange={e => setDraft(SHARE_STORE, row.k, e.target.value)}
                             onFocus={e => e.target.select()}
                             onBlur={() => requestCell(SHARE_STORE, row.k)}
                             onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
                             placeholder={`${SHARE_GROUP.join("/")} 三家共享, 填一次`} inputMode="decimal"
-                            title="三家共用的这笔费用: 填一次, 三家合计利润里只扣一次"
+                            title={row.k === "场地"
+                              ? "三家共享场地费: 没录过的月份默认 ¥3,800/月, 可以直接改 (KK 2026-09-27 放开手填)"
+                              : "三家共用的这笔费用: 填一次, 三家合计利润里只扣一次"}
                             style={{ width: "100%", padding: "6px 8px", textAlign: "right", background: pendingMap[sk] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[sk] ? "#d9a441" : "#534AB7"}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: pendingMap[sk] ? 600 : 400, outline: "none" }} />
                         </div>
                       );
@@ -5363,16 +5395,7 @@ function StoreMonthly() {
                       return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: 700, color: !ok ? C.faint : (v >= 0 ? C.ink : "#e0857a") }}>{ok ? v.toFixed(2) : "—"}</div>;
                     }
                     const v = manVal(st, row.k);
-                    if (row.k === "场地") {                       // 非共享店场地同样锁定, 不可调整 (KK 2026-09-19)
-                      const vv = v === null ? 0 : Number(v);
-                      return (
-                        <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: vv ? 600 : 400, color: vv ? C.ink : C.sub }}>
-                          ¥{vv.toFixed(2)}
-                          <span style={{ marginLeft: 6, fontSize: 10, color: C.faint, border: `1px solid ${C.line}`, borderRadius: 4, padding: "0 4px" }}
-                            title="场地已锁定, 不可调整">固定·不可改</span>
-                        </div>
-                      );
-                    }
+                    // 场地已放开: 走下面的通用输入框, 按店各填 (KK 2026-09-27)
                     const rowEditable = canEdit && (!row.lockAdmin || canEditIncome);
                     if (!rowEditable) {
                       return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: v ? 600 : 400, color: v ? C.ink : C.faint }} title={row.lockAdmin ? "收入仅 admin(KK) 可修改" : ""}>{v === null ? "—" : v.toFixed(2)}</div>;
@@ -5401,7 +5424,7 @@ function StoreMonthly() {
         · <b>各项成本</b> 自动取自「店铺运维费用」当月数据 (欧元合计 × 汇率 + 月固定¥), 不用手填<br />
         · <b>收入</b> 按店铺手工录入<br />
         · <b>店铺其他费用</b> 由「店铺其他费用」Tab 当月按店合计自动填入 (只读, 改去明细页维护)<br />
-        · <b>场地</b> 全部锁定不可调整: {SHARE_GROUP.join("/")} 三家共享 ¥3,800/月, 其余店铺 ¥0 · <b>人工</b> 由 {SHARE_GROUP.join(" / ")} 三家共享 —— 三家合并成一格, 填一次即可, 不重复扣<br />
+        · <b>人工</b> 由「人力系统」自动取数(成都团队当月总人力成本 = 应发 + 公司社保 + 公司公积金), <b>锁定不可手填</b>, 其余店铺仍按店手填 · <b>场地</b> {SHARE_GROUP.join("/")} 三家共享 <b>可手填</b>(没录过的月份按默认 ¥3,800 计), 三家合并成一格填一次, 不重复扣<br />
         · <b>办公室费用明细</b> 由「办公室费用明细」Tab 自动汇总当月 office_expense 合计, 三家合并格里只读显示(非 share 店铺仍可按店手填)<br />
         · 单店 <b>店铺利润</b> = 收入 − 各项成本 − 店铺其他费用<br />
         · <b>净利润</b>: {SHARE_GROUP.join("/")} = 三家店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细<br />

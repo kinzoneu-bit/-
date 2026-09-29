@@ -29,3 +29,5 @@ surgery.py
 .env
 .env.*
 !.env.example
+.vercel
+.env*
