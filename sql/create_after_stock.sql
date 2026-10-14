@@ -9,7 +9,12 @@
 --   区块① 亚马逊退回海外仓记录 (KK 2026-10-14 给):
 --     日期 rec_date / 移除订单编号 remove_order_no / 产品名称 product
 --     移除数量 remove_qty / 已收到数量 received_qty / 发货追踪编码 tracking_no
---   区块②③ 字段待 KK 给, 前端暂用占位列 (日期/店铺/SKU/品名/数量/备注)
+--   区块② 海外仓签收记录 (KK 2026-10-14 要求②③也更新, 字段为拟定值):
+--     日期 rec_date / 店铺 store / 移除订单编号 remove_order_no
+--     产品名称 product / 签收数量 received_qty / 备注 note
+--   区块③ 筛选可售库存, 不可售丢弃库存记录:
+--     日期 rec_date / 店铺 store / 产品名称 product
+--     可售数量 saleable_qty / 不可售数量 unsaleable_qty / 处理方式 disposal / 备注 note
 -- 权限: 读 = 所有登录用户; 写 = admin(KK) + fr(龙泺伊) + cd_supplier(陈雪梅) — KK 2026-10-14 定
 -- 整段粘贴执行, 幂等可重复跑 (已建过的表会被 ALTER 补列, 不会丢数据)
 -- ============================================================
@@ -24,8 +29,11 @@ CREATE TABLE IF NOT EXISTS after_stock (
   received_qty     NUMERIC(14,2),                                -- 已收到数量 (区块①)
   tracking_no      TEXT,                                         -- 发货追踪编码 (区块①)
   store            TEXT,                                         -- 店铺 (飞鸟/野趣/屿阔/俊业/乾霖/胤顺, 可空)
-  sku              TEXT,                                         -- SKU / ASIN
-  qty              NUMERIC(14,2),                                -- 数量 (占位列)
+  sku              TEXT,                                         -- SKU / ASIN (备用)
+  qty              NUMERIC(14,2),                                -- 数量 (备用)
+  saleable_qty     NUMERIC(14,2),                                -- 可售数量 (区块③)
+  unsaleable_qty   NUMERIC(14,2),                                -- 不可售数量 (区块③)
+  disposal         TEXT,                                         -- 处理方式 (区块③): 已丢弃/退回国内/重新贴标/待处理
   note             TEXT,                                         -- 备注
   created_at       TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
@@ -35,6 +43,9 @@ ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS remove_order_no TEXT;
 ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS remove_qty      NUMERIC(14,2);
 ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS received_qty    NUMERIC(14,2);
 ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS tracking_no     TEXT;
+ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS saleable_qty    NUMERIC(14,2);
+ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS unsaleable_qty  NUMERIC(14,2);
+ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS disposal        TEXT;
 
 CREATE INDEX IF NOT EXISTS after_stock_kind_idx ON after_stock (kind);
 CREATE INDEX IF NOT EXISTS after_stock_date_idx ON after_stock (rec_date DESC);
@@ -57,5 +68,5 @@ CREATE POLICY after_stock_write ON after_stock FOR ALL TO authenticated
 
 -- 校验 1: 应返回 2 条策略 (after_stock_read_all / after_stock_write)
 SELECT policyname, cmd FROM pg_policies WHERE tablename = 'after_stock' ORDER BY policyname;
--- 校验 2: 应返回 13 列 (id/kind/rec_date/remove_order_no/product/remove_qty/received_qty/tracking_no/store/sku/qty/note/created_at)
+-- 校验 2: 应返回 16 列 (id/kind/rec_date/remove_order_no/product/remove_qty/received_qty/tracking_no/store/sku/qty/saleable_qty/unsaleable_qty/disposal/note/created_at)
 SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'after_stock' ORDER BY ordinal_position;
