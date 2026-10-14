@@ -3641,10 +3641,8 @@ function LinkScore() {
 // ---------------- 海外仓售后库存 (可录入台账) ----------------
 // Tab: KK 2026-09-21 新增; 三区块版面: KK 2026-09-23 定, 顺序固定
 // 2026-10-14 KK 定: 开放编辑权 = 陈雪梅(cd_supplier) + admin(KK) + fr(龙泺伊); 其余角色只读
-// 2026-10-14 KK 给字段: ①亚马逊退回海外仓记录 = 日期 / 移除订单编号 / 产品名称 / 移除数量 / 已收到数量 / 发货追踪编码
-// 2026-10-14 KK 要求②③ 也更新 (字段由我按退货流程拟, 待 KK 校正):
-//   ②海外仓签收记录 = 日期 / 店铺 / 移除订单编号 / 产品名称 / 签收数量 / 备注
-//   ③筛选可售库存,不可售丢弃库存记录 = 日期 / 店铺 / 产品名称 / 可售数量 / 不可售数量 / 处理方式 / 备注
+// 2026-10-14 KK 给字段, 并明确 **三个区块用同一套要素**:
+//   日期 / 移除订单编号 / 产品名称 / 移除数量 / 已收到数量 / 发货追踪编码
 // 表: after_stock (sql/create_after_stock.sql), 三区块共用一张表, 用 kind 区分
 // 每个区块自带列定义 (cols), cols=null 表示字段未定 → 用 AS_FALLBACK_COLS
 const AS_FALLBACK_COLS = [
@@ -3655,36 +3653,24 @@ const AS_FALLBACK_COLS = [
   { k: "qty",      l: "数量", w: 100, t: "num" },
   { k: "note",     l: "备注", w: "minmax(160px,1fr)" },
 ];
+// 三区块共用同一套列 (KK 2026-10-14 16:52 定)
+const AS_MAIN_COLS = [
+  { k: "rec_date",        l: "日期",         w: 150, t: "date" },
+  { k: "remove_order_no", l: "移除订单编号", w: 190 },
+  { k: "product",         l: "产品名称",     w: "minmax(220px,1fr)" },
+  { k: "remove_qty",      l: "移除数量",     w: 110, t: "num" },
+  { k: "received_qty",    l: "已收到数量",   w: 120, t: "num" },
+  { k: "tracking_no",     l: "发货追踪编码", w: 180 },
+];
 const AS_BLOCKS = [
-  { key: "amz_return", label: "亚马逊退回海外仓记录", cols: [
-    { k: "rec_date",        l: "日期",         w: 150, t: "date" },
-    { k: "remove_order_no", l: "移除订单编号", w: 190 },
-    { k: "product",         l: "产品名称",     w: "minmax(220px,1fr)" },
-    { k: "remove_qty",      l: "移除数量",     w: 110, t: "num" },
-    { k: "received_qty",    l: "已收到数量",   w: 120, t: "num" },
-    { k: "tracking_no",     l: "发货追踪编码", w: 180 },
-  ] },
-  { key: "wh_receipt", label: "海外仓签收记录", cols: [
-    { k: "rec_date",        l: "日期",         w: 150, t: "date" },
-    { k: "store",           l: "店铺",         w: 120, t: "sel" },
-    { k: "remove_order_no", l: "移除订单编号", w: 190 },
-    { k: "product",         l: "产品名称",     w: "minmax(220px,1fr)" },
-    { k: "received_qty",    l: "签收数量",     w: 110, t: "num" },
-    { k: "note",            l: "备注",         w: "minmax(160px,1fr)" },
-  ] },
-  { key: "wh_saleable", label: "筛选可售库存，不可售丢弃库存记录", cols: [
-    { k: "rec_date",       l: "日期",       w: 150, t: "date" },
-    { k: "store",          l: "店铺",       w: 120, t: "sel" },
-    { k: "product",        l: "产品名称",   w: "minmax(220px,1fr)" },
-    { k: "saleable_qty",   l: "可售数量",   w: 110, t: "num" },
-    { k: "unsaleable_qty", l: "不可售数量", w: 110, t: "num" },
-    { k: "disposal",       l: "处理方式",   w: 140, t: "sel", opts: ["已丢弃", "退回国内", "重新贴标", "待处理"] },
-    { k: "note",           l: "备注",       w: "minmax(160px,1fr)" },
-  ] },
+  { key: "amz_return",  label: "亚马逊退回海外仓记录", cols: AS_MAIN_COLS },
+  { key: "wh_receipt",  label: "海外仓签收记录", cols: AS_MAIN_COLS },
+  { key: "wh_saleable", label: "筛选可售库存，不可售丢弃库存记录", cols: AS_MAIN_COLS },
 ];
 // 表里所有可选列 (顺序固定, 供 payload 拼装); AS_NUM_KEYS = 需要转数字的列
-const AS_KEYS = ["rec_date", "remove_order_no", "product", "remove_qty", "received_qty", "tracking_no", "store", "sku", "qty", "note", "saleable_qty", "unsaleable_qty", "disposal"];
-const AS_NUM_KEYS = ["remove_qty", "received_qty", "qty", "saleable_qty", "unsaleable_qty"];
+const AS_KEYS = ["rec_date", "remove_order_no", "product", "remove_qty", "received_qty", "tracking_no", "store", "sku", "qty", "note"];
+const AS_NUM_KEYS = ["remove_qty", "received_qty", "qty"];
+// 库里另有 saleable_qty / unsaleable_qty / disposal 三列 (2026-10-14 曾为区块③拟), 现不用, 留作备用
 const asColsOf = (kind) => ((AS_BLOCKS.find(b => b.key === kind) || {}).cols) || AS_FALLBACK_COLS;
 const asGridOf = (cols) => ["56px", ...cols.map(c => (typeof c.w === "number" ? `${c.w}px` : c.w)), "70px"].join(" ");
 const asMinW = (cols) => 56 + 70 + cols.reduce((s, c) => s + (typeof c.w === "number" ? c.w : 200), 0);

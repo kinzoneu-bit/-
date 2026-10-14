@@ -5,16 +5,10 @@
 --     kind = amz_return   亚马逊退回海外仓记录
 --     kind = wh_receipt   海外仓签收记录
 --     kind = wh_saleable  筛选可售库存, 不可售丢弃库存记录
--- 字段:
---   区块① 亚马逊退回海外仓记录 (KK 2026-10-14 给):
---     日期 rec_date / 移除订单编号 remove_order_no / 产品名称 product
---     移除数量 remove_qty / 已收到数量 received_qty / 发货追踪编码 tracking_no
---   区块② 海外仓签收记录 (KK 2026-10-14 要求②③也更新, 字段为拟定值):
---     日期 rec_date / 店铺 store / 移除订单编号 remove_order_no
---     产品名称 product / 签收数量 received_qty / 备注 note
---   区块③ 筛选可售库存, 不可售丢弃库存记录:
---     日期 rec_date / 店铺 store / 产品名称 product
---     可售数量 saleable_qty / 不可售数量 unsaleable_qty / 处理方式 disposal / 备注 note
+-- 字段: **三个区块用同一套要素** (KK 2026-10-14 16:52 定)
+--   日期 rec_date / 移除订单编号 remove_order_no / 产品名称 product
+--   移除数量 remove_qty / 已收到数量 received_qty / 发货追踪编码 tracking_no
+-- 备用列 (现不用, 曾为区块③拟): store / sku / qty / saleable_qty / unsaleable_qty / disposal / note
 -- 权限: 读 = 所有登录用户; 写 = admin(KK) + fr(龙泺伊) + cd_supplier(陈雪梅) — KK 2026-10-14 定
 -- 整段粘贴执行, 幂等可重复跑 (已建过的表会被 ALTER 补列, 不会丢数据)
 -- ============================================================
