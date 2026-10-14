@@ -3689,6 +3689,7 @@ function AfterStock() {
   const [pwd, setPwd] = useState("");
   const [pwdErr, setPwdErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const [storeF, setStoreF] = useState("");   // 顶部店铺下拉: "" = 全部店铺
   const PWD = "852963";
 
   useEffect(() => {
@@ -3733,6 +3734,7 @@ function AfterStock() {
     const o = { key, id: null, kind };
     for (const k of AS_KEYS) o[k] = "";
     o.rec_date = today;                       // 新增行默认填今天, 其余留空
+    o.store = storeF || "";                   // 顶部选了具体店铺 → 新行自动归属该店铺
     setList(p => [...p, o]);
     setDirty(p => ({ ...p, [key]: true }));
   };
@@ -3824,12 +3826,19 @@ function AfterStock() {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>
+        <select value={storeF} onChange={e => setStoreF(e.target.value)} title="按店铺筛选"
+          style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${storeF ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", minWidth: 130, colorScheme: "dark", cursor: "pointer" }}>
+          <option value="">全部店铺</option>
+          {STORES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        {storeF && <button onClick={() => setStoreF("")}
+          style={{ padding: "5px 10px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11, cursor: "pointer" }}>清除筛选</button>}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, color: C.faint }}>共 {list.length} 条</span>
+          <span style={{ fontSize: 11, color: C.faint }}>
+            共 {list.length} 条{storeF ? ` · 当前显示 ${list.filter(r => r.store === storeF).length} 条` : ""}
+          </span>
           {canEdit && <span style={{ fontSize: 11, color: C.faint }}>改动只进待提交队列，点底部「确认提交」输密码入库</span>}
         </div>
       </div>
@@ -3844,7 +3853,7 @@ function AfterStock() {
 
       {loaded && roleReady && AS_BLOCKS.map(b => {
         const cols = b.cols || AS_FALLBACK_COLS;
-        const rows = list.filter(r => r.kind === b.key);
+        const rows = list.filter(r => r.kind === b.key && (!storeF || r.store === storeF));
         const grid = asGridOf(cols);
         return (
           <div key={b.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
@@ -3898,7 +3907,7 @@ function AfterStock() {
 
                 {rows.length === 0 && (
                   <div style={{ padding: "34px 20px", textAlign: "center", color: C.faint, fontSize: 13, borderTop: `1px solid ${C.line}` }}>
-                    暂无记录{canEdit ? "，点右上「+ 新增一行」开始录入" : ""}
+                    {storeF ? `「${storeF}」暂无记录` : "暂无记录"}{canEdit ? "，点右上「+ 新增一行」开始录入" : ""}
                   </div>
                 )}
 
