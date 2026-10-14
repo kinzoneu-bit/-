@@ -3642,7 +3642,8 @@ function LinkScore() {
 // Tab: KK 2026-09-21 新增; 三区块版面: KK 2026-09-23 定, 顺序固定
 // 2026-10-14 KK 定: 开放编辑权 = 陈雪梅(cd_supplier) + admin(KK) + fr(龙泺伊); 其余角色只读
 // 2026-10-14 KK 给字段, 并明确 **三个区块用同一套要素**:
-//   日期 / 移除订单编号 / 产品名称 / 移除数量 / 已收到数量 / 发货追踪编码
+//   日期 / 移除订单编号 / 产品名称 / ASIN / 移除数量 / 已收到数量 / 发货追踪编码
+//   (ASIN 一列为 KK 2026-10-14 17:2x 追加, 位置在「产品名称」之后, 三区块同样)
 // 表: after_stock (sql/create_after_stock.sql), 三区块共用一张表, 用 kind 区分
 // 每个区块自带列定义 (cols), cols=null 表示字段未定 → 用 AS_FALLBACK_COLS
 const AS_FALLBACK_COLS = [
@@ -3657,7 +3658,8 @@ const AS_FALLBACK_COLS = [
 const AS_MAIN_COLS = [
   { k: "rec_date",        l: "日期",         w: 150, t: "date" },
   { k: "remove_order_no", l: "移除订单编号", w: 190 },
-  { k: "product",         l: "产品名称",     w: "minmax(220px,1fr)" },
+  { k: "product",         l: "产品名称",     w: "minmax(200px,1fr)" },
+  { k: "asin",            l: "ASIN",         w: 130 },
   { k: "remove_qty",      l: "移除数量",     w: 110, t: "num" },
   { k: "received_qty",    l: "已收到数量",   w: 120, t: "num" },
   { k: "tracking_no",     l: "发货追踪编码", w: 180 },
@@ -3668,7 +3670,7 @@ const AS_BLOCKS = [
   { key: "wh_saleable", label: "筛选可售库存，不可售丢弃库存记录", cols: AS_MAIN_COLS },
 ];
 // 表里所有可选列 (顺序固定, 供 payload 拼装); AS_NUM_KEYS = 需要转数字的列
-const AS_KEYS = ["rec_date", "remove_order_no", "product", "remove_qty", "received_qty", "tracking_no", "store", "sku", "qty", "note"];
+const AS_KEYS = ["rec_date", "remove_order_no", "product", "asin", "remove_qty", "received_qty", "tracking_no", "store", "sku", "qty", "note"];
 const AS_NUM_KEYS = ["remove_qty", "received_qty", "qty"];
 // 库里另有 saleable_qty / unsaleable_qty / disposal 三列 (2026-10-14 曾为区块③拟), 现不用, 留作备用
 const asColsOf = (kind) => ((AS_BLOCKS.find(b => b.key === kind) || {}).cols) || AS_FALLBACK_COLS;
