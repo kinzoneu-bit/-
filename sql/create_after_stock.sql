@@ -5,23 +5,36 @@
 --     kind = amz_return   亚马逊退回海外仓记录
 --     kind = wh_receipt   海外仓签收记录
 --     kind = wh_saleable  筛选可售库存, 不可售丢弃库存记录
--- 列暂用最小中性集 (日期/店铺/SKU/品名/数量/备注) —— KK 后续细化字段,
---   直接 ALTER TABLE ... ADD COLUMN 即可, 不影响已有数据、不用重录
+-- 字段:
+--   区块① 亚马逊退回海外仓记录 (KK 2026-10-14 给):
+--     日期 rec_date / 移除订单编号 remove_order_no / 产品名称 product
+--     移除数量 remove_qty / 已收到数量 received_qty / 发货追踪编码 tracking_no
+--   区块②③ 字段待 KK 给, 前端暂用占位列 (日期/店铺/SKU/品名/数量/备注)
 -- 权限: 读 = 所有登录用户; 写 = admin(KK) + fr(龙泺伊) + cd_supplier(陈雪梅) — KK 2026-10-14 定
--- 在 Supabase → SQL Editor 整段粘贴执行, 幂等可重复跑
+-- 整段粘贴执行, 幂等可重复跑 (已建过的表会被 ALTER 补列, 不会丢数据)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS after_stock (
-  id          BIGSERIAL PRIMARY KEY,
-  kind        TEXT          NOT NULL DEFAULT 'amz_return',  -- 区块: amz_return / wh_receipt / wh_saleable
-  rec_date    DATE,                                         -- 日期
-  store       TEXT,                                         -- 店铺 (飞鸟/野趣/屿阔/俊业/乾霖/胤顺, 可空)
-  sku         TEXT,                                         -- SKU / ASIN
-  product     TEXT,                                         -- 品名
-  qty         NUMERIC(14,2),                                -- 数量
-  note        TEXT,                                         -- 备注
-  created_at  TIMESTAMPTZ   NOT NULL DEFAULT now()
+  id               BIGSERIAL PRIMARY KEY,
+  kind             TEXT          NOT NULL DEFAULT 'amz_return',  -- 区块: amz_return / wh_receipt / wh_saleable
+  rec_date         DATE,                                         -- 日期
+  remove_order_no  TEXT,                                         -- 移除订单编号 (区块①)
+  product          TEXT,                                         -- 产品名称 / 品名
+  remove_qty       NUMERIC(14,2),                                -- 移除数量 (区块①)
+  received_qty     NUMERIC(14,2),                                -- 已收到数量 (区块①)
+  tracking_no      TEXT,                                         -- 发货追踪编码 (区块①)
+  store            TEXT,                                         -- 店铺 (飞鸟/野趣/屿阔/俊业/乾霖/胤顺, 可空)
+  sku              TEXT,                                         -- SKU / ASIN
+  qty              NUMERIC(14,2),                                -- 数量 (占位列)
+  note             TEXT,                                         -- 备注
+  created_at       TIMESTAMPTZ   NOT NULL DEFAULT now()
 );
+
+-- 若表是早前建的: 幂等补齐新列 (已有则跳过, 不影响已录数据)
+ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS remove_order_no TEXT;
+ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS remove_qty      NUMERIC(14,2);
+ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS received_qty    NUMERIC(14,2);
+ALTER TABLE after_stock ADD COLUMN IF NOT EXISTS tracking_no     TEXT;
 
 CREATE INDEX IF NOT EXISTS after_stock_kind_idx ON after_stock (kind);
 CREATE INDEX IF NOT EXISTS after_stock_date_idx ON after_stock (rec_date DESC);
@@ -42,7 +55,7 @@ CREATE POLICY after_stock_write ON after_stock FOR ALL TO authenticated
                       WHERE up.user_id = auth.uid()
                         AND up.role IN ('admin', 'fr', 'cd_supplier')));
 
--- 校验: 应返回 2 条策略 (after_stock_read_all / after_stock_write)
+-- 校验 1: 应返回 2 条策略 (after_stock_read_all / after_stock_write)
 SELECT policyname, cmd FROM pg_policies WHERE tablename = 'after_stock' ORDER BY policyname;
--- 校验: 应返回 9 列 (id/kind/rec_date/store/sku/product/qty/note/created_at)
+-- 校验 2: 应返回 13 列 (id/kind/rec_date/remove_order_no/product/remove_qty/received_qty/tracking_no/store/sku/qty/note/created_at)
 SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'after_stock' ORDER BY ordinal_position;

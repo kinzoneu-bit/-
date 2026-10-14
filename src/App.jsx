@@ -3641,16 +3641,40 @@ function LinkScore() {
 // ---------------- 海外仓售后库存 (可录入台账) ----------------
 // Tab: KK 2026-09-21 新增; 三区块版面: KK 2026-09-23 定, 顺序固定
 // 2026-10-14 KK 定: 开放编辑权 = 陈雪梅(cd_supplier) + admin(KK) + fr(龙泺伊); 其余角色只读
+// 2026-10-14 KK 给字段: ①亚马逊退回海外仓记录 = 日期 / 移除订单编号 / 产品名称 / 移除数量 / 已收到数量 / 发货追踪编码
+//                      ②③ 两区块字段待 KK 给 → 暂用占位列 (日期/店铺/SKU/品名/数量/备注)
 // 表: after_stock (sql/create_after_stock.sql), 三区块共用一张表, 用 kind 区分
-// 列暂用最小中性集 (日期/店铺/SKU/品名/数量/备注) —— KK 后续细化字段, 表加列即可, 不丢已有数据
+// 每个区块自带列定义 (cols), cols=null 表示字段未定 → 用 AS_FALLBACK_COLS
+const AS_FALLBACK_COLS = [
+  { k: "rec_date", l: "日期", w: 150, t: "date" },
+  { k: "store",    l: "店铺", w: 120, t: "sel" },
+  { k: "sku",      l: "SKU",  w: 150 },
+  { k: "product",  l: "品名", w: "minmax(180px,1fr)" },
+  { k: "qty",      l: "数量", w: 100, t: "num" },
+  { k: "note",     l: "备注", w: "minmax(160px,1fr)" },
+];
+const AS_BLOCKS = [
+  { key: "amz_return", label: "亚马逊退回海外仓记录", cols: [
+    { k: "rec_date",        l: "日期",         w: 150, t: "date" },
+    { k: "remove_order_no", l: "移除订单编号", w: 190 },
+    { k: "product",         l: "产品名称",     w: "minmax(220px,1fr)" },
+    { k: "remove_qty",      l: "移除数量",     w: 110, t: "num" },
+    { k: "received_qty",    l: "已收到数量",   w: 120, t: "num" },
+    { k: "tracking_no",     l: "发货追踪编码", w: 180 },
+  ] },
+  { key: "wh_receipt",  label: "海外仓签收记录", cols: null },
+  { key: "wh_saleable", label: "筛选可售库存，不可售丢弃库存记录", cols: null },
+];
+// 表里所有可选列 (顺序固定, 供 payload 拼装); AS_NUM_KEYS = 需要转数字的列
+const AS_KEYS = ["rec_date", "remove_order_no", "product", "remove_qty", "received_qty", "tracking_no", "store", "sku", "qty", "note"];
+const AS_NUM_KEYS = ["remove_qty", "received_qty", "qty"];
+const asColsOf = (kind) => ((AS_BLOCKS.find(b => b.key === kind) || {}).cols) || AS_FALLBACK_COLS;
+const asGridOf = (cols) => ["56px", ...cols.map(c => (typeof c.w === "number" ? `${c.w}px` : c.w)), "70px"].join(" ");
+const asMinW = (cols) => 56 + 70 + cols.reduce((s, c) => s + (typeof c.w === "number" ? c.w : 200), 0);
+
 function AfterStock() {
   const cur = new Date();
   const today = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
-  const BLOCKS = [
-    { key: "amz_return",  label: "亚马逊退回海外仓记录" },
-    { key: "wh_receipt",  label: "海外仓签收记录" },
-    { key: "wh_saleable", label: "筛选可售库存，不可售丢弃库存记录" },
-  ];
   const [list, setList] = useState([]);
   const [dirty, setDirty] = useState({});
   const [removed, setRemoved] = useState([]);
@@ -3680,12 +3704,14 @@ function AfterStock() {
         if (error) { setErr(error.message); setList([]); }
         else {
           setErr("");
-          setList((data || []).map(r => ({
-            key: `id:${r.id}`, id: r.id, kind: r.kind || "amz_return",
-            date: r.rec_date || "", store: r.store || "", sku: r.sku || "",
-            product: r.product || "", note: r.note || "",
-            qty: (r.qty === null || r.qty === undefined) ? "" : Number(r.qty),
-          })));
+          setList((data || []).map(r => {
+            const o = { key: `id:${r.id}`, id: r.id, kind: r.kind || "amz_return" };
+            for (const k of AS_KEYS) {
+              const v = r[k];
+              o[k] = (v === null || v === undefined) ? "" : (AS_NUM_KEYS.includes(k) ? Number(v) : v);
+            }
+            return o;
+          }));
         }
         setLoaded(true);
       });
@@ -3701,7 +3727,10 @@ function AfterStock() {
   };
   const addRow = (kind) => {
     const key = `new:${Date.now()}`;
-    setList(p => [...p, { key, id: null, kind, date: today, store: "", sku: "", product: "", qty: "", note: "" }]);
+    const o = { key, id: null, kind };
+    for (const k of AS_KEYS) o[k] = "";
+    o.rec_date = today;                       // 新增行默认填今天, 其余留空
+    setList(p => [...p, o]);
     setDirty(p => ({ ...p, [key]: true }));
   };
   const delRow = (r) => {
@@ -3712,24 +3741,26 @@ function AfterStock() {
 
   const dirtyRows = list.filter(r => dirty[r.key]);
   const pendingUpd = dirtyRows.filter(r => r.id);
-  const pendingNew = dirtyRows.filter(r => !r.id && [r.sku, r.product, r.qty, r.note, r.store].some(v => String(v).trim() !== ""));
+  const pendingNew = dirtyRows.filter(r => !r.id && AS_KEYS.some(k => k !== "rec_date" && String(r[k] ?? "").trim() !== ""));
   const pendingCount = pendingUpd.length + pendingNew.length + removed.length;
 
-  const qtyOf = (r) => (String(r.qty).trim() === "" ? null : Number(r.qty));
-  const payloadOf = (r) => ({
-    kind: r.kind,
-    rec_date: r.date || null,
-    store: String(r.store).trim() || null,
-    sku: String(r.sku).trim() || null,
-    product: String(r.product).trim() || null,
-    qty: qtyOf(r),
-    note: String(r.note).trim() || null,
-  });
+  const payloadOf = (r) => {
+    const o = { kind: r.kind };
+    for (const k of AS_KEYS) {
+      const raw = r[k];
+      o[k] = AS_NUM_KEYS.includes(k)
+        ? (String(raw ?? "").trim() === "" ? null : Number(raw))
+        : (String(raw ?? "").trim() || null);
+    }
+    return o;
+  };
 
   const submitAll = () => {
     const all = [...pendingUpd, ...pendingNew];
-    const bad = all.find(r => !r.date) || all.find(r => String(r.qty).trim() !== "" && isNaN(Number(r.qty)));
-    if (bad) { alert(!bad.date ? "有行的「日期」为空, 请补全" : "「数量」必须是数字"); return; }
+    const badDate = all.find(r => String(r.rec_date ?? "").trim() === "");
+    const badNum = all.find(r => AS_NUM_KEYS.some(k => String(r[k] ?? "").trim() !== "" && isNaN(Number(r[k]))));
+    if (badDate) { alert("有行的「日期」为空, 请补全"); return; }
+    if (badNum) { alert("数量列必须是数字"); return; }
     setPwdOpen(true);
   };
   const discardAll = () => { setDirty({}); setRemoved([]); setPwdOpen(false); setPwd(""); setPwdErr(""); load(); };
@@ -3755,11 +3786,34 @@ function AfterStock() {
     load();
   };
 
-  const AS_GRID = "56px 148px 118px 150px minmax(200px,1fr) 100px minmax(170px,1fr) 70px";
   const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78" };
   const cellInput = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
   const cellText = { padding: "10px 12px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const colHead = (t, extra) => <div style={{ ...th, ...extra }}>{t}</div>;
+  const cellBox = { padding: "4px 8px", borderRight: `1px solid ${C.line}` };
+  // 按列类型出输入控件 (date=日期 / sel=店铺下拉 / num=数字 / 其他=文本)
+  const inputFor = (c, r) => {
+    if (c.t === "date") return <input type="date" value={r[c.k]} onChange={e => setField(r.key, c.k, e.target.value)} style={cellInput} />;
+    if (c.t === "sel") return (
+      <select value={r[c.k]} onChange={e => setField(r.key, c.k, e.target.value)} style={cellInput}>
+        <option value="">—</option>
+        {STORES.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+    );
+    if (c.t === "num") return <input value={r[c.k]} onChange={e => setField(r.key, c.k, e.target.value)} onFocus={e => e.target.select()}
+      placeholder="0" inputMode="decimal" style={{ ...cellInput, textAlign: "right", fontWeight: 600 }} />;
+    return <input value={r[c.k]} onChange={e => setField(r.key, c.k, e.target.value)} placeholder={c.l} title={r[c.k]} style={cellInput} />;
+  };
+  // 只读展示
+  const shown = (c, r) => {
+    const v = r[c.k];
+    if (String(v ?? "").trim() === "") return "—";
+    return c.t === "num" ? Number(v) : v;
+  };
+  const sumOf = (rows, k) => rows.reduce((s, r) => s + Number(r[k] || 0), 0);
+  // 提交确认框里的「该行内容」摘要
+  const summaryOf = (r) => asColsOf(r.kind).filter(c => c.k !== "rec_date")
+    .map(c => `${c.l} ${String(r[c.k] ?? "").trim() === "" ? "—" : r[c.k]}`).join(" · ");
 
   return (
     <div>
@@ -3767,7 +3821,7 @@ function AfterStock() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            三个区块 · 日期 / 店铺 / SKU / 品名 / 数量 / 备注（列暂定，待细化） · 编辑权：陈雪梅 + KK + 龙泺伊{!canEdit && "（你当前只读）"}
+            区块①：日期 / 移除订单编号 / 产品名称 / 移除数量 / 已收到数量 / 发货追踪编码 · 区块②③字段待定 · 编辑权：陈雪梅 + KK + 龙泺伊{!canEdit && "（你当前只读）"}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -3778,20 +3832,22 @@ function AfterStock() {
 
       {err && (
         <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
-          读取失败(请先在 Supabase 跑 sql/create_after_stock.sql): {err}
+          读取失败(请先在 Supabase 跑 sql/create_after_stock.sql, 含末尾新增列的 ALTER): {err}
         </div>
       )}
 
       {(!loaded || !roleReady) && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
 
-      {loaded && roleReady && BLOCKS.map(b => {
+      {loaded && roleReady && AS_BLOCKS.map(b => {
+        const cols = b.cols || AS_FALLBACK_COLS;
         const rows = list.filter(r => r.kind === b.key);
-        const qsum = rows.reduce((s, r) => s + Number(r.qty || 0), 0);
+        const grid = asGridOf(cols);
         return (
           <div key={b.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
             <div style={{ padding: "11px 14px", background: "#1f3a68", color: "#fff", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span>{b.label}</span>
-              <span style={{ marginLeft: "auto", fontSize: 11, color: "#c8d6ea", fontWeight: 400 }}>{rows.length} 条 · 数量合计 {qsum}</span>
+              {!b.cols && <span style={{ fontSize: 10, color: "#c8d6ea", fontWeight: 400, border: "1px solid #4a6a9a", borderRadius: 4, padding: "1px 6px" }}>列待定</span>}
+              <span style={{ marginLeft: "auto", fontSize: 11, color: "#c8d6ea", fontWeight: 400 }}>{rows.length} 条</span>
               {canEdit && (
                 <button onClick={() => addRow(b.key)}
                   style={{ padding: "4px 12px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
@@ -3801,15 +3857,10 @@ function AfterStock() {
             </div>
 
             <div style={{ overflowX: "auto" }}>
-              <div style={{ minWidth: 1080 }}>
-                <div style={{ display: "grid", gridTemplateColumns: AS_GRID, background: "#1f3a68" }}>
+              <div style={{ minWidth: asMinW(cols) }}>
+                <div style={{ display: "grid", gridTemplateColumns: grid, background: "#1f3a68" }}>
                   {colHead("#", { textAlign: "center" })}
-                  {colHead("日期")}
-                  {colHead("店铺")}
-                  {colHead("SKU")}
-                  {colHead("品名")}
-                  {colHead("数量", { textAlign: "right" })}
-                  {colHead("备注")}
+                  {cols.map(c => colHead(c.l, c.t === "num" ? { textAlign: "right" } : null))}
                   {colHead("操作", { borderRight: "none", textAlign: "center" })}
                 </div>
 
@@ -3817,32 +3868,11 @@ function AfterStock() {
                   const pend = !!dirty[r.key];
                   const bgc = pend ? "#d9a44118" : (i % 2 ? C.bg : "transparent");
                   return (
-                    <div key={r.key} style={{ display: "grid", gridTemplateColumns: AS_GRID, borderTop: `1px solid ${C.line}`, background: bgc }}>
+                    <div key={r.key} style={{ display: "grid", gridTemplateColumns: grid, borderTop: `1px solid ${C.line}`, background: bgc }}>
                       <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center", borderRight: `1px solid ${C.line}` }}>{i + 1}</div>
                       {canEdit ? (
                         <>
-                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
-                            <input type="date" value={r.date} onChange={e => setField(r.key, "date", e.target.value)} style={cellInput} />
-                          </div>
-                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
-                            <select value={r.store} onChange={e => setField(r.key, "store", e.target.value)} style={cellInput}>
-                              <option value="">—</option>
-                              {STORES.map(s => <option key={s} value={s}>{s}</option>)}
-                            </select>
-                          </div>
-                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
-                            <input value={r.sku} onChange={e => setField(r.key, "sku", e.target.value)} placeholder="SKU / ASIN" title={r.sku} style={cellInput} />
-                          </div>
-                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
-                            <input value={r.product} onChange={e => setField(r.key, "product", e.target.value)} placeholder="品名" title={r.product} style={cellInput} />
-                          </div>
-                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
-                            <input value={r.qty} onChange={e => setField(r.key, "qty", e.target.value)} onFocus={e => e.target.select()}
-                              placeholder="0" inputMode="decimal" style={{ ...cellInput, textAlign: "right", fontWeight: 600 }} />
-                          </div>
-                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
-                            <input value={r.note} onChange={e => setField(r.key, "note", e.target.value)} placeholder="备注" title={r.note} style={cellInput} />
-                          </div>
+                          {cols.map(c => <div key={c.k} style={cellBox}>{inputFor(c, r)}</div>)}
                           <div style={{ padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <button onClick={() => delRow(r)} title="删除此行 (提交后生效)"
                               style={{ padding: "4px 10px", background: "transparent", color: "#e0857a", border: "1px solid #c05b52", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
@@ -3850,12 +3880,11 @@ function AfterStock() {
                         </>
                       ) : (
                         <>
-                          <div style={cellText}>{r.date || "—"}</div>
-                          <div style={{ ...cellText, fontWeight: 600 }}>{r.store || "—"}</div>
-                          <div style={{ ...cellText, color: r.sku ? C.ink : C.faint }} title={r.sku}>{r.sku || "—"}</div>
-                          <div style={{ ...cellText, color: r.product ? C.ink : C.faint }} title={r.product}>{r.product || "—"}</div>
-                          <div style={{ ...cellText, textAlign: "right", fontWeight: 600, color: r.qty === "" ? C.faint : C.ink }}>{r.qty === "" ? "—" : Number(r.qty)}</div>
-                          <div style={{ ...cellText, color: r.note ? C.sub : C.faint }} title={r.note}>{r.note || "—"}</div>
+                          {cols.map(c => (
+                            <div key={c.k}
+                              style={{ ...cellText, ...(c.t === "num" ? { textAlign: "right", fontWeight: 600, color: String(r[c.k] ?? "").trim() === "" ? C.faint : C.ink } : {}) }}
+                              title={String(shown(c, r))}>{shown(c, r)}</div>
+                          ))}
                           <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center" }}>—</div>
                         </>
                       )}
@@ -3870,14 +3899,14 @@ function AfterStock() {
                 )}
 
                 {rows.length > 0 && (
-                  <div style={{ display: "grid", gridTemplateColumns: AS_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12, fontWeight: 700 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: grid, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12, fontWeight: 700 }}>
                     <div style={{ padding: "10px 8px" }} />
-                    <div style={{ padding: "10px 12px", color: C.brand }}>合计</div>
-                    <div style={{ padding: "10px 12px" }} />
-                    <div style={{ padding: "10px 12px" }} />
-                    <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 400 }}>共 {rows.length} 条</div>
-                    <div style={{ padding: "10px 12px", textAlign: "right", color: C.brand }}>{qsum}</div>
-                    <div style={{ padding: "10px 12px" }} />
+                    {cols.map((c, ci) => (
+                      <div key={c.k} style={{ padding: "10px 12px", ...(c.t === "num" ? { textAlign: "right", color: C.brand } : {}) }}>
+                        {ci === 0 ? <span style={{ color: C.brand }}>合计 · {rows.length} 条</span>
+                          : (c.t === "num" ? sumOf(rows, c.k) : "")}
+                      </div>
+                    ))}
                     <div style={{ padding: "10px 8px" }} />
                   </div>
                 )}
@@ -3907,30 +3936,24 @@ function AfterStock() {
             <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 14 }}>
               <div style={{ display: "flex", color: C.sub, fontSize: 11, paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
                 <span style={{ width: 52 }}>动作</span>
+                <span style={{ width: 150 }}>区块</span>
                 <span style={{ width: 92 }}>日期</span>
-                <span style={{ width: 66 }}>店铺</span>
-                <span style={{ width: 110 }}>SKU</span>
-                <span style={{ flex: 1 }}>品名</span>
-                <span style={{ width: 56, textAlign: "right" }}>数量</span>
+                <span style={{ flex: 1 }}>该行内容</span>
               </div>
               {removed.map(id => (
                 <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#e0857a" }}>
                   <span style={{ width: 52 }}>删除</span>
+                  <span style={{ width: 150 }}>—</span>
                   <span style={{ width: 92 }}>—</span>
-                  <span style={{ width: 66 }}>—</span>
-                  <span style={{ width: 110 }}>—</span>
-                  <span style={{ flex: 1 }}>已删除的一行</span>
-                  <span style={{ width: 56, textAlign: "right" }}>→ 移除</span>
+                  <span style={{ flex: 1 }}>已删除的一行 → 移除</span>
                 </div>
               ))}
               {[...pendingUpd, ...pendingNew].map(r => (
                 <div key={r.key} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
                   <span style={{ width: 52, color: r.id ? C.sub : C.brand }}>{r.id ? "修改" : "新增"}</span>
-                  <span style={{ width: 92, color: C.ink }}>{r.date || "—"}</span>
-                  <span style={{ width: 66, color: C.ink }}>{r.store || "—"}</span>
-                  <span style={{ width: 110, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.sku}>{r.sku || "—"}</span>
-                  <span style={{ flex: 1, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.product}>{r.product || "—"}</span>
-                  <span style={{ width: 56, textAlign: "right", color: C.brand, fontWeight: 700 }}>{r.qty === "" ? "—" : r.qty}</span>
+                  <span style={{ width: 150, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(AS_BLOCKS.find(x => x.key === r.kind) || {}).label || "—"}</span>
+                  <span style={{ width: 92, color: C.ink }}>{r.rec_date || "—"}</span>
+                  <span style={{ flex: 1, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={summaryOf(r)}>{summaryOf(r)}</span>
                 </div>
               ))}
             </div>
