@@ -3841,9 +3841,6 @@ function AfterStock() {
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>
-          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            ①亚马逊退回：日期 / 移除订单编号 / 产品名称 / 移除数量 / 已收到数量 / 发货追踪编码 · ②签收记录：日期 / 店铺 / 移除订单编号 / 产品名称 / 签收数量 / 备注 · ③可售丢弃：日期 / 店铺 / 产品名称 / 可售数量 / 不可售数量 / 处理方式 / 备注 · 编辑权：陈雪梅 + KK + 龙泺伊{!canEdit && "（你当前只读）"}
-          </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.faint }}>共 {list.length} 条</span>
