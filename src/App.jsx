@@ -3638,26 +3638,316 @@ function LinkScore() {
   );
 }
 
-// ---------------- 海外仓售后库存 (空骨架, 待 KK 确认口径) ----------------
-// KK 2026-09-21 新增: 海外仓退货/售后库存台账
+// ---------------- 海外仓售后库存 (可录入台账) ----------------
+// Tab: KK 2026-09-21 新增; 三区块版面: KK 2026-09-23 定, 顺序固定
+// 2026-10-14 KK 定: 开放编辑权 = 陈雪梅(cd_supplier) + admin(KK) + fr(龙泺伊); 其余角色只读
+// 表: after_stock (sql/create_after_stock.sql), 三区块共用一张表, 用 kind 区分
+// 列暂用最小中性集 (日期/店铺/SKU/品名/数量/备注) —— KK 后续细化字段, 表加列即可, 不丢已有数据
 function AfterStock() {
-  // 版面按 KK 2026-09-23 给的稿: 三个区块, 顺序固定
+  const cur = new Date();
+  const today = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
   const BLOCKS = [
-    { key: "amz_return",    label: "亚马逊退回海外仓记录" },
-    { key: "wh_receipt",    label: "海外仓签收记录" },
-    { key: "wh_saleable",   label: "筛选可售库存，不可售丢弃库存记录" },
+    { key: "amz_return",  label: "亚马逊退回海外仓记录" },
+    { key: "wh_receipt",  label: "海外仓签收记录" },
+    { key: "wh_saleable", label: "筛选可售库存，不可售丢弃库存记录" },
   ];
+  const [list, setList] = useState([]);
+  const [dirty, setDirty] = useState({});
+  const [removed, setRemoved] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState("");
+  const [role, setRole] = useState(null);
+  const [roleReady, setRoleReady] = useState(false);
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const PWD = "852963";
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) setRole(getUserRole(data.user.email || ""));
+    }).catch(() => {}).finally(() => setRoleReady(true));
+  }, []);
+  // 写权限白名单 (⚠️ 必须写在 role 的 useState 之后, 否则 TDZ 报错 → 整页白屏)
+  const canEdit = ["admin", "fr", "cd_supplier"].includes(role || "");
+  const STORES = OPS_FIXED_STORES;
+
+  const load = () => {
+    supabase.from("after_stock").select("*")
+      .order("rec_date", { ascending: false }).order("id", { ascending: false }).limit(3000)
+      .then(({ data, error }) => {
+        if (error) { setErr(error.message); setList([]); }
+        else {
+          setErr("");
+          setList((data || []).map(r => ({
+            key: `id:${r.id}`, id: r.id, kind: r.kind || "amz_return",
+            date: r.rec_date || "", store: r.store || "", sku: r.sku || "",
+            product: r.product || "", note: r.note || "",
+            qty: (r.qty === null || r.qty === undefined) ? "" : Number(r.qty),
+          })));
+        }
+        setLoaded(true);
+      });
+  };
+  useEffect(() => {
+    if (!roleReady) return;
+    setDirty({}); setRemoved([]); setList([]); setLoaded(false); load();
+  }, [roleReady]);
+
+  const setField = (key, field, v) => {
+    setList(p => p.map(r => (r.key === key ? { ...r, [field]: v } : r)));
+    setDirty(p => ({ ...p, [key]: true }));
+  };
+  const addRow = (kind) => {
+    const key = `new:${Date.now()}`;
+    setList(p => [...p, { key, id: null, kind, date: today, store: "", sku: "", product: "", qty: "", note: "" }]);
+    setDirty(p => ({ ...p, [key]: true }));
+  };
+  const delRow = (r) => {
+    if (r.id) setRemoved(p => [...p, r.id]);
+    setList(p => p.filter(x => x.key !== r.key));
+    setDirty(p => { const n = { ...p }; delete n[r.key]; return n; });
+  };
+
+  const dirtyRows = list.filter(r => dirty[r.key]);
+  const pendingUpd = dirtyRows.filter(r => r.id);
+  const pendingNew = dirtyRows.filter(r => !r.id && [r.sku, r.product, r.qty, r.note, r.store].some(v => String(v).trim() !== ""));
+  const pendingCount = pendingUpd.length + pendingNew.length + removed.length;
+
+  const qtyOf = (r) => (String(r.qty).trim() === "" ? null : Number(r.qty));
+  const payloadOf = (r) => ({
+    kind: r.kind,
+    rec_date: r.date || null,
+    store: String(r.store).trim() || null,
+    sku: String(r.sku).trim() || null,
+    product: String(r.product).trim() || null,
+    qty: qtyOf(r),
+    note: String(r.note).trim() || null,
+  });
+
+  const submitAll = () => {
+    const all = [...pendingUpd, ...pendingNew];
+    const bad = all.find(r => !r.date) || all.find(r => String(r.qty).trim() !== "" && isNaN(Number(r.qty)));
+    if (bad) { alert(!bad.date ? "有行的「日期」为空, 请补全" : "「数量」必须是数字"); return; }
+    setPwdOpen(true);
+  };
+  const discardAll = () => { setDirty({}); setRemoved([]); setPwdOpen(false); setPwd(""); setPwdErr(""); load(); };
+  const confirmSubmit = async () => {
+    if (pwd !== PWD) { setPwdErr("密码不正确"); return; }
+    setSaving(true);
+    let errMsg = "";
+    if (removed.length) {
+      const { error } = await supabase.from("after_stock").delete().in("id", removed);
+      if (error) errMsg = error.message;
+    }
+    if (!errMsg) for (const r of pendingUpd) {
+      const { error } = await supabase.from("after_stock").update(payloadOf(r)).eq("id", r.id);
+      if (error) { errMsg = error.message; break; }
+    }
+    if (!errMsg) for (const r of pendingNew) {
+      const { error } = await supabase.from("after_stock").insert(payloadOf(r));
+      if (error) { errMsg = error.message; break; }
+    }
+    setSaving(false); setPwdOpen(false); setPwd(""); setPwdErr("");
+    if (errMsg) { alert("保存失败(请先在 Supabase 跑 sql/create_after_stock.sql): " + errMsg); return; }
+    setDirty({}); setRemoved([]);
+    load();
+  };
+
+  const AS_GRID = "56px 148px 118px 150px minmax(200px,1fr) 100px minmax(170px,1fr) 70px";
+  const th = { padding: "10px 12px", fontSize: 12, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78" };
+  const cellInput = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
+  const cellText = { padding: "10px 12px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const colHead = (t, extra) => <div style={{ ...th, ...extra }}>{t}</div>;
+
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>海外仓售后库存</div>
-      {BLOCKS.map(b => (
-        <div key={b.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
-          <div style={{ padding: "11px 14px", background: "#1f3a68", color: "#fff", fontSize: 12, fontWeight: 600 }}>{b.label}</div>
-          <div style={{ minHeight: 120, display: "flex", alignItems: "center", justifyContent: "center", color: C.faint, fontSize: 12, padding: 24 }}>
-            尚未接入
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>海外仓售后库存</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            三个区块 · 日期 / 店铺 / SKU / 品名 / 数量 / 备注（列暂定，待细化） · 编辑权：陈雪梅 + KK + 龙泺伊{!canEdit && "（你当前只读）"}
           </div>
         </div>
-      ))}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: C.faint }}>共 {list.length} 条</span>
+          {canEdit && <span style={{ fontSize: 11, color: C.faint }}>改动只进待提交队列，点底部「确认提交」输密码入库</span>}
+        </div>
+      </div>
+
+      {err && (
+        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+          读取失败(请先在 Supabase 跑 sql/create_after_stock.sql): {err}
+        </div>
+      )}
+
+      {(!loaded || !roleReady) && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
+
+      {loaded && roleReady && BLOCKS.map(b => {
+        const rows = list.filter(r => r.kind === b.key);
+        const qsum = rows.reduce((s, r) => s + Number(r.qty || 0), 0);
+        return (
+          <div key={b.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
+            <div style={{ padding: "11px 14px", background: "#1f3a68", color: "#fff", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span>{b.label}</span>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: "#c8d6ea", fontWeight: 400 }}>{rows.length} 条 · 数量合计 {qsum}</span>
+              {canEdit && (
+                <button onClick={() => addRow(b.key)}
+                  style={{ padding: "4px 12px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  + 新增一行
+                </button>
+              )}
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ minWidth: 1080 }}>
+                <div style={{ display: "grid", gridTemplateColumns: AS_GRID, background: "#1f3a68" }}>
+                  {colHead("#", { textAlign: "center" })}
+                  {colHead("日期")}
+                  {colHead("店铺")}
+                  {colHead("SKU")}
+                  {colHead("品名")}
+                  {colHead("数量", { textAlign: "right" })}
+                  {colHead("备注")}
+                  {colHead("操作", { borderRight: "none", textAlign: "center" })}
+                </div>
+
+                {rows.map((r, i) => {
+                  const pend = !!dirty[r.key];
+                  const bgc = pend ? "#d9a44118" : (i % 2 ? C.bg : "transparent");
+                  return (
+                    <div key={r.key} style={{ display: "grid", gridTemplateColumns: AS_GRID, borderTop: `1px solid ${C.line}`, background: bgc }}>
+                      <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center", borderRight: `1px solid ${C.line}` }}>{i + 1}</div>
+                      {canEdit ? (
+                        <>
+                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                            <input type="date" value={r.date} onChange={e => setField(r.key, "date", e.target.value)} style={cellInput} />
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                            <select value={r.store} onChange={e => setField(r.key, "store", e.target.value)} style={cellInput}>
+                              <option value="">—</option>
+                              {STORES.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                            <input value={r.sku} onChange={e => setField(r.key, "sku", e.target.value)} placeholder="SKU / ASIN" title={r.sku} style={cellInput} />
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                            <input value={r.product} onChange={e => setField(r.key, "product", e.target.value)} placeholder="品名" title={r.product} style={cellInput} />
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                            <input value={r.qty} onChange={e => setField(r.key, "qty", e.target.value)} onFocus={e => e.target.select()}
+                              placeholder="0" inputMode="decimal" style={{ ...cellInput, textAlign: "right", fontWeight: 600 }} />
+                          </div>
+                          <div style={{ padding: "4px 8px", borderRight: `1px solid ${C.line}` }}>
+                            <input value={r.note} onChange={e => setField(r.key, "note", e.target.value)} placeholder="备注" title={r.note} style={cellInput} />
+                          </div>
+                          <div style={{ padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <button onClick={() => delRow(r)} title="删除此行 (提交后生效)"
+                              style={{ padding: "4px 10px", background: "transparent", color: "#e0857a", border: "1px solid #c05b52", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={cellText}>{r.date || "—"}</div>
+                          <div style={{ ...cellText, fontWeight: 600 }}>{r.store || "—"}</div>
+                          <div style={{ ...cellText, color: r.sku ? C.ink : C.faint }} title={r.sku}>{r.sku || "—"}</div>
+                          <div style={{ ...cellText, color: r.product ? C.ink : C.faint }} title={r.product}>{r.product || "—"}</div>
+                          <div style={{ ...cellText, textAlign: "right", fontWeight: 600, color: r.qty === "" ? C.faint : C.ink }}>{r.qty === "" ? "—" : Number(r.qty)}</div>
+                          <div style={{ ...cellText, color: r.note ? C.sub : C.faint }} title={r.note}>{r.note || "—"}</div>
+                          <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center" }}>—</div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {rows.length === 0 && (
+                  <div style={{ padding: "34px 20px", textAlign: "center", color: C.faint, fontSize: 13, borderTop: `1px solid ${C.line}` }}>
+                    暂无记录{canEdit ? "，点右上「+ 新增一行」开始录入" : ""}
+                  </div>
+                )}
+
+                {rows.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: AS_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12, fontWeight: 700 }}>
+                    <div style={{ padding: "10px 8px" }} />
+                    <div style={{ padding: "10px 12px", color: C.brand }}>合计</div>
+                    <div style={{ padding: "10px 12px" }} />
+                    <div style={{ padding: "10px 12px" }} />
+                    <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 400 }}>共 {rows.length} 条</div>
+                    <div style={{ padding: "10px 12px", textAlign: "right", color: C.brand }}>{qsum}</div>
+                    <div style={{ padding: "10px 12px" }} />
+                    <div style={{ padding: "10px 8px" }} />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* 待提交浮条: 改动只缓存在页面, 点确认提交才输密码一次性入库 */}
+      {pendingCount > 0 && !pwdOpen && (
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ fontSize: 12, color: C.ink }}>
+            本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
+          </span>
+          <button onClick={discardAll} style={{ padding: "6px 12px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer" }}>撤销全部</button>
+          <button onClick={submitAll} style={{ padding: "6px 16px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
+        </div>
+      )}
+
+      {/* 提交确认框: 列出全部改动 + 输密码 852963 */}
+      {pwdOpen && (
+        <div onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 640, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>确认提交 {pendingCount} 项改动</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>核对无误后输入密码, 一次性写入数据库</div>
+            <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, marginBottom: 14 }}>
+              <div style={{ display: "flex", color: C.sub, fontSize: 11, paddingBottom: 6, borderBottom: `1px solid ${C.line}` }}>
+                <span style={{ width: 52 }}>动作</span>
+                <span style={{ width: 92 }}>日期</span>
+                <span style={{ width: 66 }}>店铺</span>
+                <span style={{ width: 110 }}>SKU</span>
+                <span style={{ flex: 1 }}>品名</span>
+                <span style={{ width: 56, textAlign: "right" }}>数量</span>
+              </div>
+              {removed.map(id => (
+                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#e0857a" }}>
+                  <span style={{ width: 52 }}>删除</span>
+                  <span style={{ width: 92 }}>—</span>
+                  <span style={{ width: 66 }}>—</span>
+                  <span style={{ width: 110 }}>—</span>
+                  <span style={{ flex: 1 }}>已删除的一行</span>
+                  <span style={{ width: 56, textAlign: "right" }}>→ 移除</span>
+                </div>
+              ))}
+              {[...pendingUpd, ...pendingNew].map(r => (
+                <div key={r.key} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+                  <span style={{ width: 52, color: r.id ? C.sub : C.brand }}>{r.id ? "修改" : "新增"}</span>
+                  <span style={{ width: 92, color: C.ink }}>{r.date || "—"}</span>
+                  <span style={{ width: 66, color: C.ink }}>{r.store || "—"}</span>
+                  <span style={{ width: 110, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.sku}>{r.sku || "—"}</span>
+                  <span style={{ flex: 1, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.product}>{r.product || "—"}</span>
+                  <span style={{ width: 56, textAlign: "right", color: C.brand, fontWeight: 700 }}>{r.qty === "" ? "—" : r.qty}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>确认密码</div>
+            <input type="password" value={pwd} autoFocus
+              onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
+              onKeyDown={e => { if (e.key === "Enter" && !saving) confirmSubmit(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
+              placeholder="输入密码"
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
+              <button onClick={confirmSubmit} disabled={saving} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: saving ? "wait" : "pointer", fontWeight: 600, opacity: saving ? .7 : 1 }}>{saving ? "提交中…" : "确认提交"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
