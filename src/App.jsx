@@ -3669,6 +3669,14 @@ const AS_BLOCKS = [
   { key: "wh_receipt",  label: "海外仓签收记录", cols: AS_MAIN_COLS },
   { key: "wh_saleable", label: "筛选可售库存，不可售丢弃库存记录", cols: AS_MAIN_COLS },
 ];
+// kind 别名表 —— 2026-10-15 修: 库里曾有 114 行 kind='removal' (外部导入写成),
+// 三个区块都认不出来 → 顶部显示「共 114 条」但区块里一条都不显示。
+// 这里把历史/外部写法统一归到对应区块, 页面照常显示, 保存时自动改写成标准 kind。
+const AS_KIND_TO_BLOCK = {
+  amz_return: "amz_return", removal: "amz_return", amz_removal: "amz_return", return: "amz_return", returns: "amz_return",
+  wh_receipt: "wh_receipt", receipt: "wh_receipt", wh_sign: "wh_receipt", sign: "wh_receipt",
+  wh_saleable: "wh_saleable", saleable: "wh_saleable", unsaleable: "wh_saleable", disposal: "wh_saleable", discard: "wh_saleable",
+};
 // 表里所有可选列 (顺序固定, 供 payload 拼装); AS_NUM_KEYS = 需要转数字的列
 const AS_KEYS = ["rec_date", "remove_order_no", "product", "asin", "remove_qty", "received_qty", "tracking_no", "store", "sku", "qty", "note"];
 const AS_NUM_KEYS = ["remove_qty", "received_qty", "qty"];
@@ -3711,7 +3719,8 @@ function AfterStock() {
         else {
           setErr("");
           setList((data || []).map(r => {
-            const o = { key: `id:${r.id}`, id: r.id, kind: r.kind || "amz_return" };
+            const blk = AS_KIND_TO_BLOCK[r.kind] || (r.kind || "amz_return");
+            const o = { key: `id:${r.id}`, id: r.id, kind: blk, blk };
             for (const k of AS_KEYS) {
               const v = r[k];
               o[k] = (v === null || v === undefined) ? "" : (AS_NUM_KEYS.includes(k) ? Number(v) : v);
@@ -3733,7 +3742,7 @@ function AfterStock() {
   };
   const addRow = (kind) => {
     const key = `new:${Date.now()}`;
-    const o = { key, id: null, kind };
+    const o = { key, id: null, kind, blk: kind };
     for (const k of AS_KEYS) o[k] = "";
     o.rec_date = today;                       // 新增行默认填今天, 其余留空
     o.store = storeF || "";                   // 顶部选了具体店铺 → 新行自动归属该店铺
@@ -3750,6 +3759,8 @@ function AfterStock() {
   const pendingUpd = dirtyRows.filter(r => r.id);
   const pendingNew = dirtyRows.filter(r => !r.id && AS_KEYS.some(k => k !== "rec_date" && String(r[k] ?? "").trim() !== ""));
   const pendingCount = pendingUpd.length + pendingNew.length + removed.length;
+  // 库里存在但 kind 不在三个区块内的行 (历史/外部导入造成) → 单独提示, 避免「显示总数却看不到」
+  const orphanRows = list.filter(r => !AS_BLOCKS.some(b => b.key === r.blk));
 
   const payloadOf = (r) => {
     const o = { kind: r.kind };
@@ -3839,11 +3850,26 @@ function AfterStock() {
           style={{ padding: "5px 10px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11, cursor: "pointer" }}>清除筛选</button>}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.faint }}>
-            共 {list.length} 条{storeF ? ` · 当前显示 ${list.filter(r => r.store === storeF).length} 条` : ""}
+            共 {list.length} 条 · 三区块显示 {list.length - orphanRows.length} 条{storeF ? ` · 当前店铺 ${list.filter(r => r.store === storeF).length} 条` : ""}
           </span>
-          {canEdit && <span style={{ fontSize: 11, color: C.faint }}>改动只进待提交队列，点底部「确认提交」输密码入库</span>}
+          {canEdit && pendingCount > 0 && (
+            <button onClick={submitAll}
+              style={{ padding: "6px 14px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              确认提交（{pendingCount} 项待入库）
+            </button>
+          )}
+          {canEdit
+            ? <span style={{ fontSize: 11, color: C.faint }}>当前角色：{getRoleLabel(role) || role} · 可录入（改动先标橙，确认提交后输密码入库）</span>
+            : <span style={{ fontSize: 11, color: "#e8c477" }}>只读模式 —— 当前账号「{getRoleLabel(role) || "未知角色"}」无录入权，所以要联系 KK 开权限</span>}
         </div>
       </div>
+
+      {orphanRows.length > 0 && (
+        <div style={{ background: "#d9a44122", border: "1px solid #d9a441", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#e8c477" }}>
+          ⚠ 库里有 <b>{orphanRows.length}</b> 条的 kind 不属于三个区块（{Array.from(new Set(orphanRows.map(r => r.kind))).join("、")}）→ 已按别名归入区块①显示；
+          如仍看不到，请联系 KK 用 SQL 统一 kind。
+        </div>
+      )}
 
       {err && (
         <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
@@ -3855,7 +3881,7 @@ function AfterStock() {
 
       {loaded && roleReady && AS_BLOCKS.map(b => {
         const cols = b.cols || AS_FALLBACK_COLS;
-        const rows = list.filter(r => r.kind === b.key && (!storeF || r.store === storeF));
+        const rows = list.filter(r => r.blk === b.key && (!storeF || r.store === storeF));
         const grid = asGridOf(cols);
         return (
           <div key={b.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
@@ -3966,7 +3992,7 @@ function AfterStock() {
               {[...pendingUpd, ...pendingNew].map(r => (
                 <div key={r.key} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
                   <span style={{ width: 52, color: r.id ? C.sub : C.brand }}>{r.id ? "修改" : "新增"}</span>
-                  <span style={{ width: 150, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(AS_BLOCKS.find(x => x.key === r.kind) || {}).label || "—"}</span>
+                  <span style={{ width: 150, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(AS_BLOCKS.find(x => x.key === r.blk) || {}).label || "—"}</span>
                   <span style={{ width: 92, color: C.ink }}>{r.rec_date || "—"}</span>
                   <span style={{ flex: 1, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={summaryOf(r)}>{summaryOf(r)}</span>
                 </div>
