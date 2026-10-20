@@ -612,8 +612,8 @@ export default function App() {
           ["shipments", "发货记录"], ["inventory", "库存统计"], ["afterstock", "售后库存"], ["orderrecords", "订单记录"],
           // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹/财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品统计"]] : []),
-          // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 — 2026-09-18 KK 定
-          ...(["admin", "cd_supplier", "cd_procurement", "finance"].includes(curRole) ? [["opsfee", "运维费用"]] : []),
+          // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 + 成都·推广(诗琪) — 2026-10-20 KK 定
+          ...(["admin", "cd_supplier", "cd_procurement", "finance", "cd_promotion"].includes(curRole) ? [["opsfee", "运维费用"]] : []),
           // 店铺其他费用: 全部成员 — 2026-09-17 KK 定
           ["storeother", "其他费用"],
           // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹 + 财务专员) — KK 2026-09-16/18 定
@@ -5074,8 +5074,8 @@ function OpsFee() {
       if (data && data.user) setOpsRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  // 可录入: admin + 成都·供应链 + 成都·采购(黄丹) — 2026-09-17 KK 定
-  const canEdit = opsRole === "admin" || opsRole === "cd_supplier" || opsRole === "cd_procurement" || opsRole === "finance";
+  // 可录入: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 + 成都·推广(诗琪, 2026-10-20)
+  const canEdit = opsRole === "admin" || opsRole === "cd_supplier" || opsRole === "cd_procurement" || opsRole === "finance" || opsRole === "cd_promotion";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (opsRole && ROLE_STORES[opsRole]) || null;
   const load = () => {
