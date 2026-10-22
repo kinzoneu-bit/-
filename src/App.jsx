@@ -391,10 +391,11 @@ const BOX_ALLOWED_ST = {
   h4: ["selling"],
 };
 
-// 调研阶段 (leaf 的 idle 细分): 1 立项 → 2 前置调研 → 3 挖掘供应商 → 4 定款
-// 中文显示为 "在调研-立项" 等, 挂在 st=idle 的 leaf 上, phase 为空 = 笼统"在调研"
+// 调研阶段 (leaf 的 idle 细分): 1 拉数据 → 2 前置调研 → 3 挖掘供应商 → 4 定款
+// 中文显示为 "在调研-拉数据" 等, 挂在 st=idle 的 leaf 上, phase 为空 = 笼统"在调研"
+// 注: DB 里的 phase 键仍是 planning(不改键, 防历史数据丢), 只改显示名 — KK 2026-10-22
 const LEAF_PHASE = {
-  planning:    { label: "在调研-立项", color: "#d9a441" },
+  planning:    { label: "在调研-拉数据", color: "#d9a441" },
   pre_research:{ label: "在调研-前置调研", color: "#d9a441" },
   supplier:    { label: "在调研-挖掘供应商", color: "#d9a441" },
   spec:        { label: "在调研-定款", color: "#d9a441" },
@@ -1306,7 +1307,7 @@ function Overview({ siteEvals, onPick }) {
           })}
         </div>
         <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
-          例: 选中 2026-07-01 ~ 2026-07-31, 「立项」行 + 「定款」列 = 7月进入立项且最终到达定款的类目数
+          例: 选中 2026-07-01 ~ 2026-07-31, 「拉数据」行 + 「定款」列 = 7月进入拉数据且最终到达定款的类目数
         </div>
       </div>
         </>
@@ -6437,7 +6438,7 @@ function Shelf() {
       st: "ready",
     }).select().single();
     if (error) { alert("添加失败: " + error.message); return; }
-    // 仅 phase=planning 的 leaf 才同步进 h1 框 (立项期间)
+    // 仅 phase=planning 的 leaf 才同步进 h1 框 (拉数据阶段)
     if (data && data.id && data.phase === "planning") {
       await supabase.from("monitor_handoff").upsert({
         leaf_id: data.id,
