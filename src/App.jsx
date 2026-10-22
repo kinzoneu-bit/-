@@ -391,14 +391,14 @@ const BOX_ALLOWED_ST = {
   h4: ["selling"],
 };
 
-// 调研阶段 (leaf 的 idle 细分): 1 拉数据 → 2 出报告 → 3 1688供应链 → 4 定款
+// 调研阶段 (leaf 的 idle 细分): 1 拉数据 → 2 出报告 → 3 1688供应链 → 4 看样品
 // 中文显示为 "在调研-拉数据" 等, 挂在 st=idle 的 leaf 上, phase 为空 = 笼统"在调研"
-// 注: DB 里的 phase 键仍是 planning / pre_research / supplier(不改键, 防历史数据丢), 只改显示名 — KK 2026-10-22
+// 注: DB 里的 phase 键仍是 planning / pre_research / supplier / spec(不改键, 防历史数据丢), 只改显示名 — KK 2026-10-22
 const LEAF_PHASE = {
   planning:    { label: "在调研-拉数据", color: "#d9a441" },
   pre_research:{ label: "在调研-出报告", color: "#d9a441" },
   supplier:    { label: "在调研-1688供应链", color: "#d9a441" },
-  spec:        { label: "在调研-定款", color: "#d9a441" },
+  spec:        { label: "在调研-看样品", color: "#d9a441" },
 };
 
 // CAT_DETAIL 由 fetchShelfData() 填充 (见上)
@@ -820,7 +820,7 @@ function Overview({ siteEvals, onPick }) {
     }
     // 规则: 类目必须完成调研闭环(定款 spec) 才能从调研期间(h1)拖到作业交接 (KK 2026-08-10)
     if (isCatItem && fromBox === "h1" && targetBox !== "h1" && info2 && info2.phase !== "spec") {
-      alert("该类目还在调研阶段，未到「定款」，不能进入作业交接。请先在「在调研」4 阶段中拖到「定款」后再交接。");
+      alert("该类目还在调研阶段，未到「看样品」，不能进入作业交接。请先在「在调研」4 阶段中拖到「看样品」后再交接。");
       return;
     }
     // 写主表
@@ -1307,7 +1307,7 @@ function Overview({ siteEvals, onPick }) {
           })}
         </div>
         <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
-          例: 选中 2026-07-01 ~ 2026-07-31, 「拉数据」行 + 「定款」列 = 7月进入拉数据且最终到达定款的类目数
+          例: 选中 2026-07-01 ~ 2026-07-31, 「拉数据」行 + 「看样品」列 = 7月进入拉数据且最终到达看样品的类目数
         </div>
       </div>
         </>
