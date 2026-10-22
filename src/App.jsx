@@ -391,12 +391,12 @@ const BOX_ALLOWED_ST = {
   h4: ["selling"],
 };
 
-// 调研阶段 (leaf 的 idle 细分): 1 拉数据 → 2 前置调研 → 3 挖掘供应商 → 4 定款
+// 调研阶段 (leaf 的 idle 细分): 1 拉数据 → 2 出报告 → 3 挖掘供应商 → 4 定款
 // 中文显示为 "在调研-拉数据" 等, 挂在 st=idle 的 leaf 上, phase 为空 = 笼统"在调研"
-// 注: DB 里的 phase 键仍是 planning(不改键, 防历史数据丢), 只改显示名 — KK 2026-10-22
+// 注: DB 里的 phase 键仍是 planning / pre_research(不改键, 防历史数据丢), 只改显示名 — KK 2026-10-22
 const LEAF_PHASE = {
   planning:    { label: "在调研-拉数据", color: "#d9a441" },
-  pre_research:{ label: "在调研-前置调研", color: "#d9a441" },
+  pre_research:{ label: "在调研-出报告", color: "#d9a441" },
   supplier:    { label: "在调研-挖掘供应商", color: "#d9a441" },
   spec:        { label: "在调研-定款", color: "#d9a441" },
 };
