@@ -6248,6 +6248,8 @@ function Shelf() {
   }, []);
   const sRole = getUserRole(shelfEmail);
   const sFull = sRole === "admin" || sRole === "fr";
+  // 类目(cat)改状态: admin/fr 全开; 成都·供应链(雪梅 cd_supplier) 也开放 — KK 2026-10-23
+  const sCatSt = sFull || sRole === "cd_supplier";
   const sMyBoxes = sRole === "cd_supplier" ? ["h1"]
     : sRole === "cd_link" ? ["h2"]
     : sRole === "cd_promotion" ? ["h3", "h4"] : [];
@@ -6471,7 +6473,7 @@ function Shelf() {
         <div onClick={() => setOpenC(s => ({ ...s, [subKey]: !s[subKey] }))}
           style={{ display: "flex", alignItems: "center", gap: 9, padding: `10px 16px 10px ${pad}px`, cursor: "pointer", background: C.panel2 }}>
           <Caret open={subOpen} small />
-          {stDot(sub.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: sub.id, st: sub.st, label: sub.name }); })}
+          {stDot(sub.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: sub.id, st: sub.st, label: sub.name }); }, null, sCatSt)}
           <span style={{ fontSize: 13, color: C.ink }}>{sub.name}</span>
           {(sub.st === "skip" || sub.st === "researched_skip") && (<span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#dc2626", color: "#fff", marginLeft: 8 }}>不做</span>)}
           <span style={{ marginLeft: "auto", fontSize: 11, display: "inline-flex", gap: 10 }}>
@@ -6618,7 +6620,7 @@ function Shelf() {
                   {info.groups[0].cats.map((c, ci) => {
                     return (
                       <div key={ci} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", borderTop: ci ? `1px solid ${C.line}` : "none" }}>
-                        {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
+                        {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); }, null, sCatSt)}
                         <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
                       </div>
                     );
@@ -6690,7 +6692,7 @@ function Shelf() {
                                     })}
                                       style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px 10px 58px", cursor: "pointer" }}>
                                       <Caret open={cOpen} small />
-                                      {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); })}
+                                      {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); }, null, sCatSt)}
                                       <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
                                       <span onClick={(e) => {
                                           e.stopPropagation();
