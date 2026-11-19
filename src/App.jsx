@@ -520,7 +520,7 @@ export default function App() {
   // 当前用户角色 (财务 Tab 仅 admin 可见)
   const [curRole, setCurRole] = useState(null);
   // 财务专员只有一个板块: 发货记录 → 办公室费用明细 (产品侧 Tab 全部隐藏) — KK 2026-09-18
-  const FINANCE_TAB_KEYS = ["shipments", "inventory", "afterstock", "orderrecords", "opsfee", "storeother", "ordersummary", "storemonthly", "finance", "officeexpense"];
+  const FINANCE_TAB_KEYS = ["shipments", "inventory", "afterstock", "orderrecords", "purchase", "opsfee", "storeother", "ordersummary", "storemonthly", "finance", "officeexpense"];
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data && data.user) setCurRole(getUserRole(data.user.email || ""));
@@ -610,7 +610,7 @@ export default function App() {
         {[
           // 产品侧 Tab (类目/链接/监控): 财务专员不需要, 全部隐藏 — KK 2026-09-18
           ...(curRole === "finance" ? [] : [["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "跨站点开发"], ["progress", "链接进度"], ["score", "链接评分"], ["track", "日级跟进"], ["asinlife", "ASIN"], ["adanalysis", "广告分析"]]),
-          ["shipments", "发货记录"], ["inventory", "库存统计"], ["afterstock", "售后库存"], ["orderrecords", "订单记录"],
+          ["purchase", "采购管理"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["afterstock", "售后库存"], ["orderrecords", "订单记录"],
           // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹/财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品统计"]] : []),
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 + 成都·推广(诗琪) — 2026-10-20 KK 定
@@ -639,6 +639,7 @@ export default function App() {
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
         {tab === "track" && <Track selSku={selSku} setSelSku={setSelSku} />}
         {tab === "progress" && <LinkProgress />}
+        {tab === "purchase" && <Purchase />}
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
         {tab === "afterstock" && <AfterStock />}
@@ -4737,6 +4738,745 @@ function OfficeExpense() {
 // 列: 日期 / 店铺 / 项目明细 / 费用(¥) · 每月一张明细表(顶部选月份) · 头部「分店」栏按 6 家店筛选分类
 // 录入规则与办公室费用一致: 改动只进待提交队列 → 底部「确认提交」→ 输密码 → 一次性入库
 // 权限: 可见 + 可写 = admin + 法国成员(fr) + 成都采购(黄丹, cd_procurement)
+// ---------------- 采购管理 (purchase_*) — 2026-11-19 ----------------
+// 链路: 供应商台账 → 采购单 → 付款流水 → 发货批次(货件号与 shipments 对齐)
+// 付款状态用视图 pay_status_calc (由付款流水实时汇总); 收货状态是生成列, 不可手填
+// 权限与 RLS 对齐: 采购单 admin/fr/黄丹/雪梅 · 付款 admin/fr/黄丹/夏蕾 · 批次 +诗琪 · 供应商 admin/fr/黄丹
+const PUR_PAY_LABEL = { unpaid: "未付", partial: "部分付", paid: "已付清" };
+const PUR_PAY_TONE = { unpaid: C.drop, partial: C.watch, paid: C.brand };
+const PUR_RECV_LABEL = { pending: "未到货", partial: "部分到", received: "已收齐", diff: "有差异" };
+const PUR_RECV_TONE = { pending: C.faint, partial: C.watch, received: C.brand, diff: C.drop };
+const PUR_SUP_LABEL = { pending: "待审核", active: "合作中", disabled: "停用" };
+const PUR_SUP_TONE = { pending: C.watch, active: C.brand, disabled: C.faint };
+const PUR_CURRENCIES = ["CNY", "EUR", "USD", "PLN"];
+const purNum = (v) => (v === "" || v === null || v === undefined || isNaN(Number(v)) ? null : Number(v));
+const purMoney = (v) => (v === null || v === undefined || v === "" ? "—" : Number(v).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+function Purchase() {
+  const d0 = new Date();
+  const TODAY = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, "0")}-${String(d0.getDate()).padStart(2, "0")}`;
+  const PWD = "852963";
+
+  // ---- 角色 ----
+  const [role, setRole] = useState(null);
+  const [roleReady, setRoleReady] = useState(false);
+  useEffect(() => {
+    supabase.auth.getUser()
+      .then(({ data }) => { if (data && data.user) setRole(getUserRole(data.user.email || "")); })
+      .catch(() => {})
+      .finally(() => setRoleReady(true));
+  }, []);
+  const canPO = ["admin", "fr", "cd_procurement", "cd_supplier"].includes(role);
+  const canPay = ["admin", "fr", "cd_procurement", "finance"].includes(role);
+  const canBat = ["admin", "fr", "cd_procurement", "cd_supplier", "cd_promotion"].includes(role);
+  const canSup = ["admin", "fr", "cd_procurement"].includes(role);
+  const canDel = role === "admin" || role === "fr";
+
+  // ---- 数据 ----
+  const [sub, setSub] = useState("po");          // po | supplier | price
+  const [rows, setRows] = useState([]);          // v_purchase_overview
+  const [supList, setSupList] = useState([]);    // purchase_suppliers
+  const [priceList, setPriceList] = useState([]);// v_price_stats
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const [storeF, setStoreF] = useState("");
+  const [payF, setPayF] = useState("");
+  const [recvF, setRecvF] = useState("");
+  const [kw, setKw] = useState("");
+
+  const [openId, setOpenId] = useState(null);
+  const [pays, setPays] = useState({});
+  const [bats, setBats] = useState({});
+
+  const [form, setForm] = useState(null);        // 采购单弹窗
+  const [supForm, setSupForm] = useState(null);  // 供应商弹窗
+  const [payDraft, setPayDraft] = useState(null);
+  const [batDraft, setBatDraft] = useState(null);
+
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
+  const [pwdTip, setPwdTip] = useState("");
+  const [pending, setPending] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const askPwd = (fn, tip) => { setPending({ fn }); setPwdTip(tip || "确认写入采购数据"); setPwd(""); setPwdErr(""); setPwdOpen(true); };
+  const runPending = async () => {
+    if (pwd !== PWD) { setPwdErr("密码不正确"); return; }
+    const fn = pending && pending.fn;
+    setSaving(true);
+    try {
+      if (fn) await fn();
+      setPwdOpen(false); setPwd(""); setPwdErr(""); setPending(null);
+    } catch (e) {
+      setPwdErr("保存失败: " + String(e && e.message ? e.message : e));
+    } finally { setSaving(false); }
+  };
+
+  const load = async () => {
+    setLoading(true); setErr("");
+    const [poR, supR] = await Promise.all([
+      supabase.from("v_purchase_overview").select("*").order("order_date", { ascending: false, nullsFirst: false }).limit(1000),
+      supabase.from("purchase_suppliers").select("*").order("name"),
+    ]);
+    if (poR.error) setErr(poR.error.message); else setRows(poR.data || []);
+    if (!supR.error) setSupList(supR.data || []);
+    else if (!poR.error) setErr(supR.error.message);
+    setLoading(false);
+  };
+  useEffect(() => { if (roleReady) load(); }, [roleReady]);
+
+  useEffect(() => {
+    if (sub !== "price" || priceList.length) return;
+    supabase.from("v_price_stats").select("*").order("times", { ascending: false }).limit(500)
+      .then(({ data, error }) => { if (error) setErr(error.message); else setPriceList(data || []); });
+  }, [sub]);
+
+  const toggle = async (id) => {
+    if (openId === id) { setOpenId(null); return; }
+    setOpenId(id);
+    if (!pays[id]) {
+      const { data } = await supabase.from("purchase_payments").select("*").eq("purchase_id", id).order("pay_date");
+      setPays(p => ({ ...p, [id]: data || [] }));
+    }
+    if (!bats[id]) {
+      const { data } = await supabase.from("purchase_batches").select("*").eq("purchase_id", id).order("ship_date");
+      setBats(p => ({ ...p, [id]: data || [] }));
+    }
+  };
+
+  // ---- 采购单表单 ----
+  const blankPO = () => ({
+    id: null, po_no: "", order_date: TODAY, store: "", supplier: "", supplier_id: "",
+    product_name: "", sku: "", asin: "", qty: "", unit_price: "", goods_amount: "",
+    freight: "", tax_amount: "", total_amount: "", currency: "CNY",
+    pay_terms: "", arrive_date: "", tracking_no: "", note: "",
+  });
+  const editPO = (r) => setForm({
+    id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY, store: r.store || "",
+    supplier: r.supplier || "", supplier_id: r.supplier_id || "",
+    product_name: r.product_name || "", sku: r.sku || "", asin: r.asin || "",
+    qty: r.qty ?? "", unit_price: r.unit_price ?? "", goods_amount: r.goods_amount ?? "",
+    freight: r.freight ?? "", tax_amount: r.tax_amount ?? "", total_amount: r.total_amount ?? "",
+    currency: r.currency || "CNY", pay_terms: r.pay_terms || "",
+    arrive_date: r.arrive_date || "", tracking_no: r.tracking_no || "", note: r.note || "",
+  });
+  const setF = (k, v) => setForm(f => {
+    const n = { ...f, [k]: v };
+    if (["qty", "unit_price", "freight", "tax_amount"].includes(k)) {
+      const q = Number(n.qty) || 0, u = Number(n.unit_price) || 0;
+      const goods = q > 0 && u >= 0 && String(n.qty) !== "" && String(n.unit_price) !== "" ? +(q * u).toFixed(2) : n.goods_amount;
+      n.goods_amount = goods;
+      n.total_amount = goods === "" || goods === null ? n.total_amount
+        : +(Number(goods) + Number(n.freight || 0) + Number(n.tax_amount || 0)).toFixed(2);
+    }
+    return n;
+  });
+
+  const submitPO = () => {
+    const f = form;
+    if (!f.order_date) return alert("请填采购日期");
+    if (!String(f.product_name).trim()) return alert("请填产品名称");
+    if (!f.qty || Number(f.qty) <= 0) return alert("数量必须大于 0");
+    const payload = {
+      po_no: f.po_no ? String(f.po_no).trim() : null,
+      order_date: f.order_date,
+      store: f.store || null,
+      supplier: f.supplier || null,
+      supplier_id: f.supplier_id || null,
+      product_name: String(f.product_name).trim(),
+      sku: f.sku || null, asin: f.asin || null,
+      qty: Number(f.qty),
+      unit_price: purNum(f.unit_price), goods_amount: purNum(f.goods_amount),
+      freight: purNum(f.freight), tax_amount: purNum(f.tax_amount), total_amount: purNum(f.total_amount),
+      currency: f.currency || "CNY",
+      pay_terms: f.pay_terms || null, arrive_date: f.arrive_date || null,
+      tracking_no: f.tracking_no || null, note: f.note || null,
+    };
+    askPwd(async () => {
+      const { error } = f.id
+        ? await supabase.from("purchase_records").update(payload).eq("id", f.id)
+        : await supabase.from("purchase_records").insert(payload);
+      if (error) throw error;
+      setForm(null); await load();
+    }, f.id ? "修改采购单" : "新增采购单");
+  };
+
+  const deletePO = (r) => {
+    if (!confirm(`删除采购单「${r.po_no || r.product_name}」？\n有付款流水或发货批次的单会被数据库拦住。`)) return;
+    askPwd(async () => {
+      const { error } = await supabase.from("purchase_records").delete().eq("id", r.id);
+      if (error) throw new Error(error.message + "（请先删除该单的付款流水与发货批次）");
+      await load();
+    }, "删除采购单");
+  };
+
+  // ---- 付款 / 批次 ----
+  const submitPay = () => {
+    const d = payDraft;
+    if (!d.pay_date) return alert("请填付款日期");
+    if (!d.amount || Number(d.amount) <= 0) return alert("付款金额必须大于 0");
+    askPwd(async () => {
+      const { error } = await supabase.from("purchase_payments").insert({
+        purchase_id: d.purchase_id, pay_date: d.pay_date, amount: Number(d.amount),
+        channel: d.channel || null, payee: d.payee || null, note: d.note || null,
+      });
+      if (error) throw error;
+      setPayDraft(null);
+      const { data } = await supabase.from("purchase_payments").select("*").eq("purchase_id", d.purchase_id).order("pay_date");
+      setPays(p => ({ ...p, [d.purchase_id]: data || [] }));
+      await load();
+    }, "登记付款");
+  };
+  const submitBat = () => {
+    const d = batDraft;
+    if (!String(d.ship_batch || "").trim()) return alert("请填货件号 / 批次号");
+    if (!d.qty || Number(d.qty) <= 0) return alert("数量必须大于 0");
+    askPwd(async () => {
+      const { error } = await supabase.from("purchase_batches").insert({
+        purchase_id: d.purchase_id, ship_batch: String(d.ship_batch).trim(), qty: Number(d.qty),
+        store: d.store || null, ship_date: d.ship_date || null, tracking_no: d.tracking_no || null, note: d.note || null,
+      });
+      if (error) throw error;
+      setBatDraft(null);
+      const { data } = await supabase.from("purchase_batches").select("*").eq("purchase_id", d.purchase_id).order("ship_date");
+      setBats(p => ({ ...p, [d.purchase_id]: data || [] }));
+      await load();
+    }, "关联发货批次");
+  };
+  const delPay = (pid, id) => {
+    if (!confirm("删除这笔付款记录？")) return;
+    askPwd(async () => {
+      const { error } = await supabase.from("purchase_payments").delete().eq("id", id);
+      if (error) throw error;
+      const { data } = await supabase.from("purchase_payments").select("*").eq("purchase_id", pid).order("pay_date");
+      setPays(p => ({ ...p, [pid]: data || [] }));
+      await load();
+    }, "删除付款记录");
+  };
+  const delBat = (pid, id) => {
+    if (!confirm("删除这个发货批次关联？")) return;
+    askPwd(async () => {
+      const { error } = await supabase.from("purchase_batches").delete().eq("id", id);
+      if (error) throw error;
+      const { data } = await supabase.from("purchase_batches").select("*").eq("purchase_id", pid).order("ship_date");
+      setBats(p => ({ ...p, [pid]: data || [] }));
+      await load();
+    }, "删除批次关联");
+  };
+
+  // ---- 供应商 ----
+  const blankSup = () => ({ id: null, name: "", contact: "", phone: "", category: "", status: "pending", pay_channel: "", account_name: "", account_no: "", bank: "", source: "", note: "" });
+  const submitSup = () => {
+    const f = supForm;
+    if (!String(f.name || "").trim()) return alert("请填供应商名称");
+    askPwd(async () => {
+      if (f.id) {
+        const { error } = await supabase.from("purchase_suppliers").update({
+          name: String(f.name).trim(), contact: f.contact || null, phone: f.phone || null,
+          category: f.category || null, status: f.status, pay_channel: f.pay_channel || null,
+          account_name: f.account_name || null, account_no: f.account_no || null,
+          bank: f.bank || null, source: f.source || null, note: f.note || null, updated_at: new Date().toISOString(),
+        }).eq("id", f.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("purchase_suppliers").insert({
+          name: String(f.name).trim(), contact: f.contact || null, phone: f.phone || null,
+          category: f.category || null, status: f.status, pay_channel: f.pay_channel || null,
+          account_name: f.account_name || null, account_no: f.account_no || null,
+          bank: f.bank || null, source: f.source || null, note: f.note || null,
+        });
+        if (error) throw error;
+      }
+      setSupForm(null); await load();
+    }, f.id ? "修改供应商" : "新增供应商");
+  };
+
+  // ---- 筛选与统计 ----
+  const view = rows.filter(r => {
+    if (storeF && r.store !== storeF) return false;
+    if (payF && (r.pay_status_calc || "unpaid") !== payF) return false;
+    if (recvF && (r.receive_status || "pending") !== recvF) return false;
+    if (kw) {
+      const s = `${r.po_no || ""} ${r.product_name || ""} ${r.sku || ""} ${r.asin || ""} ${r.supplier || ""}`.toLowerCase();
+      if (!s.includes(kw.toLowerCase())) return false;
+    }
+    return true;
+  });
+  const sumTotal = view.reduce((a, r) => a + Number(r.total_amount || 0), 0);
+  const sumPaid = view.reduce((a, r) => a + Number(r.pay_sum || 0), 0);
+  const sumQty = view.reduce((a, r) => a + Number(r.qty || 0), 0);
+  const sumRecv = view.reduce((a, r) => a + Number(r.received_qty || 0), 0);
+
+  // ---- 样式 ----
+  const GRID = "34px 132px 96px 84px 122px minmax(200px, 1fr) 62px 86px 102px 116px 96px 56px 84px";
+  const th = { padding: "9px 10px", fontSize: 11.5, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78", whiteSpace: "nowrap" };
+  const td = { padding: "8px 10px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+  const inp = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
+  const lb = { fontSize: 11, color: C.sub, marginBottom: 4, display: "block" };
+  const btn = (bg, fg) => ({ padding: "6px 14px", background: bg, color: fg, border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" });
+  const btnO = { padding: "5px 12px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11.5, cursor: "pointer" };
+  const card = { background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" };
+  const tag = (c) => ({ fontSize: 11, fontWeight: 700, color: c, background: c + "1f", border: `1px solid ${c}55`, borderRadius: 5, padding: "1px 7px", whiteSpace: "nowrap" });
+  const modalBg = { position: "fixed", inset: 0, background: "#000a", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", zIndex: 90, overflow: "auto" };
+  const modal = { background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, width: 860, maxWidth: "100%" };
+  const storeOpts = (role && ROLE_STORES[role]) || OPS_FIXED_STORES;
+
+  const subBtn = (k, l) => (
+    <div onClick={() => setSub(k)} className="tab"
+      style={{ background: sub === k ? C.panel2 : "transparent", border: `1px solid ${sub === k ? C.line : "transparent"}`, color: sub === k ? C.ink : C.sub, fontSize: 12, padding: "5px 12px" }}>
+      {l}
+    </div>
+  );
+
+  return (
+    <div>
+      {/* 头部 */}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>采购管理</div>
+          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
+            供应商台账 → 采购单 → 付款流水 → 发货批次 · 付款状态按流水实时汇总 · 收货状态由数量自动判定
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {subBtn("po", "采购单")}
+          {subBtn("supplier", "供应商台账")}
+          {subBtn("price", "价格基线")}
+          <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>
+            {roleReady ? (sub === "po" ? (canPO ? "可录入" : "只读") : sub === "supplier" ? (canSup ? "可维护" : "只读") : "只读") : "…"}
+          </span>
+        </div>
+      </div>
+
+      {err && (
+        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+          读取失败: {err}
+        </div>
+      )}
+
+      {/* ============ 采购单 ============ */}
+      {sub === "po" && (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+            {canPO && <button onClick={() => setForm(blankPO())} style={btn(C.brand, "#fff")}>+ 新建采购单</button>}
+            <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜单号 / 产品 / SKU / ASIN / 供应商"
+              style={{ ...inp, width: 260 }} />
+            <select value={storeF} onChange={e => setStoreF(e.target.value)} style={{ ...inp, width: 110 }}>
+              <option value="">全部店铺</option>
+              {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <select value={payF} onChange={e => setPayF(e.target.value)} style={{ ...inp, width: 110 }}>
+              <option value="">全部付款</option>
+              {Object.entries(PUR_PAY_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <select value={recvF} onChange={e => setRecvF(e.target.value)} style={{ ...inp, width: 110 }}>
+              <option value="">全部收货</option>
+              {Object.entries(PUR_RECV_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <button onClick={() => { setKw(""); setStoreF(""); setPayF(""); setRecvF(""); }} style={btnO}>清空筛选</button>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            {[
+              ["采购单", `${view.length} 单`, C.ink],
+              ["采购总额", `¥${purMoney(sumTotal)}`, C.ink],
+              ["已付", `¥${purMoney(sumPaid)}`, C.brand],
+              ["未付余额", `¥${purMoney(sumTotal - sumPaid)}`, sumTotal - sumPaid > 0 ? C.drop : C.faint],
+              ["件数", `${sumQty} 件`, C.sub],
+              ["已收", `${sumRecv} / ${sumQty}`, sumRecv < sumQty ? C.watch : C.brand],
+            ].map(([l, v, c]) => (
+              <div key={l} style={{ ...card, padding: "7px 14px", minWidth: 104 }}>
+                <div style={{ fontSize: 10.5, color: C.faint }}>{l}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: c, marginTop: 2 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {(loading || !roleReady) && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
+
+          {!loading && roleReady && (
+            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+              <div style={{ minWidth: 1420 }}>
+                <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
+                  <div style={{ ...th, textAlign: "center" }} />
+                  <div style={th}>采购单号</div>
+                  <div style={th}>采购日期</div>
+                  <div style={th}>店铺</div>
+                  <div style={th}>供应商</div>
+                  <div style={th}>产品 / SKU</div>
+                  <div style={{ ...th, textAlign: "right" }}>数量</div>
+                  <div style={{ ...th, textAlign: "right" }}>单价</div>
+                  <div style={{ ...th, textAlign: "right" }}>总额 ¥</div>
+                  <div style={{ ...th, textAlign: "right" }}>已付 / 状态</div>
+                  <div style={{ ...th, textAlign: "center" }}>收货</div>
+                  <div style={{ ...th, textAlign: "center" }}>批次</div>
+                  <div style={{ ...th, textAlign: "center", borderRight: "none" }}>操作</div>
+                </div>
+
+                {view.length === 0 && (
+                  <div style={{ padding: "34px 20px", textAlign: "center", color: C.faint, fontSize: 12 }}>
+                    还没有采购单{canPO ? " · 点左上「+ 新建采购单」录入第一单" : ""}
+                  </div>
+                )}
+
+                {view.map((r, i) => {
+                  const pst = r.pay_status_calc || "unpaid";
+                  const rst = r.receive_status || "pending";
+                  const open = openId === r.id;
+                  return (
+                    <React.Fragment key={r.id}>
+                      <div onClick={() => toggle(r.id)} className="prow"
+                        style={{ display: "grid", gridTemplateColumns: GRID, borderTop: `1px solid ${C.line}`, background: open ? C.panel2 : (i % 2 ? C.bg : "transparent") }}>
+                        <div style={{ ...td, textAlign: "center", color: C.faint, fontSize: 10 }}>{open ? "▾" : "▸"}</div>
+                        <div style={{ ...td, color: C.brand, fontWeight: 600 }}>{r.po_no || "—"}</div>
+                        <div style={{ ...td, color: C.sub }}>{r.order_date || "—"}</div>
+                        <div style={{ ...td, color: C.sub }}>{r.store || "—"}</div>
+                        <div style={{ ...td, color: C.sub }}>{r.supplier || "—"}</div>
+                        <div style={{ ...td }}>
+                          {r.product_name || "—"}
+                          {r.sku ? <span style={{ color: C.faint, marginLeft: 6, fontSize: 11 }}>{r.sku}</span> : null}
+                        </div>
+                        <div style={{ ...td, textAlign: "right" }}>{r.qty ?? "—"}</div>
+                        <div style={{ ...td, textAlign: "right", color: C.sub }}>{purMoney(r.unit_price)}</div>
+                        <div style={{ ...td, textAlign: "right", fontWeight: 600 }}>{purMoney(r.total_amount)}</div>
+                        <div style={{ ...td, textAlign: "right" }}>
+                          <div style={{ fontSize: 11.5 }}>{purMoney(r.pay_sum)}</div>
+                          <div style={{ marginTop: 2 }}><span style={tag(PUR_PAY_TONE[pst])}>{PUR_PAY_LABEL[pst] || pst}</span></div>
+                        </div>
+                        <div style={{ ...td, textAlign: "center" }}>
+                          <span style={tag(PUR_RECV_TONE[rst])}>{PUR_RECV_LABEL[rst] || rst}</span>
+                          <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>{r.received_qty ?? 0}/{r.qty ?? 0}{Number(r.damaged_qty) > 0 ? ` · 破损${r.damaged_qty}` : ""}</div>
+                        </div>
+                        <div style={{ ...td, textAlign: "center", color: r.batch_cnt ? C.ink : C.faint }}>{r.batch_cnt || 0}</div>
+                        <div style={{ ...td, textAlign: "center", borderRight: "none" }} onClick={e => e.stopPropagation()}>
+                          {canPO && <button onClick={() => editPO(r)} style={{ ...btnO, padding: "3px 8px" }}>改</button>}
+                          {canDel && <button onClick={() => deletePO(r)} style={{ ...btnO, padding: "3px 8px", marginLeft: 4, color: C.drop, borderColor: C.drop + "66" }}>删</button>}
+                          {!canPO && !canDel && <span style={{ fontSize: 11, color: C.faint }}>—</span>}
+                        </div>
+                      </div>
+
+                      {open && (
+                        <div style={{ borderTop: `1px solid ${C.line}`, background: "#12181d", padding: "12px 16px 16px" }}>
+                          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                            {/* 付款流水 */}
+                            <div style={{ flex: "1 1 420px", minWidth: 360 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>付款流水</span>
+                                <span style={{ fontSize: 11, color: C.faint }}>
+                                  已付 ¥{purMoney(r.pay_sum)} / 应付 ¥{purMoney(r.total_amount)}
+                                </span>
+                                {canPay && !payDraft && (
+                                  <button onClick={() => setPayDraft({ purchase_id: r.id, pay_date: TODAY, amount: "", channel: "", payee: r.supplier || "", note: "" })}
+                                    style={{ ...btnO, marginLeft: "auto", color: C.brand, borderColor: C.brand + "66" }}>+ 记一笔</button>
+                                )}
+                              </div>
+                              <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "92px 1fr 92px 90px 26px", background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
+                                  {["日期", "渠道 / 收款方", "金额", "备注", ""].map((h, ii) => (
+                                    <div key={ii} style={{ padding: "6px 9px", fontSize: 11, color: C.sub }}>{h}</div>
+                                  ))}
+                                </div>
+                                {(pays[r.id] || []).length === 0 && (
+                                  <div style={{ padding: "12px 10px", fontSize: 11.5, color: C.faint }}>暂无付款记录</div>
+                                )}
+                                {(pays[r.id] || []).map(p => (
+                                  <div key={p.id} style={{ display: "grid", gridTemplateColumns: "92px 1fr 92px 90px 26px", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+                                    <div style={{ padding: "6px 9px", fontSize: 11.5, color: C.sub }}>{p.pay_date}</div>
+                                    <div style={{ padding: "6px 9px", fontSize: 11.5 }}>
+                                      {p.channel || "—"}{p.payee ? <span style={{ color: C.faint }}> · {p.payee}</span> : null}
+                                    </div>
+                                    <div style={{ padding: "6px 9px", fontSize: 11.5, textAlign: "right", color: C.brand }}>¥{purMoney(p.amount)}</div>
+                                    <div style={{ padding: "6px 9px", fontSize: 11, color: C.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.note || ""}</div>
+                                    <div style={{ textAlign: "center" }}>
+                                      {canPay && <span onClick={() => delPay(r.id, p.id)} title="删除"
+                                        style={{ cursor: "pointer", color: C.faint, fontSize: 12 }}>×</span>}
+                                    </div>
+                                  </div>
+                                ))}
+                                {payDraft && payDraft.purchase_id === r.id && (
+                                  <div style={{ borderTop: `1px solid ${C.line}`, padding: 9, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.4fr", gap: 6, background: C.panel2 }}>
+                                    <input type="date" value={payDraft.pay_date} onChange={e => setPayDraft(d => ({ ...d, pay_date: e.target.value }))} style={inp} />
+                                    <input type="number" step="0.01" placeholder="金额" value={payDraft.amount} onChange={e => setPayDraft(d => ({ ...d, amount: e.target.value }))} style={inp} />
+                                    <input placeholder="渠道(对公/微信…)" value={payDraft.channel} onChange={e => setPayDraft(d => ({ ...d, channel: e.target.value }))} style={inp} />
+                                    <input placeholder="收款方" value={payDraft.payee} onChange={e => setPayDraft(d => ({ ...d, payee: e.target.value }))} style={inp} />
+                                    <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                      <button onClick={() => setPayDraft(null)} style={btnO}>取消</button>
+                                      <button onClick={submitPay} style={btn(C.brand, "#fff")}>保存付款</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* 发货批次 */}
+                            <div style={{ flex: "1 1 380px", minWidth: 330 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>发货批次</span>
+                                <span style={{ fontSize: 11, color: C.faint }}>货件号与「发货记录」对齐</span>
+                                {canBat && !batDraft && (
+                                  <button onClick={() => setBatDraft({ purchase_id: r.id, ship_batch: "", qty: r.qty || "", store: r.store || "", ship_date: "", tracking_no: "" })}
+                                    style={{ ...btnO, marginLeft: "auto", color: C.brand, borderColor: C.brand + "66" }}>+ 关联批次</button>
+                                )}
+                              </div>
+                              <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 56px 92px 26px", background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
+                                  {["货件号", "数量", "发货日", ""].map((h, ii) => (
+                                    <div key={ii} style={{ padding: "6px 9px", fontSize: 11, color: C.sub }}>{h}</div>
+                                  ))}
+                                </div>
+                                {(bats[r.id] || []).length === 0 && (
+                                  <div style={{ padding: "12px 10px", fontSize: 11.5, color: C.faint }}>暂未关联发货批次</div>
+                                )}
+                                {(bats[r.id] || []).map(b => (
+                                  <div key={b.id} style={{ display: "grid", gridTemplateColumns: "1fr 56px 92px 26px", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+                                    <div style={{ padding: "6px 9px", fontSize: 11.5, color: C.brand, overflow: "hidden", textOverflow: "ellipsis" }}>{b.ship_batch}{b.tracking_no ? <span style={{ color: C.faint }}> · {b.tracking_no}</span> : null}</div>
+                                    <div style={{ padding: "6px 9px", fontSize: 11.5 }}>{b.qty}</div>
+                                    <div style={{ padding: "6px 9px", fontSize: 11.5, color: C.sub }}>{b.ship_date || "—"}</div>
+                                    <div style={{ textAlign: "center" }}>
+                                      {canBat && <span onClick={() => delBat(r.id, b.id)} style={{ cursor: "pointer", color: C.faint, fontSize: 12 }}>×</span>}
+                                    </div>
+                                  </div>
+                                ))}
+                                {batDraft && batDraft.purchase_id === r.id && (
+                                  <div style={{ borderTop: `1px solid ${C.line}`, padding: 9, display: "grid", gridTemplateColumns: "1.4fr 60px 1fr 1fr", gap: 6, background: C.panel2 }}>
+                                    <input placeholder="货件号 FBA15…" value={batDraft.ship_batch} onChange={e => setBatDraft(d => ({ ...d, ship_batch: e.target.value }))} style={inp} />
+                                    <input type="number" placeholder="数量" value={batDraft.qty} onChange={e => setBatDraft(d => ({ ...d, qty: e.target.value }))} style={inp} />
+                                    <input type="date" value={batDraft.ship_date} onChange={e => setBatDraft(d => ({ ...d, ship_date: e.target.value }))} style={inp} />
+                                    <input placeholder="追踪号" value={batDraft.tracking_no} onChange={e => setBatDraft(d => ({ ...d, tracking_no: e.target.value }))} style={inp} />
+                                    <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                      <button onClick={() => setBatDraft(null)} style={btnO}>取消</button>
+                                      <button onClick={submitBat} style={btn(C.brand, "#fff")}>保存批次</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 10, fontSize: 11, color: C.faint }}>
+                            <span>币种 {r.currency || "CNY"}</span>
+                            <span>货款 {purMoney(r.goods_amount)} · 运费 {purMoney(r.freight)} · 税费 {purMoney(r.tax_amount)}</span>
+                            {r.pay_terms ? <span>付款条件 {r.pay_terms}</span> : null}
+                            {r.arrive_date ? <span>预计到货 {r.arrive_date}</span> : null}
+                            {r.note ? <span>备注 {r.note}</span> : null}
+                          </div>
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ============ 供应商台账 ============ */}
+      {sub === "supplier" && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            {canSup && <button onClick={() => setSupForm(blankSup())} style={btn(C.brand, "#fff")}>+ 新增供应商</button>}
+            <span style={{ fontSize: 11.5, color: C.faint }}>
+              共 {supList.length} 家 · 只有「合作中」的供应商允许下单 · 收款账号首次录入即锁定，变更会留痕
+            </span>
+          </div>
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+            <div style={{ minWidth: 1140 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(180px,1.2fr) 84px 130px minmax(110px,0.8fr) minmax(220px,1.5fr) minmax(120px,0.9fr) 84px", background: "#1f3a68" }}>
+                {["供应商名称", "状态", "联系人 / 电话", "类别", "收款账号 / 开户行", "来源 / 备注", "操作"].map((h, ii, arr) => (
+                  <div key={h} style={{ ...th, borderRight: ii === arr.length - 1 ? "none" : th.borderRight }}>{h}</div>
+                ))}
+              </div>
+              {supList.length === 0 && <div style={{ padding: "30px 20px", textAlign: "center", color: C.faint, fontSize: 12 }}>还没有供应商{canSup ? " · 点左上「+ 新增供应商」" : ""}</div>}
+              {supList.map((s, i) => (
+                <div key={s.id} style={{ display: "grid", gridTemplateColumns: "minmax(180px,1.2fr) 84px 130px minmax(110px,0.8fr) minmax(220px,1.5fr) minmax(120px,0.9fr) 84px", borderTop: `1px solid ${C.line}`, background: i % 2 ? C.bg : "transparent" }}>
+                  <div style={td}>{s.name}</div>
+                  <div style={{ ...td, textAlign: "center" }}><span style={tag(PUR_SUP_TONE[s.status] || C.faint)}>{PUR_SUP_LABEL[s.status] || s.status}</span></div>
+                  <div style={{ ...td, color: C.sub }}>{s.contact || "—"}{s.phone ? <div style={{ fontSize: 10.5, color: C.faint }}>{s.phone}</div> : null}</div>
+                  <div style={{ ...td, color: C.sub }}>{s.category || "—"}</div>
+                  <div style={{ ...td, color: C.sub }}>
+                    {s.account_name || s.account_no ? `${s.account_name || ""} ${s.account_no || ""}`.trim() : "—"}
+                    {s.bank ? <div style={{ fontSize: 10.5, color: C.faint }}>{s.bank}</div> : null}
+                  </div>
+                  <div style={{ ...td, color: C.faint, fontSize: 11 }}>{s.source || ""}{s.note ? <div>{s.note}</div> : null}{!s.source && !s.note ? "—" : null}</div>
+                  <div style={{ ...td, textAlign: "center", borderRight: "none" }}>
+                    {canSup ? <button onClick={() => setSupForm({ ...blankSup(), ...s })} style={{ ...btnO, padding: "3px 8px" }}>改</button>
+                      : <span style={{ fontSize: 11, color: C.faint }}>—</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============ 价格基线 ============ */}
+      {sub === "price" && (
+        <>
+          <div style={{ fontSize: 11.5, color: C.faint, marginBottom: 10 }}>
+            按 SKU（无 SKU 时按产品名）汇总历史采购单价 · 偏差 = (最新价 − 均价) ÷ 均价 · |偏差| &gt; 10% 标色提示（只提示，不拦截）
+          </div>
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
+            <div style={{ minWidth: 980 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,1.4fr) minmax(160px,1fr) 64px 100px 92px 92px 100px 96px 88px", background: "#1f3a68" }}>
+                {["SKU / 产品", "产品名", "次数", "均价", "最低", "最高", "最新价", "最新日期", "偏差"].map((h, ii, arr) => (
+                  <div key={h} style={{ ...th, textAlign: ii >= 2 ? "right" : "left", borderRight: ii === arr.length - 1 ? "none" : th.borderRight }}>{h}</div>
+                ))}
+              </div>
+              {priceList.length === 0 && <div style={{ padding: "30px 20px", textAlign: "center", color: C.faint, fontSize: 12 }}>暂无采购价格数据（录入采购单后自动汇总）</div>}
+              {priceList.map((p, i) => {
+                const dev = p.dev_pct === null || p.dev_pct === undefined ? null : Number(p.dev_pct);
+                const tone = dev === null ? C.sub : Math.abs(dev) > 10 ? (dev > 0 ? C.drop : C.watch) : C.ink;
+                return (
+                  <div key={p.pkey} style={{ display: "grid", gridTemplateColumns: "minmax(200px,1.4fr) minmax(160px,1fr) 64px 100px 92px 92px 100px 96px 88px", borderTop: `1px solid ${C.line}`, background: i % 2 ? C.bg : "transparent" }}>
+                    <div style={{ ...td, color: C.brand }}>{p.sku || p.pkey}</div>
+                    <div style={{ ...td, color: C.sub }}>{p.product_name || "—"}</div>
+                    <div style={{ ...td, textAlign: "right", color: C.sub }}>{p.times}</div>
+                    <div style={{ ...td, textAlign: "right" }}>{purMoney(p.avg_price)}</div>
+                    <div style={{ ...td, textAlign: "right", color: C.faint }}>{purMoney(p.min_price)}</div>
+                    <div style={{ ...td, textAlign: "right", color: C.faint }}>{purMoney(p.max_price)}</div>
+                    <div style={{ ...td, textAlign: "right", fontWeight: 600 }}>{purMoney(p.last_price)}</div>
+                    <div style={{ ...td, textAlign: "right", color: C.sub, fontSize: 11 }}>{p.last_date || "—"}</div>
+                    <div style={{ ...td, textAlign: "right", color: tone, fontWeight: 700, borderRight: "none" }}>{dev === null ? "—" : `${dev > 0 ? "+" : ""}${dev.toFixed(2)}%`}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============ 采购单弹窗 ============ */}
+      {form && (
+        <div style={modalBg} onClick={() => setForm(null)}>
+          <div style={modal} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{form.id ? "修改采购单" : "新建采购单"}</div>
+              <div style={{ marginLeft: "auto", cursor: "pointer", color: C.faint }} onClick={() => setForm(null)}>✕</div>
+            </div>
+            <div style={{ padding: 18 }}>
+              <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, marginBottom: 8 }}>归谁 / 买什么</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                <div><label style={lb}>采购单号</label><input value={form.po_no} onChange={e => setF("po_no", e.target.value)} placeholder="PO-20261119-01" style={inp} /></div>
+                <div><label style={lb}>采购日期 *</label><input type="date" value={form.order_date} onChange={e => setF("order_date", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>店铺</label>
+                  <select value={form.store} onChange={e => setF("store", e.target.value)} style={inp}>
+                    <option value="">未指定</option>
+                    {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div><label style={lb}>供应商</label>
+                  <select value={form.supplier_id || ""} onChange={e => {
+                    const id = e.target.value;
+                    const hit = supList.find(x => x.id === id);
+                    setForm(f => ({ ...f, supplier_id: id, supplier: hit ? hit.name : f.supplier }));
+                  }} style={inp}>
+                    <option value="">未指定</option>
+                    {supList.filter(s => s.status === "active" || s.id === form.supplier_id).map(s => (
+                      <option key={s.id} value={s.id}>{s.name}{s.status !== "active" ? `（${PUR_SUP_LABEL[s.status] || s.status}）` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+                <div><label style={lb}>产品名称 *</label><input value={form.product_name} onChange={e => setF("product_name", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>SKU</label><input value={form.sku} onChange={e => setF("sku", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>ASIN</label><input value={form.asin} onChange={e => setF("asin", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>数量 *</label><input type="number" value={form.qty} onChange={e => setF("qty", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>单价</label><input type="number" step="0.01" value={form.unit_price} onChange={e => setF("unit_price", e.target.value)} style={inp} /></div>
+              </div>
+
+              <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>多少钱</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+                <div><label style={lb}>货款（自动）</label><input type="number" step="0.01" value={form.goods_amount} onChange={e => setF("goods_amount", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>运费</label><input type="number" step="0.01" value={form.freight} onChange={e => setF("freight", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>税费</label><input type="number" step="0.01" value={form.tax_amount} onChange={e => setF("tax_amount", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>总额（自动）</label><input type="number" step="0.01" value={form.total_amount} onChange={e => setF("total_amount", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>币种</label>
+                  <select value={form.currency} onChange={e => setF("currency", e.target.value)} style={inp}>
+                    {PUR_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>到货 / 备注</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                <div><label style={lb}>付款条件</label><input value={form.pay_terms} onChange={e => setF("pay_terms", e.target.value)} placeholder="全款 / 30% 定金" style={inp} /></div>
+                <div><label style={lb}>预计到货</label><input type="date" value={form.arrive_date} onChange={e => setF("arrive_date", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>追踪号</label><input value={form.tracking_no} onChange={e => setF("tracking_no", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>备注</label><input value={form.note} onChange={e => setF("note", e.target.value)} style={inp} /></div>
+              </div>
+
+              <div style={{ marginTop: 12, fontSize: 11, color: C.faint }}>
+                收货状态不用填：录入收货数量后系统自动判定（未到 / 部分到 / 已收齐 / 有差异）。
+              </div>
+            </div>
+            <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setForm(null)} style={btnO}>取消</button>
+              <button onClick={submitPO} style={btn(C.brand, "#fff")}>{form.id ? "保存修改" : "保存采购单"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ 供应商弹窗 ============ */}
+      {supForm && (
+        <div style={modalBg} onClick={() => setSupForm(null)}>
+          <div style={{ ...modal, width: 720 }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center" }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{supForm.id ? "修改供应商" : "新增供应商"}</div>
+              <div style={{ marginLeft: "auto", cursor: "pointer", color: C.faint }} onClick={() => setSupForm(null)}>✕</div>
+            </div>
+            <div style={{ padding: 18, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+              <div><label style={lb}>名称 *</label><input value={supForm.name} onChange={e => setSupForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
+              <div><label style={lb}>状态</label>
+                <select value={supForm.status} onChange={e => setSupForm(f => ({ ...f, status: e.target.value }))} style={inp}>
+                  {Object.entries(PUR_SUP_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div><label style={lb}>类别</label><input value={supForm.category || ""} onChange={e => setSupForm(f => ({ ...f, category: e.target.value }))} placeholder="包材 / 五金 / 电子" style={inp} /></div>
+              <div><label style={lb}>联系人</label><input value={supForm.contact || ""} onChange={e => setSupForm(f => ({ ...f, contact: e.target.value }))} style={inp} /></div>
+              <div><label style={lb}>电话</label><input value={supForm.phone || ""} onChange={e => setSupForm(f => ({ ...f, phone: e.target.value }))} style={inp} /></div>
+              <div><label style={lb}>来源</label><input value={supForm.source || ""} onChange={e => setSupForm(f => ({ ...f, source: e.target.value }))} placeholder="1688 / 展会 / 介绍" style={inp} /></div>
+              <div><label style={lb}>收款户名</label><input value={supForm.account_name || ""} onChange={e => setSupForm(f => ({ ...f, account_name: e.target.value }))} style={inp} /></div>
+              <div><label style={lb}>收款账号</label><input value={supForm.account_no || ""} onChange={e => setSupForm(f => ({ ...f, account_no: e.target.value }))} style={inp} /></div>
+              <div><label style={lb}>开户行</label><input value={supForm.bank || ""} onChange={e => setSupForm(f => ({ ...f, bank: e.target.value }))} style={inp} /></div>
+              <div style={{ gridColumn: "1 / -1" }}><label style={lb}>备注</label><input value={supForm.note || ""} onChange={e => setSupForm(f => ({ ...f, note: e.target.value }))} style={inp} /></div>
+              <div style={{ gridColumn: "1 / -1", fontSize: 11, color: C.watch, background: C.watch + "14", border: `1px solid ${C.watch}44`, borderRadius: 6, padding: "8px 10px" }}>
+                收款账号改动会被记录：先录对的，后续任何人改动都会追加到 account_changes 留痕。下单前请核对户名与账号一致。
+              </div>
+            </div>
+            <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setSupForm(null)} style={btnO}>取消</button>
+              <button onClick={submitSup} style={btn(C.brand, "#fff")}>{supForm.id ? "保存修改" : "保存供应商"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ 密码确认 ============ */}
+      {pwdOpen && (
+        <div style={modalBg} onClick={() => { setPwdOpen(false); setPwdErr(""); }}>
+          <div style={{ ...modal, width: 380 }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.line}`, fontSize: 13.5, fontWeight: 700 }}>{pwdTip}</div>
+            <div style={{ padding: 18 }}>
+              <label style={lb}>请输入确认密码</label>
+              <input type="password" value={pwd} autoFocus onChange={e => setPwd(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") runPending(); }}
+                style={inp} placeholder="6 位密码" />
+              {pwdErr && <div style={{ marginTop: 8, fontSize: 11.5, color: C.drop }}>{pwdErr}</div>}
+            </div>
+            <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); setPending(null); }} style={btnO}>取消</button>
+              <button onClick={runPending} disabled={saving} style={{ ...btn(C.brand, "#fff"), opacity: saving ? .6 : 1 }}>{saving ? "保存中…" : "确认"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StoreOtherExpense() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
