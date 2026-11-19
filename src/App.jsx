@@ -4759,18 +4759,30 @@ function Purchase() {
 
   // ---- 角色 ----
   const [role, setRole] = useState(null);
+  const [meEmail, setMeEmail] = useState("");
   const [roleReady, setRoleReady] = useState(false);
   useEffect(() => {
     supabase.auth.getUser()
-      .then(({ data }) => { if (data && data.user) setRole(getUserRole(data.user.email || "")); })
+      .then(({ data }) => {
+        if (data && data.user) {
+          setRole(getUserRole(data.user.email || ""));
+          setMeEmail(data.user.email || "");
+        }
+      })
       .catch(() => {})
       .finally(() => setRoleReady(true));
   }, []);
-  const canPO = ["admin", "fr", "cd_procurement", "cd_supplier"].includes(role);
-  const canPay = ["admin", "fr", "cd_procurement", "finance"].includes(role);
-  const canBat = ["admin", "fr", "cd_procurement", "cd_supplier", "cd_promotion"].includes(role);
-  const canSup = ["admin", "fr", "cd_procurement"].includes(role);
+  // 采购三段式分工（2026-11-19 KK 定）：
+  //   ① 程诗琪 cd_promotion  提采购需求（不填价）
+  //   ② 陈雪梅 cd_supplier   下单（选供应商/定价/出单号/发货批次）
+  //   ③ 夏蕾   finance       付款登记
+  //   黄丹 cd_procurement 不进采购业务流程，只读
+  const canPO = ["admin", "fr", "cd_promotion", "cd_supplier"].includes(role);
+  const canPay = ["admin", "fr", "finance"].includes(role);
+  const canBat = ["admin", "fr", "cd_supplier"].includes(role);
+  const canSup = ["admin", "fr", "cd_supplier"].includes(role);
   const canDel = role === "admin" || role === "fr";
+  const isRequester = role === "cd_promotion";   // 只提需求，价格/供应商一律不碰
 
   // ---- 数据 ----
   const [sub, setSub] = useState("po");          // po | supplier | price
@@ -4876,10 +4888,22 @@ function Purchase() {
 
   const submitPO = () => {
     const f = form;
-    if (!f.order_date) return alert("请填采购日期");
+    if (!f.order_date) return alert(isRequester ? "请填需求日期" : "请填采购日期");
     if (!String(f.product_name).trim()) return alert("请填产品名称");
     if (!f.qty || Number(f.qty) <= 0) return alert("数量必须大于 0");
-    const payload = {
+    // 需求方（cd_promotion）只写「要什么 / 要多少 / 哪个店」，
+    // 价格类字段一律不进 payload —— insert 走默认 null，update 不覆盖雪梅已填的价
+    const payload = isRequester ? {
+      order_date: f.order_date,
+      store: f.store || null,
+      product_name: String(f.product_name).trim(),
+      sku: f.sku || null,
+      asin: f.asin || null,
+      qty: Number(f.qty),
+      arrive_date: f.arrive_date || null,
+      note: f.note || null,
+      requested_by: meEmail || null,
+    } : {
       po_no: f.po_no ? String(f.po_no).trim() : null,
       order_date: f.order_date,
       store: f.store || null,
@@ -4893,6 +4917,7 @@ function Purchase() {
       currency: f.currency || "CNY",
       pay_terms: f.pay_terms || null, arrive_date: f.arrive_date || null,
       tracking_no: f.tracking_no || null, note: f.note || null,
+      requested_by: f.requested_by || meEmail || null,
     };
     askPwd(async () => {
       const { error } = f.id
@@ -4900,7 +4925,7 @@ function Purchase() {
         : await supabase.from("purchase_records").insert(payload);
       if (error) throw error;
       setForm(null); await load();
-    }, f.id ? "修改采购单" : "新增采购单");
+    }, f.id ? "修改采购单" : (isRequester ? "提交采购需求" : "新增采购单"));
   };
 
   const deletePO = (r) => {
@@ -4921,6 +4946,7 @@ function Purchase() {
       const { error } = await supabase.from("purchase_payments").insert({
         purchase_id: d.purchase_id, pay_date: d.pay_date, amount: Number(d.amount),
         channel: d.channel || null, payee: d.payee || null, note: d.note || null,
+        operator: meEmail || null,
       });
       if (error) throw error;
       setPayDraft(null);
@@ -5008,6 +5034,9 @@ function Purchase() {
   const sumPaid = view.reduce((a, r) => a + Number(r.pay_sum || 0), 0);
   const sumQty = view.reduce((a, r) => a + Number(r.qty || 0), 0);
   const sumRecv = view.reduce((a, r) => a + Number(r.received_qty || 0), 0);
+  // 需求已提、但雪梅还没下单（无供应商 / 无单价 / 无采购单号）
+  const isOrdered = (r) => !!(r.supplier_id || r.supplier || r.po_no || Number(r.unit_price || 0) > 0);
+  const underOrder = view.filter(r => !isOrdered(r)).length;
 
   // ---- 样式 ----
   const GRID = "34px 132px 96px 84px 122px minmax(200px, 1fr) 62px 86px 102px 116px 96px 56px 84px";
@@ -5045,7 +5074,7 @@ function Purchase() {
           {subBtn("supplier", "供应商台账")}
           {subBtn("price", "价格基线")}
           <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>
-            {roleReady ? (sub === "po" ? (canPO ? "可录入" : "只读") : sub === "supplier" ? (canSup ? "可维护" : "只读") : "只读") : "…"}
+            {roleReady ? (sub === "po" ? (canPO ? (isRequester ? "可提需求" : "可录入") : "只读") : sub === "supplier" ? (canSup ? "可维护" : "只读") : "只读") : "…"}
           </span>
         </div>
       </div>
@@ -5060,7 +5089,7 @@ function Purchase() {
       {sub === "po" && (
         <>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-            {canPO && <button onClick={() => setForm(blankPO())} style={btn(C.brand, "#fff")}>+ 新建采购单</button>}
+            {canPO && <button onClick={() => setForm(blankPO())} style={btn(C.brand, "#fff")}>+ {isRequester ? "提采购需求" : "新建采购单"}</button>}
             <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜单号 / 产品 / SKU / ASIN / 供应商"
               style={{ ...inp, width: 260 }} />
             <select value={storeF} onChange={e => setStoreF(e.target.value)} style={{ ...inp, width: 110 }}>
@@ -5086,6 +5115,7 @@ function Purchase() {
               ["未付余额", `¥${purMoney(sumTotal - sumPaid)}`, sumTotal - sumPaid > 0 ? C.drop : C.faint],
               ["件数", `${sumQty} 件`, C.sub],
               ["已收", `${sumRecv} / ${sumQty}`, sumRecv < sumQty ? C.watch : C.brand],
+              ["待下单", `${underOrder} 单`, underOrder > 0 ? C.watch : C.brand],
             ].map(([l, v, c]) => (
               <div key={l} style={{ ...card, padding: "7px 14px", minWidth: 104 }}>
                 <div style={{ fontSize: 10.5, color: C.faint }}>{l}</div>
@@ -5117,7 +5147,7 @@ function Purchase() {
 
                 {view.length === 0 && (
                   <div style={{ padding: "34px 20px", textAlign: "center", color: C.faint, fontSize: 12 }}>
-                    还没有采购单{canPO ? " · 点左上「+ 新建采购单」录入第一单" : ""}
+                    还没有采购单{canPO ? ` · 点左上「+ ${isRequester ? "提采购需求" : "新建采购单"}」录入第一单` : ""}
                   </div>
                 )}
 
@@ -5133,7 +5163,10 @@ function Purchase() {
                         <div style={{ ...td, color: C.brand, fontWeight: 600 }}>{r.po_no || "—"}</div>
                         <div style={{ ...td, color: C.sub }}>{r.order_date || "—"}</div>
                         <div style={{ ...td, color: C.sub }}>{r.store || "—"}</div>
-                        <div style={{ ...td, color: C.sub }}>{r.supplier || "—"}</div>
+                        <div style={{ ...td, color: C.sub }}>
+                          {isOrdered(r) ? (r.supplier || "—")
+                            : <span style={{ color: C.watch, fontSize: 11, fontWeight: 600 }}>待下单</span>}
+                        </div>
                         <div style={{ ...td }}>
                           {r.product_name || "—"}
                           {r.sku ? <span style={{ color: C.faint, marginLeft: 6, fontSize: 11 }}>{r.sku}</span> : null}
@@ -5353,21 +5386,23 @@ function Purchase() {
         <div style={modalBg} onClick={() => setForm(null)}>
           <div style={modal} onClick={e => e.stopPropagation()}>
             <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center" }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{form.id ? "修改采购单" : "新建采购单"}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }}>
+                {form.id ? (isRequester ? "修改采购需求" : "修改采购单") : (isRequester ? "提交采购需求" : "新建采购单")}
+              </div>
               <div style={{ marginLeft: "auto", cursor: "pointer", color: C.faint }} onClick={() => setForm(null)}>✕</div>
             </div>
             <div style={{ padding: 18 }}>
               <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, marginBottom: 8 }}>归谁 / 买什么</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                <div><label style={lb}>采购单号</label><input value={form.po_no} onChange={e => setF("po_no", e.target.value)} placeholder="PO-20261119-01" style={inp} /></div>
-                <div><label style={lb}>采购日期 *</label><input type="date" value={form.order_date} onChange={e => setF("order_date", e.target.value)} style={inp} /></div>
+                {!isRequester && <div><label style={lb}>采购单号</label><input value={form.po_no} onChange={e => setF("po_no", e.target.value)} placeholder="PO-20261119-01" style={inp} /></div>}
+                <div><label style={lb}>{isRequester ? "需求日期 *" : "采购日期 *"}</label><input type="date" value={form.order_date} onChange={e => setF("order_date", e.target.value)} style={inp} /></div>
                 <div><label style={lb}>店铺</label>
                   <select value={form.store} onChange={e => setF("store", e.target.value)} style={inp}>
                     <option value="">未指定</option>
                     {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div><label style={lb}>供应商</label>
+                {!isRequester && <div><label style={lb}>供应商</label>
                   <select value={form.supplier_id || ""} onChange={e => {
                     const id = e.target.value;
                     const hit = supList.find(x => x.id === id);
@@ -5378,7 +5413,7 @@ function Purchase() {
                       <option key={s.id} value={s.id}>{s.name}{s.status !== "active" ? `（${PUR_SUP_LABEL[s.status] || s.status}）` : ""}</option>
                     ))}
                   </select>
-                </div>
+                </div>}
                 <div><label style={lb}>产品名称 *</label><input value={form.product_name} onChange={e => setF("product_name", e.target.value)} style={inp} /></div>
                 <div><label style={lb}>SKU</label><input value={form.sku} onChange={e => setF("sku", e.target.value)} style={inp} /></div>
                 <div><label style={lb}>ASIN</label><input value={form.asin} onChange={e => setF("asin", e.target.value)} style={inp} /></div>
@@ -5386,29 +5421,33 @@ function Purchase() {
                 <div><label style={lb}>单价</label><input type="number" step="0.01" value={form.unit_price} onChange={e => setF("unit_price", e.target.value)} style={inp} /></div>
               </div>
 
-              <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>多少钱</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
-                <div><label style={lb}>货款（自动）</label><input type="number" step="0.01" value={form.goods_amount} onChange={e => setF("goods_amount", e.target.value)} style={inp} /></div>
-                <div><label style={lb}>运费</label><input type="number" step="0.01" value={form.freight} onChange={e => setF("freight", e.target.value)} style={inp} /></div>
-                <div><label style={lb}>税费</label><input type="number" step="0.01" value={form.tax_amount} onChange={e => setF("tax_amount", e.target.value)} style={inp} /></div>
-                <div><label style={lb}>总额（自动）</label><input type="number" step="0.01" value={form.total_amount} onChange={e => setF("total_amount", e.target.value)} style={inp} /></div>
-                <div><label style={lb}>币种</label>
-                  <select value={form.currency} onChange={e => setF("currency", e.target.value)} style={inp}>
-                    {PUR_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
+              {!isRequester && (<>
+                <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>多少钱 <span style={{ color: C.faint, fontWeight: 400 }}>（由雪梅下单时填）</span></div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+                  <div><label style={lb}>货款（自动）</label><input type="number" step="0.01" value={form.goods_amount} onChange={e => setF("goods_amount", e.target.value)} style={inp} /></div>
+                  <div><label style={lb}>运费</label><input type="number" step="0.01" value={form.freight} onChange={e => setF("freight", e.target.value)} style={inp} /></div>
+                  <div><label style={lb}>税费</label><input type="number" step="0.01" value={form.tax_amount} onChange={e => setF("tax_amount", e.target.value)} style={inp} /></div>
+                  <div><label style={lb}>总额（自动）</label><input type="number" step="0.01" value={form.total_amount} onChange={e => setF("total_amount", e.target.value)} style={inp} /></div>
+                  <div><label style={lb}>币种</label>
+                    <select value={form.currency} onChange={e => setF("currency", e.target.value)} style={inp}>
+                      {PUR_CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
                 </div>
-              </div>
+              </>)}
 
               <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>到货 / 备注</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
-                <div><label style={lb}>付款条件</label><input value={form.pay_terms} onChange={e => setF("pay_terms", e.target.value)} placeholder="全款 / 30% 定金" style={inp} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: isRequester ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 10 }}>
+                {!isRequester && <div><label style={lb}>付款条件</label><input value={form.pay_terms} onChange={e => setF("pay_terms", e.target.value)} placeholder="全款 / 30% 定金" style={inp} /></div>}
                 <div><label style={lb}>预计到货</label><input type="date" value={form.arrive_date} onChange={e => setF("arrive_date", e.target.value)} style={inp} /></div>
-                <div><label style={lb}>追踪号</label><input value={form.tracking_no} onChange={e => setF("tracking_no", e.target.value)} style={inp} /></div>
+                {!isRequester && <div><label style={lb}>追踪号</label><input value={form.tracking_no} onChange={e => setF("tracking_no", e.target.value)} style={inp} /></div>}
                 <div><label style={lb}>备注</label><input value={form.note} onChange={e => setF("note", e.target.value)} style={inp} /></div>
               </div>
 
               <div style={{ marginTop: 12, fontSize: 11, color: C.faint }}>
-                收货状态不用填：录入收货数量后系统自动判定（未到 / 部分到 / 已收齐 / 有差异）。
+                {isRequester
+                  ? "只填要什么、要多少、哪个店 —— 提交后由雪梅下单定价、夏蕾付款，价格不归你填。"
+                  : "收货状态不用填：录入收货数量后系统自动判定（未到 / 部分到 / 已收齐 / 有差异）。"}
               </div>
             </div>
             <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
