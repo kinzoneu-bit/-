@@ -5037,6 +5037,8 @@ function Purchase() {
   // 需求已提、但雪梅还没下单（无供应商 / 无单价 / 无采购单号）
   const isOrdered = (r) => !!(r.supplier_id || r.supplier || r.po_no || Number(r.unit_price || 0) > 0);
   const underOrder = view.filter(r => !isOrdered(r)).length;
+  // 需求方在「雪梅下单前」看不到任何金额，下单后才开放成本（KK 定的后段可见）
+  const hideCost = (r) => isRequester && !isOrdered(r);
 
   // ---- 样式 ----
   const GRID = "34px 132px 96px 84px 122px minmax(200px, 1fr) 62px 86px 102px 116px 96px 56px 84px";
@@ -5172,8 +5174,17 @@ function Purchase() {
                           {r.sku ? <span style={{ color: C.faint, marginLeft: 6, fontSize: 11 }}>{r.sku}</span> : null}
                         </div>
                         <div style={{ ...td, textAlign: "right" }}>{r.qty ?? "—"}</div>
-                        <div style={{ ...td, textAlign: "right", color: C.sub }}>{purMoney(r.unit_price)}</div>
-                        <div style={{ ...td, textAlign: "right", fontWeight: 600 }}>{purMoney(r.total_amount)}</div>
+                        <div style={{ ...td, textAlign: "right", color: C.sub }}>
+                          {hideCost(r) ? <span style={{ color: C.faint }}>—</span> : (<>
+                            {purMoney(r.unit_price)}
+                            {r.unit_cost != null && (
+                              <div style={{ fontSize: 10, color: C.brand, marginTop: 1 }}>到仓 {purMoney(r.unit_cost)}</div>
+                            )}
+                          </>)}
+                        </div>
+                        <div style={{ ...td, textAlign: "right", fontWeight: 600 }}>
+                          {hideCost(r) ? <span style={{ color: C.faint }}>—</span> : purMoney(r.total_amount)}
+                        </div>
                         <div style={{ ...td, textAlign: "right" }}>
                           <div style={{ fontSize: 11.5 }}>{purMoney(r.pay_sum)}</div>
                           <div style={{ marginTop: 2 }}><span style={tag(PUR_PAY_TONE[pst])}>{PUR_PAY_LABEL[pst] || pst}</span></div>
@@ -5192,6 +5203,26 @@ function Purchase() {
 
                       {open && (
                         <div style={{ borderTop: `1px solid ${C.line}`, background: "#12181d", padding: "12px 16px 16px" }}>
+                          {/* 到深圳仓成本拆解（口径：货款+运费+税费 ÷ 数量，不含头程/佣金/包材） */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, padding: "8px 12px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8 }}>
+                            <span style={{ fontSize: 11.5, fontWeight: 700, color: C.brand }}>到深圳仓成本</span>
+                            {hideCost(r) ? (
+                              <span style={{ fontSize: 11.5, color: C.faint }}>雪梅下单定价后，这里会显示 货款 + 运费 + 税费 的拆解和单件成本</span>
+                            ) : (<>
+                              <span style={{ fontSize: 11.5, color: C.sub }}>货款 <b style={{ color: C.ink }}>¥{purMoney(r.goods_amount)}</b></span>
+                              <span style={{ color: C.faint }}>+</span>
+                              <span style={{ fontSize: 11.5, color: C.sub }}>运费 <b style={{ color: C.ink }}>¥{purMoney(r.freight)}</b></span>
+                              <span style={{ color: C.faint }}>+</span>
+                              <span style={{ fontSize: 11.5, color: C.sub }}>税费 <b style={{ color: C.ink }}>¥{purMoney(r.tax_amount)}</b></span>
+                              <span style={{ color: C.faint }}>=</span>
+                              <span style={{ fontSize: 11.5, color: C.sub }}>总成本 <b style={{ color: C.ink }}>¥{purMoney(r.total_amount)}</b></span>
+                              <span style={{ color: C.faint }}>÷</span>
+                              <span style={{ fontSize: 11.5, color: C.sub }}><b style={{ color: C.ink }}>{r.qty ?? 0}</b> 件</span>
+                              <span style={{ color: C.faint }}>=</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: C.brand }}>单件 ¥{purMoney(r.unit_cost)}</span>
+                              <span style={{ fontSize: 10.5, color: C.faint, marginLeft: 2 }}>（不含头程 / 佣金 / 包材）</span>
+                            </>)}
+                          </div>
                           <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                             {/* 付款流水 */}
                             <div style={{ flex: "1 1 420px", minWidth: 360 }}>
