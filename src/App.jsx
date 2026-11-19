@@ -2134,6 +2134,54 @@ function Shipments() {
   };
   const discardBatchAll = () => { setBPending({}); setBPwdOpen(false); setBPwd(""); setBPwdErr(""); };
 
+  // —— 按货值占比摊分 (KK 2026-11-19): 批次级 头程/杂费/关税/保险 → 逐行到仓价 ——
+  // 口径: 行到仓价 = (该行货值 + 该行按货值占比摊到的头程+杂费+关税+保险 + 该行分摊费) ÷ 该行数量
+  const [spreadAsk, setSpreadAsk] = useState(null);
+  const [spreadPwd, setSpreadPwd] = useState("");
+  const [spreadErr, setSpreadErr] = useState("");
+  const [spreadBusy, setSpreadBusy] = useState(false);
+
+  const openSpread = (g) => {
+    if (lockRowField(g, "landed_cost")) { if (canPropose) openChange(g); return; }
+    const gF = Number(batchVal(g, "freight") || 0);
+    const gM = Number(batchVal(g, "misc_fee") || 0);
+    const gD = Number(batchVal(g, "duty") || 0);
+    const gI = Number(batchVal(g, "insurance_fee") || 0);
+    if (gF + gM + gD + gI <= 0) { alert("该批次还没填「头程 / 杂费 / 关税 / 保险费」，先在批次头填了再摊。"); return; }
+    const base = g.rows.map(r => ({ r, goods: Number(r.goods_value) || (Number(r.qty || 0) * Number(r.purchase_price || 0)) }));
+    const totalGoods = base.reduce((a, x) => a + x.goods, 0);
+    if (totalGoods <= 0) { alert("该批次各行都缺「货值」（也没有 采购价×数量 可兜底），没法按货值摊。"); return; }
+    const plan = base.map(({ r, goods }) => {
+      const w = goods / totalGoods;
+      const f = +(gF * w).toFixed(2), m = +(gM * w).toFixed(2), d = +(gD * w).toFixed(2), i = +(gI * w).toFixed(2);
+      const qty = Number(r.qty || 0);
+      const landed = qty > 0 ? +(((goods + f + m + d + i + Number(r.share_fee || 0)) / qty).toFixed(2)) : null;
+      return { id: r.id, name: r.product_name, qty, goods: +goods.toFixed(2), f, m, d, i, landed, pct: +(w * 100).toFixed(1) };
+    });
+    setSpreadPwd(""); setSpreadErr("");
+    setSpreadAsk({ groupKey: g.key, name: batchVal(g, "ship_batch") || "(无批次号)", plan, gF, gM, gD, gI, totalGoods });
+  };
+
+  const applySpread = async () => {
+    if (spreadPwd.trim() !== "852963") { setSpreadErr("密码不正确, 请重新输入"); return; }
+    const p = spreadAsk;
+    if (!p) return;
+    setSpreadBusy(true);
+    let bad = "";
+    const written = [];
+    for (const it of p.plan) {
+      if (it.landed == null) continue;
+      const { error } = await supabase.from("shipments").update({ landed_cost: it.landed }).eq("id", it.id);
+      if (error) { bad = error.message; break; }
+      written.push(it);
+    }
+    if (written.length) setRows(prev => prev.map(r => { const hit = written.find(w => w.id === r.id); return hit ? { ...r, landed_cost: hit.landed } : r; }));
+    setSpreadBusy(false);
+    if (bad) { setSpreadErr("写入失败: " + bad + (written.length ? `（已成功 ${written.length} 行）` : "")); return; }
+    setSpreadAsk(null);
+    setSpreadPwd("");
+  };
+
   // 待我处理: 财务专员待复核的批次 + 等我签字的修改申请 (KK 2026-09-18 / 2026-11-02)
   const isMyTodo = (g) => {
     const rev = revOf(g);
@@ -2420,6 +2468,12 @@ function Shipments() {
                           <>
                             {locked && <span title="已复核" style={{ fontSize: 10, color: "#d9a441" }}>🔒</span>}
                             {v === null || v === undefined || v === "" ? <span style={{ color: C.faint }}>—</span> : String(v)}
+                            {c.k === "freight" && canEdit && (
+                              <span
+                                onClick={e => { e.stopPropagation(); openSpread(g); }}
+                                title="按货值占比把 头程+杂费+关税+保险 摊到每行，自动算出「到仓价」"
+                                style={{ marginLeft: "auto", flexShrink: 0, fontSize: 9, padding: "1px 5px", borderRadius: 4, border: `1px solid ${locked ? C.faint : C.brand}66`, color: locked ? C.faint : C.brand, cursor: "pointer", fontWeight: 700, lineHeight: 1.4 }}>摊</span>
+                            )}
                           </>
                         )}
                       </div>
@@ -2507,6 +2561,71 @@ function Shipments() {
       ) : (
         <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12, border: `1px dashed ${C.line}`, borderRadius: 8 }}>
           暂无发货记录 · Excel 导入: node scripts/import-shipments.mjs {"<文件>"} --store=店铺名
+        </div>
+      )}
+
+      {/* 按货值摊分: 预览 + 密码确认 (KK 2026-11-19) */}
+      {spreadAsk && (
+        <div onClick={() => !spreadBusy && setSpreadAsk(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 123 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: "min(1000px, 95vw)", maxHeight: "88vh", overflow: "auto", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, boxShadow: "0 18px 50px rgba(0,0,0,.4)" }}>
+            <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>按货值占比摊分 → 到仓价</div>
+                <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>
+                  批次 <b style={{ color: C.sub }}>{spreadAsk.name}</b> · 批货值 ¥{spreadAsk.totalGoods.toFixed(2)}
+                  {" · "}头程 {spreadAsk.gF} / 杂费 {spreadAsk.gM} / 关税 {spreadAsk.gD} / 保险 {spreadAsk.gI}
+                </div>
+              </div>
+              <span onClick={() => !spreadBusy && setSpreadAsk(null)} style={{ marginLeft: "auto", cursor: "pointer", color: C.faint, fontSize: 14 }}>✕</span>
+            </div>
+
+            <div style={{ padding: "12px 18px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(160px,1.6fr) 56px 92px 56px 84px 76px 76px 76px 92px", background: "#1f3a68", fontSize: 10.5, color: "#fff", fontWeight: 600, borderRadius: 6 }}>
+                {["产品", "数量", "货值", "占比", "摊头程", "摊杂费", "摊关税", "摊保险", "到仓价"].map((h, hi) => (
+                  <div key={h} style={{ padding: "7px 8px", textAlign: hi === 0 || hi === 3 ? "left" : "right", borderRight: hi < 8 ? "1px solid #2a4a78" : "none" }}>{h}</div>
+                ))}
+              </div>
+              {spreadAsk.plan.map((p, i) => (
+                <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(160px,1.6fr) 56px 92px 56px 84px 76px 76px 76px 92px", fontSize: 11.5, color: C.ink, borderTop: `1px solid ${C.line}`, background: i % 2 ? C.bg : "transparent" }}>
+                  <div style={{ padding: "6px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", borderRight: `1px solid ${C.line}` }}>{p.name || "—"}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", borderRight: `1px solid ${C.line}` }}>{p.qty}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", borderRight: `1px solid ${C.line}` }}>{p.goods.toFixed(2)}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "left", color: C.sub, borderRight: `1px solid ${C.line}` }}>{p.pct}%</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", color: C.sub, borderRight: `1px solid ${C.line}` }}>{p.f.toFixed(2)}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", color: C.sub, borderRight: `1px solid ${C.line}` }}>{p.m.toFixed(2)}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", color: C.sub, borderRight: `1px solid ${C.line}` }}>{p.d.toFixed(2)}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", color: C.sub, borderRight: `1px solid ${C.line}` }}>{p.i.toFixed(2)}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", fontWeight: 700, color: C.brand }}>
+                    {p.landed == null ? "—" : "¥" + p.landed.toFixed(2)}
+                  </div>
+                </div>
+              ))}
+              <div style={{ marginTop: 10, fontSize: 10.5, color: C.faint, lineHeight: 1.6 }}>
+                公式：到仓价 =（该行货值 + 按货值占比摊到的 头程/杂费/关税/保险 + 该行分摊费）÷ 该行数量。写库只改「到仓价」这一列。
+              </div>
+
+              <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: C.sub }}>确认密码</span>
+                <input type="password" value={spreadPwd} autoFocus
+                  onChange={e => { setSpreadPwd(e.target.value); setSpreadErr(""); }}
+                  onKeyDown={e => { if (e.key === "Enter" && !spreadBusy) applySpread(); }}
+                  placeholder="输入密码后写入"
+                  style={{ width: 180, padding: "7px 10px", background: C.bg, border: `1px solid ${spreadErr ? C.drop : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                {spreadErr && <span style={{ fontSize: 11.5, color: C.drop }}>{spreadErr}</span>}
+              </div>
+            </div>
+
+            <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setSpreadAsk(null)} disabled={spreadBusy}
+                style={{ padding: "8px 18px", background: "transparent", border: `1px solid ${C.line}`, borderRadius: 7, color: C.sub, fontSize: 12.5, cursor: "pointer" }}>取消</button>
+              <button onClick={applySpread} disabled={spreadBusy}
+                style={{ padding: "8px 20px", background: C.brand, border: "none", borderRadius: 7, color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: spreadBusy ? "default" : "pointer", opacity: spreadBusy ? 0.6 : 1 }}>
+                {spreadBusy ? "写入中…" : `确认写入 ${spreadAsk.plan.filter(p => p.landed != null).length} 行`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
