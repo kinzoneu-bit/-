@@ -1662,7 +1662,8 @@ function Track({ selSku, setSelSku }) {
 //   - 平台费 / 广告费: 财务月度导入
 // ---------------- 发货记录 ----------------
 // 全员可见; 录入/编辑 = admin + 成都·供应链(cd_supplier) — KK 2026-09-18 锁死
-// 例外: 财务专员(夏蕾)负责复核与双方确认; 成都·采购(黄丹)保留「账单核对/运费已付」勾选
+// 例外: 财务专员(夏蕾)负责复核与双方确认; 成都·采购(黄丹)保留「运费已付」勾选
+// 2026-11-20 KK 定: 「账单核对」环节取消(整列移除, DB 字段保留); 「运费已付」收走雪梅, 归 admin + 黄丹
 // RLS 同步: sql/shipments_entry_lock.sql
 function Shipments() {
   const [shipRole, setShipRole] = useState(null);
@@ -1675,8 +1676,8 @@ function Shipments() {
   const isAdmin = shipRole === "admin";
   // 录入/编辑数据: 锁死只给 admin + 成都·供应链(陈雪梅) — KK 2026-09-18 定
   const canEdit = shipRole === "admin" || shipRole === "cd_supplier";
-  // 「账单核对 / 运费已付」勾选: 额外保留 成都·采购(黄丹) 的核对职责 — 2026-09-16 定
-  const canCheck = shipRole === "admin" || shipRole === "cd_supplier" || shipRole === "cd_procurement";
+  // 「运费已付」勾选: admin + 成都·采购(黄丹) — 2026-11-20 KK 定, 收走雪梅
+  const canCheck = shipRole === "admin" || shipRole === "cd_procurement";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (shipRole && ROLE_STORES[shipRole]) || null;
 
@@ -1768,7 +1769,7 @@ function Shipments() {
     return () => clearTimeout(t);
   }, [filterStore, filterBatch]);
 
-  // 勾选切换 (账单核对/运费已付) · admin + 供应链 + 采购(黄丹)
+  // 勾选切换 (运费已付) · admin + 采购(黄丹)
   const toggleField = async (rowId, field, current) => {
     if (!canCheck) return;
     const { error } = await supabase.from("shipments").update({ [field]: !current }).eq("id", rowId);
@@ -1880,7 +1881,6 @@ function Shipments() {
     { k: "insurance_no", l: "保险单号", w: 90, t: "row" },
     { k: "insured_amount", l: "投保金额", w: 90, t: "row" },
     { k: "days", l: "累计天数", w: 80, t: "row" },
-    { k: "bill_checked", l: "账单核对", w: 70, t: "row" },
     { k: "freight_paid", l: "运费已付", w: 70, t: "row" },
     { k: "note", l: "备注", w: 90, t: "row" },
     { k: "ops", l: "操作", w: 90, t: "row" },
@@ -2523,12 +2523,6 @@ function Shipments() {
                       if (c.k === "insurance_no") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>;
                       if (c.k === "insured_amount") return <div key={r.id + c.k} style={cell(c.k)}>{r.insured_amount ? "¥" + Number(r.insured_amount).toFixed(2) : "—"}</div>;
                       if (c.k === "days") return <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: 600, color: cumDays > 65 ? "#c05b52" : cumDays > 14 ? "#d9a441" : C.ink }}>{cumDays != null ? `${cumDays}天` : "—"}</div>;
-                      if (c.k === "bill_checked") return (
-                        <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", fontWeight: 600, color: r.bill_checked ? "#4db6a4" : C.faint, cursor: canCheck ? "pointer" : "default", opacity: canCheck ? 1 : 0.6 }}
-                          onClick={canCheck ? () => toggleField(r.id, "bill_checked", r.bill_checked) : undefined}>
-                          {r.bill_checked ? "✓ 已对" : "✗ 未对"}
-                        </div>
-                      );
                       if (c.k === "freight_paid") return (
                         <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", fontWeight: 600, color: r.freight_paid ? "#4db6a4" : C.drop, cursor: canCheck ? "pointer" : "default", opacity: canCheck ? 1 : 0.6 }}
                           onClick={canCheck ? () => toggleField(r.id, "freight_paid", r.freight_paid) : undefined}>
