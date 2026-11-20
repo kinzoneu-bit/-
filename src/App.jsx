@@ -1676,8 +1676,8 @@ function Shipments() {
   const isAdmin = shipRole === "admin";
   // 录入/编辑数据: 锁死只给 admin + 成都·供应链(陈雪梅) — KK 2026-09-18 定
   const canEdit = shipRole === "admin" || shipRole === "cd_supplier";
-  // 「运费已付」勾选: admin + 成都·采购(黄丹) — 2026-11-20 KK 定, 收走雪梅
-  const canCheck = shipRole === "admin" || shipRole === "cd_procurement";
+  // 「运费已付」勾选: admin + 成都·采购(黄丹) + 财务(夏蕾) — 2026-11-20 KK 定, 收走雪梅
+  const canCheck = shipRole === "admin" || shipRole === "cd_procurement" || shipRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (shipRole && ROLE_STORES[shipRole]) || null;
 
