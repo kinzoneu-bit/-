@@ -5106,7 +5106,8 @@ function Purchase() {
   };
 
   // ---- 供应商 ----
-  const blankSup = () => ({ id: null, name: "", contact: "", phone: "", category: "", status: "pending", pay_channel: "", account_name: "", account_no: "", bank: "", source: "", note: "" });
+  // 供应商录入即生效 (KK 2026-11-20 定): 不再需要 admin 审核, 新建默认「合作中」
+  const blankSup = () => ({ id: null, name: "", contact: "", phone: "", category: "", status: "active", pay_channel: "", account_name: "", account_no: "", bank: "", source: "", note: "" });
   const submitSup = () => {
     const f = supForm;
     if (!String(f.name || "").trim()) return alert("请填供应商名称");
@@ -5614,7 +5615,7 @@ function Purchase() {
               <div><label style={lb}>名称 *</label><input value={supForm.name} onChange={e => setSupForm(f => ({ ...f, name: e.target.value }))} style={inp} /></div>
               <div><label style={lb}>状态</label>
                 <select value={supForm.status} onChange={e => setSupForm(f => ({ ...f, status: e.target.value }))} style={inp}>
-                  {Object.entries(PUR_SUP_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  {Object.entries(PUR_SUP_LABEL).filter(([k]) => k !== "pending" || supForm.status === "pending").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </div>
               <div><label style={lb}>类别</label><input value={supForm.category || ""} onChange={e => setSupForm(f => ({ ...f, category: e.target.value }))} placeholder="包材 / 五金 / 电子" style={inp} /></div>
