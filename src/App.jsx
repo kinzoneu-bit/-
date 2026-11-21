@@ -622,7 +622,9 @@ export default function App() {
           // 财务核算: admin + 成都采购(黄丹) + 财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["finance", "财务核算"]] : []),
           // 办公室费用明细: 可见 = admin(你) + fr(泺伊) + 黄丹 + 财务专员(夏蕾); 登记只有黄丹 — KK 2026-09-18 定
-          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用"]] : [])
+          ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用"]] : []),
+          // 现金账: 只有 KK 本人可见 — 按邮箱锁, 其他 admin(bot) 看不到 — KK 2026-11-22 定
+          ...(session?.user?.email === CASH_OWNER_EMAIL ? [["cashbook", "现金账"]] : [])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
@@ -653,6 +655,7 @@ export default function App() {
         {tab === "storemonthly" && <StoreMonthly />}
         {tab === "finance" && <Finance />}
         {tab === "officeexpense" && <OfficeExpense />}
+        {tab === "cashbook" && <CashBook />}
         </ErrorBoundary>
       </div>
     </div>
@@ -4520,6 +4523,276 @@ function AdAnalysis() {
 // 录入规则与运维费用/月度核算一致: 改动只进待提交队列 → 底部「确认提交」→ 输密码 → 一次性入库
 // 权限 (KK 2026-09-18 定): 可见 = admin(你) + fr(泺伊) + cd_procurement(黄丹); 登记/编辑 = 只有黄丹(+admin兜底)
 // RLS 同步: sql/office_expense_access.sql
+// ==================== 现金账 (仅 kinzon.eu@gmail.com 可见 — KK 2026-11-22 定) ====================
+const CASH_OWNER_EMAIL = "kinzon.eu@gmail.com";
+
+// 真实现金流出科目
+const CASH_OUT_CATS = ["采购货款", "国内运费", "采购税费", "头程运费", "目的国杂费", "关税", "保险费", "人工工资", "场地租金", "办公室费用", "店铺其他费用", "VAT 实缴", "平台服务费", "其他支出"];
+// 真实现金流入科目
+const CASH_IN_CATS = ["资本金", "平台回款", "其他流入"];
+
+// 支付关卡清单: 系统里每一条会「真实现金流出」的路径 — KK 2026-11-22 要盘的就是这个
+const CASH_GATES = [
+  { cat: "采购货款", tbl: "purchase_payments", note: "打给供应商 · 定金/尾款", st: "ok" },
+  { cat: "国内运费", tbl: "purchase_records.freight", note: "工厂 → 深圳仓", st: "ok" },
+  { cat: "采购税费", tbl: "purchase_records.tax_amount", note: "开票税点", st: "ok" },
+  { cat: "头程运费", tbl: "shipments.freight", note: "深圳仓 → 海外仓 · 按批次", st: "ok" },
+  { cat: "目的国杂费", tbl: "shipments.misc_fee", note: "清关杂费 · 按批次", st: "ok" },
+  { cat: "关税", tbl: "shipments.duty", note: "按批次", st: "ok" },
+  { cat: "保险费", tbl: "shipments.insurance_fee", note: "按批次", st: "ok" },
+  { cat: "人工工资", tbl: "store_monthly_costs(人工)", note: "含社保公积金公司承担部分", st: "ok" },
+  { cat: "场地租金", tbl: "store_monthly_costs(场地)", note: "各店仓库/办公室", st: "ok" },
+  { cat: "办公室费用", tbl: "office_expense", note: "会计/招待/差旅/设备租赁", st: "ok" },
+  { cat: "店铺其他费用", tbl: "store_other_expense", note: "美工/说明书/包装法/税务", st: "ok" },
+  { cat: "VAT 实缴", tbl: "（无台账）", note: "缺口 · 需按季补申报实缴额", st: "gap" },
+  { cat: "平台服务费", tbl: "（无台账）", note: "缺口 · 年费/保证金/汇损手续费", st: "gap" },
+];
+// 这些不是现金流出: 亚马逊从卖家账户余额里直接扣, 不掏现金 — 不进现金账
+const CASH_EXCLUDED = ["平台佣金", "FBA 配送费", "订单 VAT", "仓储费", "广告费", "弃置费", "长期仓储", "店铺月租", "EPR 生产者延伸费", "服务订阅", "入库费", "优惠券", "退货费"];
+
+function CashBook() {
+  const cur = new Date();
+  const today = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+  const [pos, setPos] = useState(null);
+  const [cfg, setCfg] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [form, setForm] = useState(null);
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [pwdErr, setPwdErr] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [openGates, setOpenGates] = useState(false);
+  const PWD = "852963";
+
+  const load = () => {
+    setLoading(true);
+    Promise.all([
+      supabase.from("v_cash_position").select("*").maybeSingle(),
+      supabase.from("cash_config").select("*").limit(1).maybeSingle(),
+      supabase.from("cash_entries").select("*").order("entry_date", { ascending: false }).order("created_at", { ascending: false }).limit(400),
+    ]).then(([p, c, e]) => {
+      const bad = [p, c, e].find(x => x.error);
+      if (bad) setErr(bad.error.message); else setErr("");
+      setPos(p.data || null);
+      setCfg(c.data || null);
+      setRows(e.data || []);
+      setLoading(false);
+    }).catch(ex => { setErr(String(ex)); setLoading(false); });
+  };
+  useEffect(() => { load(); }, []);
+
+  const inSum = rows.filter(r => r.direction === "in").reduce((a, r) => a + Number(r.amount_cny || 0), 0);
+  const outSum = rows.filter(r => r.direction === "out").reduce((a, r) => a + Number(r.amount_cny || 0), 0);
+  const capital = Number(cfg?.total_amount || 0);
+  const balance = capital + inSum - outSum;
+
+  // 按科目统计(仅流出), 用于关卡覆盖度
+  const byCat = {};
+  rows.forEach(r => { if (r.direction === "out") byCat[r.category] = (byCat[r.category] || 0) + Number(r.amount_cny || 0); });
+  const covered = CASH_GATES.filter(g => byCat[g.cat] > 0).length;
+
+  const blank = () => ({ id: null, entry_date: today, direction: "out", category: CASH_OUT_CATS[0], amount_cny: "", ref_no: "", ref_note: "" });
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = () => {
+    const f = form;
+    if (!f.entry_date) return alert("请填日期");
+    if (!f.amount_cny || Number(f.amount_cny) <= 0) return alert("金额必须大于 0");
+    setPwd(""); setPwdErr(""); setPwdOpen(true);
+  };
+  const doSave = async () => {
+    if (pwd !== PWD) { setPwdErr("密码不正确"); return; }
+    setSaving(true);
+    const f = form;
+    const payload = {
+      entry_date: f.entry_date,
+      direction: f.direction,
+      category: f.category,
+      amount_cny: Number(f.amount_cny),
+      ref_no: f.ref_no || null,
+      ref_note: f.ref_note || null,
+      source_table: "manual",
+      auto: false,
+      created_by: CASH_OWNER_EMAIL,
+    };
+    const { error } = f.id
+      ? await supabase.from("cash_entries").update(payload).eq("id", f.id)
+      : await supabase.from("cash_entries").insert(payload);
+    setSaving(false);
+    if (error) { setPwdErr(error.message); return; }
+    setPwdOpen(false); setPwd(""); setForm(null); load();
+  };
+  const del = async (r) => {
+    if (r.auto) return alert("这条是系统自动生成的，不能在这里删");
+    if (!confirm(`删除这条记录？\n${r.entry_date} ${r.category} ¥${Number(r.amount_cny).toLocaleString()}`)) return;
+    const { error } = await supabase.from("cash_entries").delete().eq("id", r.id);
+    if (error) return alert(error.message);
+    load();
+  };
+
+  const inp = { width: "100%", boxSizing: "border-box", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, padding: "7px 9px", fontSize: 12.5, outline: "none" };
+  const lb = { display: "block", fontSize: 10.5, color: C.sub, marginBottom: 4 };
+  const money = (n) => `¥${Number(n || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const card = (label, value, color, sub) => (
+    <div style={{ flex: 1, minWidth: 150, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "13px 15px" }}>
+      <div style={{ fontSize: 10.5, color: C.sub, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 19, fontWeight: 700, color: color || C.ink, letterSpacing: "-0.02em" }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: C.faint, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+        <div style={{ fontSize: 17, fontWeight: 700 }}>现金账</div>
+        <span style={{ fontSize: 10.5, color: "#d9a441", border: "1px solid #5c4a1f", background: "#2a2113", borderRadius: 4, padding: "1px 6px" }}>仅你可见</span>
+        <span style={{ fontSize: 11, color: C.faint }}>只记真实现金进出，不记平台余额扣减</span>
+      </div>
+      {err && <div style={{ margin: "10px 0", padding: "9px 12px", background: "#3a1d1d", border: "1px solid #6b2a2a", borderRadius: 8, color: "#f0a0a0", fontSize: 12 }}>{err}</div>}
+
+      {/* 头寸 */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 18px" }}>
+        {card("本金 / 投入", money(capital), C.ink, cfg?.label || "cash_config 未设置")}
+        {card("累计流入", money(inSum), "#4db6a4")}
+        {card("累计流出", money(outSum), "#e08a8a")}
+        {card("当前头寸", money(balance), balance >= 0 ? "#4db6a4" : "#e08a8a", `${rows.length} 条流水`)}
+      </div>
+
+      {/* 支付关卡 */}
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, marginBottom: 16 }}>
+        <div onClick={() => setOpenGates(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 15px", cursor: "pointer" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700 }}>支付关卡</span>
+          <span style={{ fontSize: 10.5, color: C.faint }}>共 {CASH_GATES.length} 条现金流出路径 · 已有数据 {covered} 条</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{openGates ? "收起 ▲" : "展开 ▼"}</span>
+        </div>
+        {openGates && (
+          <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 15px 14px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr 92px", gap: "6px 10px", fontSize: 11 }}>
+              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}` }}>科目</div>
+              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}` }}>数据来源</div>
+              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}` }}>说明</div>
+              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}`, textAlign: "right" }}>已录金额</div>
+              {CASH_GATES.map(g => (
+                <React.Fragment key={g.cat}>
+                  <div style={{ color: g.st === "gap" ? "#d9a441" : C.ink, fontWeight: 600 }}>{g.cat}</div>
+                  <div style={{ color: C.sub, fontFamily: "ui-monospace,monospace", fontSize: 10.5 }}>{g.tbl}</div>
+                  <div style={{ color: C.faint }}>{g.note}</div>
+                  <div style={{ textAlign: "right", color: byCat[g.cat] ? C.ink : C.faint, fontWeight: byCat[g.cat] ? 600 : 400 }}>
+                    {byCat[g.cat] ? money(byCat[g.cat]) : "—"}
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+              <div style={{ fontSize: 11, color: "#d9a441", fontWeight: 700, marginBottom: 6 }}>不进现金账（亚马逊从卖家余额直接扣，不掏现金）</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {CASH_EXCLUDED.map(x => (
+                  <span key={x} style={{ fontSize: 10.5, color: C.faint, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, padding: "2px 7px" }}>{x}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 流水 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700 }}>现金流水</span>
+        <span style={{ fontSize: 10.5, color: C.faint }}>最近 400 条</span>
+        <button onClick={() => setForm(blank())} style={{ marginLeft: "auto", background: "#4db6a4", color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ 记一笔</button>
+      </div>
+
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "92px 54px 1fr 130px 130px 1fr 54px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600 }}>
+          {["日期", "方向", "科目", "金额", "单号", "备注 / 来源", ""].map((h, i) => (
+            <div key={i} style={{ padding: "9px 10px", textAlign: [3].includes(i) ? "right" : "left" }}>{h}</div>
+          ))}
+        </div>
+        {loading ? (
+          <div style={{ padding: 26, textAlign: "center", color: C.faint, fontSize: 12 }}>加载中…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12 }}>
+            还没有现金流水 · 点右上「+ 记一笔」录第一条，或等系统从各业务表自动回填
+          </div>
+        ) : rows.map((r, i) => (
+          <div key={r.id} style={{ display: "grid", gridTemplateColumns: "92px 54px 1fr 130px 130px 1fr 54px", fontSize: 12, background: i % 2 ? "#1a2128" : "transparent", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+            <div style={{ padding: "8px 10px", color: C.sub }}>{r.entry_date}</div>
+            <div style={{ padding: "8px 10px" }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: r.direction === "in" ? "#4db6a4" : "#e08a8a" }}>{r.direction === "in" ? "流入" : "流出"}</span>
+            </div>
+            <div style={{ padding: "8px 10px", color: C.ink }}>{r.category}</div>
+            <div style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, color: r.direction === "in" ? "#4db6a4" : "#e08a8a" }}>
+              {r.direction === "in" ? "+" : "−"}{Number(r.amount_cny || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div style={{ padding: "8px 10px", color: C.sub, fontFamily: "ui-monospace,monospace", fontSize: 10.5 }}>{r.ref_no || "—"}</div>
+            <div style={{ padding: "8px 10px", color: C.faint, fontSize: 11 }}>
+              {r.ref_note || "—"}
+              {r.auto && <span style={{ marginLeft: 6, fontSize: 9.5, color: "#4db6a4", border: "1px solid #2d5f57", borderRadius: 3, padding: "0 4px" }}>自动</span>}
+              {r.source_table && r.source_table !== "manual" && <span style={{ marginLeft: 6, fontSize: 9.5, color: C.faint }}>{r.source_table}</span>}
+            </div>
+            <div style={{ padding: "8px 10px", textAlign: "right" }}>
+              {!r.auto && <span onClick={() => del(r)} style={{ cursor: "pointer", color: C.faint, fontSize: 11 }} title="删除">✕</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 录入弹窗 */}
+      {form && (
+        <div onClick={() => setForm(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 520, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 20 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 14 }}>记一笔现金</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div><label style={lb}>日期 *</label><input type="date" value={form.entry_date} onChange={e => setF("entry_date", e.target.value)} style={inp} /></div>
+              <div><label style={lb}>方向 *</label>
+                <select value={form.direction} onChange={e => { const d = e.target.value; setForm(f => ({ ...f, direction: d, category: d === "in" ? CASH_IN_CATS[0] : CASH_OUT_CATS[0] })); }} style={inp}>
+                  <option value="out">流出（花钱）</option>
+                  <option value="in">流入（进钱）</option>
+                </select>
+              </div>
+              <div><label style={lb}>科目 *</label>
+                <select value={form.category} onChange={e => setF("category", e.target.value)} style={inp}>
+                  {(form.direction === "in" ? CASH_IN_CATS : CASH_OUT_CATS).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div><label style={lb}>金额（元）*</label><input type="number" step="0.01" value={form.amount_cny} onChange={e => setF("amount_cny", e.target.value)} placeholder="0.00" style={inp} /></div>
+              <div><label style={lb}>单号 / 凭证</label><input value={form.ref_no} onChange={e => setF("ref_no", e.target.value)} placeholder="转账流水号、发票号" style={inp} /></div>
+              <div><label style={lb}>备注</label><input value={form.ref_note} onChange={e => setF("ref_note", e.target.value)} placeholder="给谁、为什么" style={inp} /></div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button onClick={() => setForm(null)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.line}`, color: C.sub, borderRadius: 7, padding: "9px", fontSize: 12.5, cursor: "pointer" }}>取消</button>
+              <button onClick={save} style={{ flex: 2, background: "#4db6a4", border: "none", color: "#fff", borderRadius: 7, padding: "9px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 密码确认 */}
+      {pwdOpen && (
+        <div onClick={() => setPwdOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 310 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 320, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>确认写入现金账</div>
+            <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>
+              {form?.entry_date} · {form?.category} · ¥{form?.amount_cny}
+            </div>
+            <input type="password" value={pwd} onChange={e => { setPwd(e.target.value); setPwdErr(""); }} placeholder="输入密码" autoFocus
+              onKeyDown={e => { if (e.key === "Enter") doSave(); }}
+              style={{ ...inp, marginBottom: 8 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#e08a8a", marginBottom: 8 }}>{pwdErr}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button onClick={() => setPwdOpen(false)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.line}`, color: C.sub, borderRadius: 7, padding: "8px", fontSize: 12, cursor: "pointer" }}>取消</button>
+              <button onClick={doSave} disabled={saving} style={{ flex: 1, background: "#4db6a4", border: "none", color: "#fff", borderRadius: 7, padding: "8px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "写入中…" : "确认"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfficeExpense() {
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);
