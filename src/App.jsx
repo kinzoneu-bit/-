@@ -4531,21 +4531,22 @@ const CASH_OUT_CATS = ["采购货款", "国内运费", "采购税费", "头程�
 // 真实现金流入科目
 const CASH_IN_CATS = ["资本金", "平台回款", "其他流入"];
 
-// 支付关卡清单: 系统里每一条会「真实现金流出」的路径 — KK 2026-11-22 要盘的就是这个
+// 支付关卡: KK 2026-11-22 定 — 只有采购 / 物流 / 办公室 / 店铺费用 是真金白银
 const CASH_GATES = [
-  { cat: "采购货款", tbl: "purchase_payments", note: "打给供应商 · 定金/尾款", st: "ok" },
-  { cat: "国内运费", tbl: "purchase_records.freight", note: "工厂 → 深圳仓", st: "ok" },
-  { cat: "采购税费", tbl: "purchase_records.tax_amount", note: "开票税点", st: "ok" },
-  { cat: "头程运费", tbl: "shipments.freight", note: "深圳仓 → 海外仓 · 按批次", st: "ok" },
-  { cat: "目的国杂费", tbl: "shipments.misc_fee", note: "清关杂费 · 按批次", st: "ok" },
-  { cat: "关税", tbl: "shipments.duty", note: "按批次", st: "ok" },
-  { cat: "保险费", tbl: "shipments.insurance_fee", note: "按批次", st: "ok" },
-  { cat: "人工工资", tbl: "store_monthly_costs(人工)", note: "含社保公积金公司承担部分", st: "ok" },
-  { cat: "场地租金", tbl: "store_monthly_costs(场地)", note: "各店仓库/办公室", st: "ok" },
-  { cat: "办公室费用", tbl: "office_expense", note: "会计/招待/差旅/设备租赁", st: "ok" },
-  { cat: "店铺其他费用", tbl: "store_other_expense", note: "美工/说明书/包装法/税务", st: "ok" },
-  { cat: "VAT 实缴", tbl: "（无台账）", note: "缺口 · 需按季补申报实缴额", st: "gap" },
-  { cat: "平台服务费", tbl: "（无台账）", note: "缺口 · 年费/保证金/汇损手续费", st: "gap" },
+  { cat: "采购", tbl: "purchase_payments", src: "采购管理 · 付款流水", note: "货款 + 国内运费 + 税费，按付款日归月" },
+  { cat: "物流", tbl: "shipments(批次去重)", src: "发货记录 · 批次费用", note: "头程 + 杂费 + 关税 + 保险，按发货日归月" },
+  { cat: "办公室费用", tbl: "office_expense", src: "办公室费用", note: "会计 / 招待 / 差旅 / 设备租赁" },
+  { cat: "店铺其他费用", tbl: "store_other_expense", src: "其他费用", note: "美工 / 说明书 / 包装法 / 税务" },
+];
+// 固定支出: 金额刚性、可预测，默认不计入，可一键开关
+const CASH_FIXED = [
+  { cat: "人工工资", tbl: "store_monthly_costs(人工)", note: "含社保公积金公司承担部分" },
+  { cat: "场地租金", tbl: "store_monthly_costs(场地)", note: "各店仓库 / 办公室租金" },
+];
+// 缺口: 真实现金支出但目前没有台账
+const CASH_GAP = [
+  { cat: "VAT 实缴", note: "按季申报实缴，暂无台账 — 需补" },
+  { cat: "平台服务费", note: "年费 / 保证金 / 汇损手续费 — 需补" },
 ];
 // 这些不是现金流出: 亚马逊从卖家账户余额里直接扣, 不掏现金 — 不进现金账
 const CASH_EXCLUDED = ["平台佣金", "FBA 配送费", "订单 VAT", "仓储费", "广告费", "弃置费", "长期仓储", "店铺月租", "EPR 生产者延伸费", "服务订阅", "入库费", "优惠券", "退货费"];
@@ -4553,11 +4554,11 @@ const CASH_EXCLUDED = ["平台佣金", "FBA 配送费", "订单 VAT", "仓储费
 function CashBook() {
   const cur = new Date();
   const today = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
-  const [pos, setPos] = useState(null);
-  const [cfg, setCfg] = useState(null);
-  const [rows, setRows] = useState([]);
+  const [flows, setFlows] = useState([]);      // v_cashflow_monthly 月度现金流
+  const [entries, setEntries] = useState([]);  // cash_entries 手动补录
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [inclFixed, setInclFixed] = useState(false); // 是否把人工/场地计入流出
   const [form, setForm] = useState(null);
   const [pwdOpen, setPwdOpen] = useState(false);
   const [pwd, setPwd] = useState("");
@@ -4569,29 +4570,34 @@ function CashBook() {
   const load = () => {
     setLoading(true);
     Promise.all([
-      supabase.from("v_cash_position").select("*").maybeSingle(),
-      supabase.from("cash_config").select("*").limit(1).maybeSingle(),
-      supabase.from("cash_entries").select("*").order("entry_date", { ascending: false }).order("created_at", { ascending: false }).limit(400),
-    ]).then(([p, c, e]) => {
-      const bad = [p, c, e].find(x => x.error);
+      supabase.from("v_cashflow_monthly").select("*").order("period", { ascending: false }).limit(36),
+      supabase.from("cash_entries").select("*").order("entry_date", { ascending: false }).limit(200),
+    ]).then(([f, e]) => {
+      const bad = [f, e].find(x => x.error);
       if (bad) setErr(bad.error.message); else setErr("");
-      setPos(p.data || null);
-      setCfg(c.data || null);
-      setRows(e.data || []);
+      setFlows(f.data || []);
+      setEntries(e.data || []);
       setLoading(false);
     }).catch(ex => { setErr(String(ex)); setLoading(false); });
   };
   useEffect(() => { load(); }, []);
 
-  const inSum = rows.filter(r => r.direction === "in").reduce((a, r) => a + Number(r.amount_cny || 0), 0);
-  const outSum = rows.filter(r => r.direction === "out").reduce((a, r) => a + Number(r.amount_cny || 0), 0);
-  const capital = Number(cfg?.total_amount || 0);
-  const balance = capital + inSum - outSum;
+  // ---- 月度现金流计算 ----
+  const ym = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`;
+  const num = (v) => Number(v || 0);
+  const thisMonth = flows.find(f => f.period === ym) || {};
+  const yearFlows = flows.filter(f => String(f.period || "").startsWith(String(cur.getFullYear())));
+  const sumYear = (k) => yearFlows.reduce((a, f) => a + num(f[k]), 0);
+  // 当月口径: core_out 已含手动补录; 全流出再加人工+场地
+  const mCoreOut = num(thisMonth.core_out);
+  const mFixed = num(thisMonth.labor) + num(thisMonth.site);
+  const mOut = mCoreOut + (inclFixed ? mFixed : 0);
+  const mIn = num(thisMonth.total_in);
+  const mNet = mIn - mOut;
 
-  // 按科目统计(仅流出), 用于关卡覆盖度
+  // 支付关卡已录金额(仅手动补录部分, 自动汇总的不重复显示)
   const byCat = {};
-  rows.forEach(r => { if (r.direction === "out") byCat[r.category] = (byCat[r.category] || 0) + Number(r.amount_cny || 0); });
-  const covered = CASH_GATES.filter(g => byCat[g.cat] > 0).length;
+  entries.forEach(r => { if (r.direction === "out") byCat[r.category] = (byCat[r.category] || 0) + num(r.amount_cny); });
 
   const blank = () => ({ id: null, entry_date: today, direction: "out", category: CASH_OUT_CATS[0], amount_cny: "", ref_no: "", ref_note: "" });
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -4646,48 +4652,106 @@ function CashBook() {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
         <div style={{ fontSize: 17, fontWeight: 700 }}>现金账</div>
         <span style={{ fontSize: 10.5, color: "#d9a441", border: "1px solid #5c4a1f", background: "#2a2113", borderRadius: 4, padding: "1px 6px" }}>仅你可见</span>
-        <span style={{ fontSize: 11, color: C.faint }}>只记真实现金进出，不记平台余额扣减</span>
+        <span style={{ fontSize: 11, color: C.faint }}>只算真金白银付出去的，不算平台余额扣减</span>
+        <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.sub, cursor: "pointer", userSelect: "none" }}>
+          <input type="checkbox" checked={inclFixed} onChange={e => setInclFixed(e.target.checked)} style={{ cursor: "pointer" }} />
+          计入人工 / 场地
+          <span style={{ fontSize: 10, color: C.faint }}>（固定支出，默认不含）</span>
+        </label>
       </div>
       {err && <div style={{ margin: "10px 0", padding: "9px 12px", background: "#3a1d1d", border: "1px solid #6b2a2a", borderRadius: 8, color: "#f0a0a0", fontSize: 12 }}>{err}</div>}
 
-      {/* 头寸 */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 18px" }}>
-        {card("本金 / 投入", money(capital), C.ink, cfg?.label || "cash_config 未设置")}
-        {card("累计流入", money(inSum), "#4db6a4")}
-        {card("累计流出", money(outSum), "#e08a8a")}
-        {card("当前头寸", money(balance), balance >= 0 ? "#4db6a4" : "#e08a8a", `${rows.length} 条流水`)}
+      {/* 本月概览 */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 14px" }}>
+        {card("本月流出", money(mOut), "#e08a8a", inclFixed ? "含人工 / 场地" : "仅采购·物流·办公室·店铺")}
+        {card("本月流入", money(mIn), "#4db6a4", "平台回款 + 手动")}
+        {card("本月净额", money(mNet), mNet >= 0 ? "#4db6a4" : "#e08a8a", ym)}
+        {card("年度累计流出", money(sumYear(inclFixed ? "total_out" : "core_out")), C.ink, `${yearFlows.length} 个月有记录`)}
+      </div>
+
+      {/* 月度现金流 */}
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+        <div style={{ padding: "11px 15px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700 }}>月度现金流</span>
+          <span style={{ fontSize: 10.5, color: C.faint }}>自动取自业务表 · 物流按批次去重</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "74px repeat(6, 1fr) 1fr 1fr", background: "#1f3a68", fontSize: 10.5, color: "#fff", fontWeight: 600 }}>
+          {["月份", "采购", "物流", "办公室", "店铺其他", "人工", "场地", "合计流出", "净额"].map((h, i) => (
+            <div key={h} style={{ padding: "8px", textAlign: i === 0 ? "left" : "right" }}>{h}</div>
+          ))}
+        </div>
+        {loading ? (
+          <div style={{ padding: 26, textAlign: "center", color: C.faint, fontSize: 12 }}>加载中…</div>
+        ) : flows.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12 }}>还没有任何月度数据</div>
+        ) : flows.map((f, i) => {
+          const out = inclFixed ? num(f.total_out) : num(f.core_out);
+          const net = num(f.total_in) - out;
+          const isCur = f.period === ym;
+          const fmt = (v) => num(v) ? num(v).toLocaleString("zh-CN", { maximumFractionDigits: 0 }) : "—";
+          return (
+            <div key={f.period} style={{ display: "grid", gridTemplateColumns: "74px repeat(6, 1fr) 1fr 1fr", fontSize: 11.5, background: isCur ? "#1d3a35" : (i % 2 ? "#1a2128" : "transparent"), borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+              <div style={{ padding: "7px 8px", color: isCur ? "#4db6a4" : C.sub, fontWeight: isCur ? 700 : 400 }}>{f.period}</div>
+              {[f.purchase, f.logistics, f.office, f.store_other, f.labor, f.site].map((v, j) => (
+                <div key={j} style={{ padding: "7px 8px", textAlign: "right", color: (j >= 4 && !inclFixed) ? C.faint : C.ink }}>{fmt(v)}</div>
+              ))}
+              <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 600, color: "#e08a8a" }}>{fmt(out)}</div>
+              <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 600, color: net >= 0 ? "#4db6a4" : "#e08a8a" }}>{fmt(net)}</div>
+            </div>
+          );
+        })}
       </div>
 
       {/* 支付关卡 */}
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, marginBottom: 16 }}>
         <div onClick={() => setOpenGates(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 15px", cursor: "pointer" }}>
           <span style={{ fontSize: 12.5, fontWeight: 700 }}>支付关卡</span>
-          <span style={{ fontSize: 10.5, color: C.faint }}>共 {CASH_GATES.length} 条现金流出路径 · 已有数据 {covered} 条</span>
+          <span style={{ fontSize: 10.5, color: C.faint }}>共 {CASH_GATES.length} 条现金流出路径 · 自动取自业务表，无需手工录</span>
           <span style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{openGates ? "收起 ▲" : "展开 ▼"}</span>
         </div>
         {openGates && (
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 15px 14px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr 92px", gap: "6px 10px", fontSize: 11 }}>
-              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}` }}>科目</div>
-              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}` }}>数据来源</div>
-              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}` }}>说明</div>
-              <div style={{ color: C.faint, fontWeight: 700, paddingBottom: 4, borderBottom: `1px solid ${C.line}`, textAlign: "right" }}>已录金额</div>
+            <div style={{ fontSize: 10.5, color: "#4db6a4", fontWeight: 700, marginBottom: 7 }}>核心现金流出（你定的 4 类）</div>
+            <div style={{ display: "grid", gridTemplateColumns: "96px 150px 1fr", gap: "6px 10px", fontSize: 11 }}>
+              <div style={{ color: C.faint, fontWeight: 700 }}>科目</div>
+              <div style={{ color: C.faint, fontWeight: 700 }}>数据来源表</div>
+              <div style={{ color: C.faint, fontWeight: 700 }}>口径说明</div>
               {CASH_GATES.map(g => (
                 <React.Fragment key={g.cat}>
-                  <div style={{ color: g.st === "gap" ? "#d9a441" : C.ink, fontWeight: 600 }}>{g.cat}</div>
+                  <div style={{ color: C.ink, fontWeight: 600 }}>{g.cat}</div>
                   <div style={{ color: C.sub, fontFamily: "ui-monospace,monospace", fontSize: 10.5 }}>{g.tbl}</div>
                   <div style={{ color: C.faint }}>{g.note}</div>
-                  <div style={{ textAlign: "right", color: byCat[g.cat] ? C.ink : C.faint, fontWeight: byCat[g.cat] ? 600 : 400 }}>
-                    {byCat[g.cat] ? money(byCat[g.cat]) : "—"}
-                  </div>
                 </React.Fragment>
               ))}
             </div>
+            <div style={{ marginTop: 13 }}>
+              <div style={{ fontSize: 10.5, color: C.sub, fontWeight: 700, marginBottom: 7 }}>固定支出（默认不计入，上方开关可打开）</div>
+              <div style={{ display: "grid", gridTemplateColumns: "96px 150px 1fr", gap: "6px 10px", fontSize: 11 }}>
+                {CASH_FIXED.map(g => (
+                  <React.Fragment key={g.cat}>
+                    <div style={{ color: C.ink, fontWeight: 600 }}>{g.cat}</div>
+                    <div style={{ color: C.sub, fontFamily: "ui-monospace,monospace", fontSize: 10.5 }}>{g.tbl}</div>
+                    <div style={{ color: C.faint }}>{g.note}</div>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginTop: 13 }}>
+              <div style={{ fontSize: 10.5, color: "#d9a441", fontWeight: 700, marginBottom: 7 }}>缺口（真实现金支出，但系统里还没有台账）</div>
+              <div style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: "5px 10px", fontSize: 11 }}>
+                {CASH_GAP.map(g => (
+                  <React.Fragment key={g.cat}>
+                    <div style={{ color: "#d9a441", fontWeight: 600 }}>{g.cat}</div>
+                    <div style={{ color: C.faint }}>{g.note}</div>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
             <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-              <div style={{ fontSize: 11, color: "#d9a441", fontWeight: 700, marginBottom: 6 }}>不进现金账（亚马逊从卖家余额直接扣，不掏现金）</div>
+              <div style={{ fontSize: 11, color: C.faint, fontWeight: 700, marginBottom: 6 }}>不进现金账（亚马逊从卖家余额直接扣，不掏现金）</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {CASH_EXCLUDED.map(x => (
                   <span key={x} style={{ fontSize: 10.5, color: C.faint, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, padding: "2px 7px" }}>{x}</span>
@@ -4698,10 +4762,10 @@ function CashBook() {
         )}
       </div>
 
-      {/* 流水 */}
+      {/* 流水 - 仅补录视图未覆盖的项 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 700 }}>现金流水</span>
-        <span style={{ fontSize: 10.5, color: C.faint }}>最近 400 条</span>
+        <span style={{ fontSize: 12.5, fontWeight: 700 }}>手动补录</span>
+        <span style={{ fontSize: 10.5, color: C.faint }}>只补上面 4 类没覆盖的（如 VAT 实缴、平台年费），日常不需要在这里录</span>
         <button onClick={() => setForm(blank())} style={{ marginLeft: "auto", background: "#4db6a4", color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ 记一笔</button>
       </div>
 
@@ -4713,11 +4777,11 @@ function CashBook() {
         </div>
         {loading ? (
           <div style={{ padding: 26, textAlign: "center", color: C.faint, fontSize: 12 }}>加载中…</div>
-        ) : rows.length === 0 ? (
+        ) : entries.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", color: C.faint, fontSize: 12 }}>
             还没有现金流水 · 点右上「+ 记一笔」录第一条，或等系统从各业务表自动回填
           </div>
-        ) : rows.map((r, i) => (
+        ) : entries.map((r, i) => (
           <div key={r.id} style={{ display: "grid", gridTemplateColumns: "92px 54px 1fr 130px 130px 1fr 54px", fontSize: 12, background: i % 2 ? "#1a2128" : "transparent", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
             <div style={{ padding: "8px 10px", color: C.sub }}>{r.entry_date}</div>
             <div style={{ padding: "8px 10px" }}>
