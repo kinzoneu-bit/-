@@ -8399,7 +8399,7 @@ const KPI_OWNER_EMAIL = "kinzon.eu@gmail.com";
 const fmtWan = (n) => "¥" + (Number(n || 0) / 10000).toFixed(1) + " 万";
 const fmtPct = (n) => (Number(n || 0)).toFixed(1) + "%";
 
-function KpiCard({ label, value, unit, status, note, calibre }) {
+function KpiCard({ label, value, unit, sub, status, note, calibre }) {
   const col = status === "green" ? C.rec : status === "amber" ? C.watch : status === "red" ? C.drop : status === "info" ? C.brand : C.faint;
   const stText = status === "green" ? "绿" : status === "amber" ? "黄" : status === "red" ? "红" : status === "info" ? "记录" : "缺数据";
   return (
@@ -8411,6 +8411,7 @@ function KpiCard({ label, value, unit, status, note, calibre }) {
       <div style={{ fontSize: 23, fontWeight: 700, color: status === "none" ? C.faint : col, marginTop: 6 }}>
         {value}{unit ? <span style={{ fontSize: 13, fontWeight: 600, marginLeft: 2 }}>{unit}</span> : null}
       </div>
+      {sub && <div style={{ fontSize: 13, fontWeight: 600, color: status === "none" ? C.faint : col, marginTop: 1, opacity: 0.85 }}>{sub}</div>}
       {note && <div style={{ fontSize: 11, color: status === "none" ? C.drop : C.sub, marginTop: 7, lineHeight: 1.55 }}>{note}</div>}
       {calibre && <div style={{ fontSize: 11, color: C.faint, marginTop: 4, lineHeight: 1.5 }}>{calibre}</div>}
     </div>
@@ -8420,6 +8421,7 @@ function KpiCard({ label, value, unit, status, note, calibre }) {
 function KpiDashboard() {
   const [inv, setInv] = useState([]);
   const [ship, setShip] = useState([]);
+  const [pur, setPur] = useState([]);
   const [cnt, setCnt] = useState({ smc: null, rec: null, orders: null });
   const [cf, setCf] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -8436,11 +8438,13 @@ function KpiDashboard() {
       countOf("recoveries"),
       countOf("order_records"),
       supabase.from("v_cashflow_monthly").select("period,total_in,total_out,recovery,net_core,net_all").order("period", { ascending: false }).limit(6),
-    ]).then(([a, b, c1, c2, c3, dv]) => {
+      supabase.from("purchase_records").select("store,product_name,qty,total_amount,paid_amount,pay_status,receive_status").limit(2000),
+    ]).then(([a, b, c1, c2, c3, dv, pr]) => {
       if (!on) return;
       if (a.error) setErr(a.error.message);
       setInv(a.data || []);
       setShip(b.data || []);
+      setPur(pr && !pr.error && pr.data ? pr.data : []);
       setCnt({ smc: c1, rec: c2, orders: c3 });
       setCf(dv && !dv.error && dv.data ? dv.data : []);
       setLoading(false);
@@ -8466,14 +8470,19 @@ function KpiDashboard() {
     const inTransit = (ship || []).filter((r) => !r.listed);
     const tQty = inTransit.reduce((s, r) => s + Number(r.qty || 0), 0);
     const tVal = inTransit.reduce((s, r) => s + Number(r.qty || 0) * Number(r.landed_cost || 0), 0);
+    // 采购已付但未收货入库: 钱已经出去了, 但 inventory / shipments 里都没有 → 属于存货占用, 之前漏算
+    const preRows = (pur || []).filter((r) => r.pay_status === "paid" && r.receive_status !== "received");
+    const preVal = preRows.reduce((s, r) => s + Number(r.paid_amount || r.total_amount || 0), 0);
+    const preQty = preRows.reduce((s, r) => s + Number(r.qty || 0), 0);
     return {
       qty, val, o90qty, o90val, noDate,
       o90pct: val ? (o90val / val) * 100 : 0,
       stores: st,
       transitQty: tQty, transitVal: tVal, transitRows: inTransit.length,
-      cap: val + tVal,
+      preQty, preVal, preRows: preRows.length,
+      cap: val + tVal + preVal,
     };
-  }, [inv, ship]);
+  }, [inv, ship, pur]);
 
   const capStatus = "info";   // 资本占用不设上限, 只记录 (KK 2026-11-23)
   const cfLatest = (cf && cf.length) ? (cf.find((r) => Number(r.total_in) > 0) || cf[0]) : null;
@@ -8496,31 +8505,46 @@ function KpiDashboard() {
           note={"同因：营收无来源，分子分母都算不出"}
           calibre="= 毛利润 ÷ 营收未税｜绿 ≥15% 红 <12%" />
         <KpiCard label="资本占用" value={fmtWan(agg.cap)} status={capStatus}
-          note={"在仓 " + fmtWan(agg.val) + " ＋ 在途 " + fmtWan(agg.transitVal) + " · 在途占 " + fmtPct(agg.cap ? (agg.transitVal / agg.cap) * 100 : 0)}
-          calibre="= 在仓货值 + 未上架发货货值｜不设上限，只记录；好坏看资本回报率，不看金额大小" />
+          note={"存货 " + fmtWan(agg.val + agg.transitVal) + " ＋ 采购已付未入库 " + fmtWan(agg.preVal)}
+          calibre="纯存货口径 = 在仓 + 在途未上架 + 已付未收货｜不含应收/储备金｜不设上限，只记录" />
         <KpiCard label="月度净现金流" value={cfLatest ? fmtWan(cfLatest.net_all) : "—"}
           status={!cfLatest ? "none" : Number(cfLatest.net_all) >= 0 ? "green" : "red"}
           note={cfLatest
             ? cfLatest.period + " 回款 " + fmtWan(cfLatest.total_in) + " − 支出 " + fmtWan(cfLatest.total_out) + (cnt.rec === 0 ? " · 回款表仍为空" : "")
             : "缺回款：recoveries " + (cnt.rec ?? "?") + " 条 → v_cashflow_monthly 只有支出、无收入"}
           calibre="= 当月回款 − 采购付现 − 物流 − 人工 − 场地 − 其他" />
-        <KpiCard label="超 90 天库存比例" value={fmtPct(agg.o90pct)} status={o90Status}
-          note={"超 90 天 " + fmtWan(agg.o90val) + " ÷ 在仓 " + fmtWan(agg.val) + "（" + agg.o90qty + " 件）"}
-          calibre="= 库龄 >90 天货值 ÷ 在仓总货值｜绿 ≤10% 红 >15%" />
+        <KpiCard label="超 90 天库存" value={fmtWan(agg.o90val)} sub={"占在仓 " + fmtPct(agg.o90pct) + " · " + agg.o90qty + " 件"} status={o90Status}
+          note={"超 90 天 ¥" + Math.round(agg.o90val).toLocaleString() + " ÷ 在仓 ¥" + Math.round(agg.val).toLocaleString() + "（按 ship_date 起算）"}
+          calibre="金额做判定，比例看趋势｜比例↓但金额↑ = 新货稀释老货 → 判黄" />
       </div>
 
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>资本占用构成</div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>资本占用构成（纯存货口径）</div>
         <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-          <Stat label={"在仓（" + agg.qty + " 件）"} value={fmtWan(agg.val)} />
+          <Stat label={"在仓存货（" + agg.qty + " 件）"} value={fmtWan(agg.val)} />
           <Stat label={"在途 / 未上架（" + agg.transitQty + " 件 · " + agg.transitRows + " 条）"} value={fmtWan(agg.transitVal)} />
+          <Stat label={"采购已付未入库（" + agg.preQty + " 件 · " + agg.preRows + " 单）"} value={fmtWan(agg.preVal)} accent={agg.preVal > 0 ? C.watch : undefined} />
           <Stat label="资本占用合计" value={fmtWan(agg.cap)} accent={C.brand} />
-          <Stat label="单件平均占用" value={"¥" + Math.round(agg.cap / Math.max(agg.qty + agg.transitQty, 1))} />
-          <Stat label="资本回报率（派生）" value="—" accent={C.faint} />
+          <Stat label="单件平均占用" value={"¥" + Math.round(agg.cap / Math.max(agg.qty + agg.transitQty + agg.preQty, 1))} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 12px", fontSize: 11, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.line}`, lineHeight: 1.7 }}>
+          <div style={{ color: C.rec, fontWeight: 700 }}>已计入</div>
+          <div style={{ color: C.sub }}>
+            ① 在仓存货 = inventory.stock_qty × landed_cost<br />
+            ② 在途未上架 = shipments(listed=false).qty × landed_cost<br />
+            ③ 采购已付未入库 = purchase_records(已付 且 未收货).paid_amount
+          </div>
+          <div style={{ color: C.drop, fontWeight: 700 }}>未计入</div>
+          <div style={{ color: C.sub }}>
+            ① 应收账款（已售未回款）—— 缺订单/结算数据，recoveries 仅收录到账<br />
+            ② 平台储备金 / 冻结资金 —— Amazon 结算周期内留存<br />
+            ③ 应付账款 —— 现为全款先付，无账期，≈ 0<br />
+            ④ 现金 —— 未投出去的钱，不算占用
+          </div>
         </div>
         <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>
-          资本占用不设上限，只作为记录值与分母。金额变大本身不是坏事（备货增加会推高它），
-          真正的判据是资本回报率 = 年化毛利润 ÷ 资本占用；毛利润缺营收算不出，所以这一项暂时为空。
+          资本占用不设上限，只作为记录值与回报率分母。金额变大本身不是坏事（备货增加会推高它）；
+          判据是资本回报率 = 年化毛利润 ÷ 资本占用。注意：仅存货口径会低估占用、推高回报率，接入应收后才准。
         </div>
       </div>
 
@@ -8532,9 +8556,9 @@ function KpiDashboard() {
               <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 500 }}>店铺</th>
               <th style={{ padding: "6px 8px", fontWeight: 500 }}>件数</th>
               <th style={{ padding: "6px 8px", fontWeight: 500 }}>在仓货值</th>
-              <th style={{ padding: "6px 8px", fontWeight: 500 }}>超 90 天</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>超 90 天货值</th>
               <th style={{ padding: "6px 8px", fontWeight: 500 }}>占比</th>
-              <th style={{ padding: "6px 8px", fontWeight: 500 }}>灯</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>判定</th>
             </tr>
           </thead>
           <tbody>
