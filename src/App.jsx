@@ -121,6 +121,7 @@ const EMAIL_TO_ROLE = {
   "2990206556@qq.com":    "cd_supplier",    // 成都·供应链 (2026-08-07 确认)
   "yellowdashi@sina.com": "cd_procurement", // 成都·采购 (财务核对, 2026-08-08 确认)
   "1416952931@qq.com":    "finance",        // 财务专员 (2026-09-18 确认)
+  "xiefuguang@kinzon.eu": "warehouse",      // 仓储管理·谢福光 (2026-11-23 确认, 采购入库+发货录入)
 };
 const getUserRole = (email) => EMAIL_TO_ROLE[email] || null;
 const getRoleLabel = (role) => (ROLE_PERMISSIONS[role] && ROLE_PERMISSIONS[role].label) || (role ? "未授权" : "未登录");
@@ -529,6 +530,8 @@ export default function App() {
   // 角色取回后, 若当前 Tab 不在该角色可见范围内 → 落到第一个可见 Tab
   useEffect(() => {
     if (curRole === "finance" && !FINANCE_TAB_KEYS.includes(tab)) setTab("shipments");
+    // 仓储管理只有采购入库 + 发货记录 — 2026-11-23
+    if (curRole === "warehouse" && !["purchase", "shipments"].includes(tab)) setTab("shipments");
   }, [curRole, tab]);
 
   useEffect(() => {
@@ -608,6 +611,8 @@ export default function App() {
       {/* tabs — 紧凑单行 (KK 2026-09-18: 压缩间距, 尽量一行; flexWrap 仅作兜底) */}
       <div style={{ display: "flex", gap: 4, rowGap: 4, flexWrap: "wrap", padding: "12px 18px 0" }}>
         {[
+          // 仓储管理: 只看采购入库 + 发货记录 — 2026-11-23 KK 定
+          ...(curRole === "warehouse" ? [["purchase", "采购管理"], ["shipments", "发货记录"]] : [
           // 监控指标体系: 第一页 + 仅 KK 本人可见 (按邮箱锁, 其他 admin 也看不到) — KK 2026-11-23 定
           ...(session?.user?.email === KPI_OWNER_EMAIL ? [["kpi", "监控指标体系"]] : []),
           // 产品侧 Tab (类目/链接/监控): 财务专员不需要, 全部隐藏 — KK 2026-09-18
@@ -627,6 +632,7 @@ export default function App() {
           ...(["admin", "fr", "cd_procurement", "finance"].includes(curRole) ? [["officeexpense", "办公室费用"]] : []),
           // 现金账: 只有 KK 本人可见 — 按邮箱锁, 其他 admin(bot) 看不到 — KK 2026-11-22 定
           ...(session?.user?.email === CASH_OWNER_EMAIL ? [["cashbook", "现金账"]] : [])
+          ])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
             style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
@@ -1680,8 +1686,8 @@ function Shipments() {
     });
   }, []);
   const isAdmin = shipRole === "admin";
-  // 录入/编辑数据: 锁死只给 admin + 成都·供应链(陈雪梅) — KK 2026-09-18 定
-  const canEdit = shipRole === "admin" || shipRole === "cd_supplier";
+  // 录入/编辑数据: admin + 成都·供应链(陈雪梅) + 仓储管理(谢福光) — 2026-11-23 加仓储
+  const canEdit = shipRole === "admin" || shipRole === "cd_supplier" || shipRole === "warehouse";
   // 「运费已付」勾选: admin + 成都·采购(黄丹) + 财务(夏蕾) — 2026-11-20 KK 定, 收走雪梅
   const canCheck = shipRole === "admin" || shipRole === "cd_procurement" || shipRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
@@ -5232,7 +5238,7 @@ function Purchase() {
   //   黄丹 cd_procurement 不进采购业务流程，只读
   const canPO = ["admin", "fr", "cd_promotion", "cd_supplier"].includes(role);
   const canPay = ["admin", "fr", "finance"].includes(role);
-  const canBat = ["admin", "fr", "cd_supplier"].includes(role);
+  const canBat = ["admin", "fr", "cd_supplier", "warehouse"].includes(role);  // 仓储可录入库批次
   const canSup = ["admin", "fr", "cd_supplier"].includes(role);
   const canDel = role === "admin" || role === "fr";
   const isRequester = role === "cd_promotion";   // 只提需求，价格/供应商一律不碰
@@ -5527,10 +5533,11 @@ function Purchase() {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           {subBtn("po", "采购单")}
-          {subBtn("supplier", "供应商台账")}
-          {subBtn("price", "价格基线")}
+          {/* 仓储管理只看入库, 隐藏供应商台账与价格基线 — 2026-11-23 */}
+          {role !== "warehouse" && subBtn("supplier", "供应商台账")}
+          {role !== "warehouse" && subBtn("price", "价格基线")}
           <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>
-            {roleReady ? (sub === "po" ? (canPO ? (isRequester ? "可提需求" : "可录入") : "只读") : sub === "supplier" ? (canSup ? "可维护" : "只读") : "只读") : "…"}
+            {roleReady ? (sub === "po" ? (canPO ? (isRequester ? "可提需求" : "可录入") : canBat ? "可录入库批次" : "只读") : sub === "supplier" ? (canSup ? "可维护" : "只读") : "只读") : "…"}
           </span>
         </div>
       </div>
@@ -8424,6 +8431,7 @@ function KpiDashboard() {
   const [pur, setPur] = useState([]);
   const [flow, setFlow] = useState({ pay: [], op: [], office: [], other: [], rec: [] });
   const [cnt, setCnt] = useState({ smc: null, rec: null, orders: null });
+  const [smc, setSmc] = useState([]);
   const [cf, setCf] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -8435,15 +8443,15 @@ function KpiDashboard() {
     Promise.all([
       supabase.from("inventory").select("store,product_name,asin,ship_date,landed_cost,stock_qty,listed_qty").limit(5000),
       supabase.from("shipments").select("store,product_name,ship_date,qty,landed_cost,goods_value,listed").limit(5000),
-      countOf("store_monthly_costs"),
+      supabase.from("store_monthly_costs").select("month,store,item,amount").limit(3000),
       countOf("recoveries"),
       countOf("order_records"),
       supabase.from("v_cashflow_monthly").select("period,total_in,total_out,recovery,net_core,net_all").order("period", { ascending: false }).limit(6),
       supabase.from("purchase_records").select("store,product_name,qty,total_amount,paid_amount,pay_status,receive_status").limit(2000),
       supabase.from("purchase_payments").select("amount,pay_date").limit(1000),
       supabase.from("opsfee_monthly").select("amount,month,category").limit(3000),
-      supabase.from("office_expense").select("amount,exp_date").limit(1000),
-      supabase.from("store_other_expense").select("amount,exp_date").limit(1000),
+      supabase.from("office_expense").select("amount,month,exp_date").limit(1000),
+      supabase.from("store_other_expense").select("amount,month,exp_date,store,category").limit(1000),
       supabase.from("recoveries").select("amount_cny,recv_date").limit(3000),
     ]).then(([a, b, c1, c2, c3, dv, pr, pp, op, of, ot, rc]) => {
       if (!on) return;
@@ -8458,7 +8466,9 @@ function KpiDashboard() {
         other: ot && !ot.error ? (ot.data || []) : [],
         rec: rc && !rc.error ? (rc.data || []) : [],
       });
-      setCnt({ smc: c1, rec: c2, orders: c3 });
+      const smcRows = c1 && !c1.error && Array.isArray(c1.data) ? c1.data : [];
+      setSmc(smcRows);
+      setCnt({ smc: smcRows.length, rec: c2, orders: c3 });
       setCf(dv && !dv.error && dv.data ? dv.data : []);
       setLoading(false);
     }).catch((e) => { if (on) { setErr(String(e.message || e)); setLoading(false); } });
@@ -8507,11 +8517,46 @@ function KpiDashboard() {
     return { pay, op, office, other, out, inflow, net: out - inflow, recRows: (flow.rec || []).length, payRows: (flow.pay || []).length };
   }, [flow]);
 
+  // 月度还原（KK 2026-11-23）: 数据来自 store_monthly_costs(收入/人工/场地) + opsfee_monthly(平台费) + store_other_expense + office_expense
+  // 口径提醒: opsfee_monthly 只含平台费(广告/仓储/月租/弃置等), 不含采购/头程/佣金/VAT/退货 → 本表算出的"店铺利润"是"销售额 − 平台费", 高于真实毛利
+  const monthly = useMemo(() => {
+    const M = {};
+    const put = (k) => (M[k] = M[k] || { income: 0, labor: 0, site: 0, smcOther: 0, opsfee: 0, otherExp: 0, office: 0 });
+    const mk = (r) => (r.month ? String(r.month).slice(0, 7) : String(r.exp_date || "").slice(0, 7));
+    (smc || []).forEach((r) => {
+      const k = mk(r); if (!k) return;
+      const o = put(k);
+      if (r.item === "收入") o.income += Number(r.amount || 0);
+      else if (r.item === "人工") o.labor += Number(r.amount || 0);
+      else if (r.item === "场地") o.site += Number(r.amount || 0);
+      else o.smcOther += Number(r.amount || 0);
+    });
+    (flow.op || []).forEach((r) => { const k = mk(r); if (k) put(k).opsfee += Number(r.amount || 0); });
+    (flow.other || []).forEach((r) => { const k = mk(r); if (k) put(k).otherExp += Number(r.amount || 0); });
+    (flow.office || []).forEach((r) => { const k = mk(r); if (k) put(k).office += Number(r.amount || 0); });
+    const rows = Object.keys(M).sort().map((k) => {
+      const o = M[k];
+      const profit = o.income - o.opsfee - o.otherExp - o.smcOther;
+      const net = profit - o.labor - o.site - o.office;
+      return { month: k, ...o, profit, net, margin: o.income ? (profit / o.income) * 100 : null };
+    });
+    // 最近一个"收入 > 0"的月份 = 唯一可信月
+    const last = [...rows].reverse().find((r) => r.income > 0) || null;
+    // 最近一个"人工 ≥ 2 万"的月份（判断人力是否录全）
+    const lastLaborFull = [...rows].reverse().find((r) => r.labor >= 20000) || null;
+    return { rows, last, lastLaborFull };
+  }, [smc, flow]);
+
+
   const capStatus = "info";   // 资本占用不设上限, 只记录 (KK 2026-11-23)
   const cfLatest = (cf && cf.length) ? (cf.find((r) => Number(r.total_in) > 0) || cf[0]) : null;
   const o90Status = agg.o90pct > 15 ? "red" : agg.o90pct > 10 ? "amber" : "green";
-  const missingRevenue = cnt.smc === 0 && cnt.orders === 0;
+  const lm = monthly.last;                       // 最近可信月
+  const incomeGapFrom = "2026-09";               // 收入自 9 月起未录
+  const laborGapFrom = "2026-10";                // 共享人工自 10 月起未分摊
+  const missingRevenue = !lm;
   const missingCash = cnt.rec === 0;
+  const hasIncomeGap = !!lm && lm.month < incomeGapFrom;
 
   if (loading) return <div style={{ fontSize: 12, color: C.sub }}>正在计算五个数…</div>;
 
@@ -8521,12 +8566,16 @@ function KpiDashboard() {
       {err && <div style={{ fontSize: 12, color: C.drop, marginBottom: 10 }}>读取失败: {err}</div>}
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
-        <KpiCard label="毛利润" value="—" status="none"
-          note={"缺营收：store_monthly_costs " + (cnt.smc ?? "?") + " 条 · order_records " + (cnt.orders ?? "?") + " 条"}
-          calibre="= 营收未税 − 采购 − 头程 − 物流 − 佣金 − VAT − 退货 − 广告" />
-        <KpiCard label="毛利润率" value="—" status="none"
-          note={"同因：营收无来源，分子分母都算不出"}
-          calibre="= 毛利润 ÷ 营收未税｜绿 ≥15% 红 <12%" />
+        <KpiCard label="毛利润" value={lm ? fmtWan(lm.profit) : "—"} status={lm ? "info" : "none"}
+          sub={lm ? lm.month + " 口径未完整" : undefined}
+          note={lm
+            ? "＝ 销售额 − 平台费(广告/仓储/月租/弃置) − 店铺其他｜⚠️ 采购·头程·佣金·VAT·退货 未入账 → 此数偏高，暂不判灯"
+            : "1–8 月有数，9 月起收入未录"}
+          calibre="绿 ≥6.7 万 / 红 <3.34 万（口径补齐后才生效）" />
+        <KpiCard label="毛利润率" value={lm && lm.margin !== null ? fmtPct(lm.margin) : "—"} status={lm ? "info" : "none"}
+          sub={lm ? lm.month : undefined}
+          note={lm ? "同口径，偏高｜分母＝销售额，真实分母应为未税营收" : "无收入即无率"}
+          calibre="绿 ≥15% / 红 <12%（口径补齐后才生效）" />
         <KpiCard label="资本占用" value={fmtWan(agg.cap)} status={capStatus}
           note={"存货 " + fmtWan(agg.val + agg.transitVal) + " ＋ 采购已付未入库 " + fmtWan(agg.preVal)}
           calibre="纯存货口径 = 在仓 + 在途未上架 + 已付未收货｜不含应收/储备金｜不设上限，只记录" />
@@ -8607,14 +8656,114 @@ function KpiDashboard() {
           </tbody>
         </table>
         <div style={{ fontSize: 11, color: C.drop, marginTop: 9, lineHeight: 1.75 }}>
-          ⚠️ 这个数现在还不能用于决策，三处断点：<br />
-          ① <b>历史采购付款未录</b> —— 存货 ¥71.7 万，付款记录只有 ¥{Math.round(cash.pay).toLocaleString()}，差 ¥67 万以上没进系统<br />
-          ② <b>人工与场地未录</b> —— store_monthly_costs 0 条<br />
-          ③ <b>回款未导入</b> —— recoveries {cash.recRows} 条（乾霖 53 笔待执行 SQL）
+          ⚠️ 这个数现在还不能用于决策，四处断点（按缺口金额排序）：<br />
+          ① <b>历史采购付款未录</b> —— 存货 {fmtWan(agg.cap)}，付款记录只有 {fmtWan(cash.pay)}（仅 11 月），差额全在「已付未入账」<br />
+          ② <b>收入自 2026-09 起未录</b> —— store_monthly_costs 共 {cnt.smc ?? "?"} 条，1–8 月月均 ¥7.5 万，9 月起为 0<br />
+          ③ <b>共享人工自 2026-10 起未分摊</b> —— 1–9 月月均 ¥2.3 万（含共享），10 月起只剩俊业+乾霖 ¥8,600，月缺约 ¥2.3 万<br />
+          ④ <b>回款表被 RLS 锁定</b> —— recoveries {cash.recRows} 条；后端账号实测 INSERT 返回 403，乾霖 53 笔进不来
         </div>
         <div style={{ fontSize: 11, color: C.faint, marginTop: 6, lineHeight: 1.6 }}>
           口径说明：采购付款与「存货」不能相加 —— 同一笔钱，付出去时算付款、到仓后算存货，加两次就是重复。
           所以本式只用支出流水，不掺存货；存货是「钱变成了什么形态」，用上面那个面板看。
+        </div>
+      </div>
+
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14, overflowX: "auto" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>月度还原（销售额 − 平台费 = 店铺利润）</div>
+          <div style={{ fontSize: 11, color: C.faint }}>store_monthly_costs（收入/人工/场地）＋ opsfee_monthly（平台费）＋ 店铺其他 ＋ 办公</div>
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: C.sub, textAlign: "right" }}>
+              <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 500 }}>月份</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>收入</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>平台费</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>店铺其他</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>店铺利润</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>利润率</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>人工</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>场地</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>办公</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>净利</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            {monthly.rows.map((r) => {
+              const noIncome = r.income <= 0;
+              const laborShort = r.income > 0 && r.labor > 0 && r.labor < 20000;
+              const dim = { color: noIncome ? C.faint : C.ink };
+              return (
+                <tr key={r.month} style={{ borderTop: `1px solid ${C.line}`, textAlign: "right", ...dim }}>
+                  <td style={{ textAlign: "left", padding: "6px 8px" }}>{r.month}</td>
+                  <td style={{ padding: "6px 8px" }}>{Math.round(r.income).toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", color: C.sub }}>{Math.round(r.opsfee).toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", color: C.sub }}>{Math.round(r.otherExp + r.smcOther).toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", fontWeight: 600, color: noIncome ? C.faint : r.profit >= 0 ? C.rec : C.drop }}>
+                    {noIncome ? "—" : Math.round(r.profit).toLocaleString()}
+                  </td>
+                  <td style={{ padding: "6px 8px", color: r.margin === null ? C.faint : r.margin >= 15 ? C.rec : r.margin >= 12 ? C.watch : C.drop }}>
+                    {r.margin === null ? "—" : fmtPct(r.margin)}
+                  </td>
+                  <td style={{ padding: "6px 8px", color: laborShort ? C.watch : C.sub }}>{Math.round(r.labor).toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", color: C.sub }}>{Math.round(r.site).toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", color: C.sub }}>{Math.round(r.office).toLocaleString()}</td>
+                  <td style={{ padding: "6px 8px", color: noIncome ? C.faint : r.net >= 0 ? C.rec : C.drop }}>
+                    {noIncome ? "—" : Math.round(r.net).toLocaleString()}
+                  </td>
+                  <td style={{ padding: "6px 8px", textAlign: "left", fontSize: 11 }}>
+                    {noIncome ? <span style={{ color: C.drop }}>收入未录</span>
+                      : laborShort ? <span style={{ color: C.watch }}>人工未录全</span>
+                        : <span style={{ color: C.rec }}>完整</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div style={{ fontSize: 11, color: C.drop, marginTop: 9, lineHeight: 1.7 }}>
+          ⚠️ 口径缺口：本表「平台费」只含广告/仓储/月租/弃置/入库等平台实扣，<b>不含采购成本、头程、佣金、VAT、退货</b> →
+          所以「店铺利润」是「销售额 − 平台费」，<b>比真实毛利高一个采购成本的量级</b>，不能直接当毛利用、也不能直接拿去判灯。
+          补齐这 5 项，这张表才成为完整的月度损益表。
+        </div>
+      </div>
+
+      <div style={{ background: C.panel, border: `1px solid ${C.brand}55`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.brand }}>等式：把账闭成一个环（2026-11 起建基线）</div>
+          <div style={{ fontSize: 11, color: C.faint }}>KK 2026-11-23：历史缺口不追求一次补齐，从本月起只做当期，逐月把缺口迭代掉</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 12 }}>
+          <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>现金侧（钱）</div>
+            <div style={{ fontSize: 12, lineHeight: 2, fontFamily: "monospace" }}>
+              期初缺口 <span style={{ float: "right" }}>{fmtWan(Math.max(agg.cap - cash.net, 0))}</span><br />
+              ＋ 本期流出 <span style={{ float: "right" }}>{fmtWan(cash.out)}</span><br />
+              − 本期回款 <span style={{ float: "right", color: cash.inflow > 0 ? C.rec : C.drop }}>{fmtWan(cash.inflow)}</span><br />
+              <span style={{ borderTop: `1px solid ${C.line}`, display: "block", paddingTop: 4 }}>
+                ＝ 期末占用 <span style={{ float: "right", fontWeight: 700, color: C.brand }}>{fmtWan(Math.max(agg.cap - cash.net, 0) + cash.net)}</span>
+              </span>
+            </div>
+          </div>
+          <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>实务侧（货）</div>
+            <div style={{ fontSize: 12, lineHeight: 2, fontFamily: "monospace" }}>
+              在仓 <span style={{ float: "right" }}>{fmtWan(agg.val)}</span><br />
+              ＋ 在途未上架 <span style={{ float: "right" }}>{fmtWan(agg.transitVal)}</span><br />
+              ＋ 已付未入库 <span style={{ float: "right" }}>{fmtWan(agg.preVal)}</span><br />
+              <span style={{ borderTop: `1px solid ${C.line}`, display: "block", paddingTop: 4 }}>
+                ＝ 资本占用 <span style={{ float: "right", fontWeight: 700, color: C.brand }}>{fmtWan(agg.cap)}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div style={{ fontSize: 12, marginTop: 12, padding: "10px 12px", background: C.drop + "12", border: `1px solid ${C.drop}44`, borderRadius: 8, lineHeight: 1.75 }}>
+          <b style={{ color: C.drop }}>两边对不上 = 历史缺口：</b>
+          现金侧期末 {fmtWan(Math.max(agg.cap - cash.net, 0) + cash.net)} vs 实务侧资本占用 {fmtWan(agg.cap)}，
+          差 <b style={{ color: C.drop }}>{fmtWan(Math.abs(agg.cap - (Math.max(agg.cap - cash.net, 0) + cash.net)))}</b>。
+          这个差额就是「货已经买了、钱付了、但付款流水没进系统」的部分 —— 它是期初缺口，不是错误；
+          从 11 月起每月补记当期付款与回款，缺口只会被利润和回款单向压降，不会自己扩大。
         </div>
       </div>
 
@@ -8663,22 +8812,27 @@ function KpiDashboard() {
       </div>
 
       <div style={{ background: C.panel, border: `1px solid ${C.drop}55`, borderRadius: 12, padding: "16px 18px" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: C.drop }}>三张数算不出来，缺什么</div>
-        <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>补齐这些，五个数就全活了。缺的都在「收入 / 回款」这一头，成本侧是齐的。</div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: C.drop }}>还缺什么（按对结论的影响排序）</div>
+        <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>
+          人工与场地<b style={{ color: C.rec }}>本来就录了</b>（store_monthly_costs 共 {cnt.smc ?? "?"} 条，覆盖 1–12 月）——
+          真正缺的是「收入从 9 月起断」「共享人工从 10 月起断」和「采购成本类 5 项从未入账」。
+        </div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ color: C.sub, textAlign: "left" }}>
               <th style={{ padding: "6px 8px", fontWeight: 500 }}>缺的数</th>
-              <th style={{ padding: "6px 8px", fontWeight: 500 }}>需要哪张表</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>落在哪张表</th>
               <th style={{ padding: "6px 8px", fontWeight: 500 }}>现状</th>
               <th style={{ padding: "6px 8px", fontWeight: 500 }}>谁能补</th>
             </tr>
           </thead>
           <tbody>
             {[
-              ["营收（未税）", "store_monthly_costs item=收入", (cnt.smc ?? "?") + " 条", "夏蕾 / 财务专员"],
-              ["订单级销售额", "order_records 或 finance_daily_sales", (cnt.orders ?? "?") + " 条", "SP-API 拉取（权限已有）"],
-              ["回款", "recoveries", (cnt.rec ?? "?") + " 条", "夏蕾（平台回款单）"],
+              ["采购 / 头程 / 佣金 / VAT / 退货", "opsfee_monthly 无这 5 类", "从未入账 → 毛利算不准", "SP-API Settlement 或周报导入"],
+              ["2026-09 起 营收", "store_monthly_costs item=收入", "1–8 月有，9–12 月为 0", "夏蕾 / 财务专员"],
+              ["2026-10 起 共享人工", "store_monthly_costs item=人工 store=__shared__", "1–9 月有，10 月起为 0", "夏蕾"],
+              ["历史采购付款", "purchase_payments", "仅 11 月有，之前空", "夏蕾（从本月起，历史不追）"],
+              ["平台回款", "recoveries", "0 条（RLS 锁给 owner，后端 403）", "授权后由 AI 自动导入"],
             ].map((r) => (
               <tr key={r[0]} style={{ borderTop: `1px solid ${C.line}` }}>
                 <td style={{ padding: "7px 8px" }}>{r[0]}</td>
@@ -8689,7 +8843,7 @@ function KpiDashboard() {
             ))}
           </tbody>
         </table>
-        {missingRevenue && <div style={{ fontSize: 11, color: C.watch, marginTop: 10 }}>⚠️ 营收一条都没有 → 毛利润、毛利润率、以及依赖它的提成与季度利润奖，全部悬空。</div>}
+        {missingRevenue && <div style={{ fontSize: 11, color: C.watch, marginTop: 10 }}>⚠️ 一个月的收入都没有 → 毛利润、毛利润率、以及依赖它的提成与季度利润奖，全部悬空。</div>}
         {missingCash && <div style={{ fontSize: 11, color: C.watch, marginTop: 4 }}>⚠️ 回款一条都没有 → 月度净现金流只有支出、没有进项，net_all 全为负，不可用于判断。</div>}
       </div>
     </div>
