@@ -608,6 +608,8 @@ export default function App() {
       {/* tabs — 紧凑单行 (KK 2026-09-18: 压缩间距, 尽量一行; flexWrap 仅作兜底) */}
       <div style={{ display: "flex", gap: 4, rowGap: 4, flexWrap: "wrap", padding: "12px 18px 0" }}>
         {[
+          // 监控指标体系: 第一页 + 仅 KK 本人可见 (按邮箱锁, 其他 admin 也看不到) — KK 2026-11-23 定
+          ...(session?.user?.email === KPI_OWNER_EMAIL ? [["kpi", "监控指标体系"]] : []),
           // 产品侧 Tab (类目/链接/监控): 财务专员不需要, 全部隐藏 — KK 2026-09-18
           ...(curRole === "finance" ? [] : [["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "跨站点开发"], ["progress", "链接进度"], ["score", "链接评分"], ["track", "日级跟进"], ["asinlife", "ASIN"], ["adanalysis", "广告分析"]]),
           ["purchase", "采购管理"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["afterstock", "售后库存"], ["orderrecords", "订单记录"],
@@ -636,6 +638,7 @@ export default function App() {
       <div style={{ padding: "20px 24px 60px" }}>
         {/* 页面级错误兜底: 任何页面渲染报错都不再白屏, 而是把原因显示出来 (便于排查) */}
         <ErrorBoundary key={tab}>
+        {tab === "kpi" && <KpiDashboard />}
         {tab === "shelf" && <Shelf />}
         {tab === "overview" && <Overview siteEvals={siteEvals} onPick={(p) => { setSel(p); setTab("cross"); }} />}
         {tab === "cross" && <CrossSite sel={sel} setSel={setSel} />}
@@ -8387,5 +8390,209 @@ function Stat({ label, value, accent }) {
   </div>;
 }
 const btn = (C) => ({ marginTop: 12, width: "100%", padding: "8px", background: "transparent", border: `1px solid ${C.line}`, color: C.sub, borderRadius: 8, fontSize: 12, cursor: "pointer" });
+
+// ================= 监控指标体系 (仅 KK 本人可见) — 2026-11-23 KK 定 =================
+// 五个数: 毛利润 / 毛利润率 / 资本占用 / 月度净现金流 / 超 90 天库存比例
+// 口径与《西欧项目_集团监控体系_20261122.md》一致: 营收未税, 毛利润含广告、不含场地人工
+const KPI_OWNER_EMAIL = "kinzon.eu@gmail.com";
+// 资本占用不设上限 (KK 2026-11-23: "资本占用这个数额没有上限") → 只记录金额, 不判灯
+const fmtWan = (n) => "¥" + (Number(n || 0) / 10000).toFixed(1) + " 万";
+const fmtPct = (n) => (Number(n || 0)).toFixed(1) + "%";
+
+function KpiCard({ label, value, unit, status, note, calibre }) {
+  const col = status === "green" ? C.rec : status === "amber" ? C.watch : status === "red" ? C.drop : status === "info" ? C.brand : C.faint;
+  const stText = status === "green" ? "绿" : status === "amber" ? "黄" : status === "red" ? "红" : status === "info" ? "记录" : "缺数据";
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${status === "none" ? C.drop + "55" : C.line}`, borderRadius: 12, padding: "14px 16px", flex: "1 1 172px", minWidth: 172 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontSize: 12, color: C.sub }}>{label}</div>
+        <Pill color={col} text={stText} />
+      </div>
+      <div style={{ fontSize: 23, fontWeight: 700, color: status === "none" ? C.faint : col, marginTop: 6 }}>
+        {value}{unit ? <span style={{ fontSize: 13, fontWeight: 600, marginLeft: 2 }}>{unit}</span> : null}
+      </div>
+      {note && <div style={{ fontSize: 11, color: status === "none" ? C.drop : C.sub, marginTop: 7, lineHeight: 1.55 }}>{note}</div>}
+      {calibre && <div style={{ fontSize: 11, color: C.faint, marginTop: 4, lineHeight: 1.5 }}>{calibre}</div>}
+    </div>
+  );
+}
+
+function KpiDashboard() {
+  const [inv, setInv] = useState([]);
+  const [ship, setShip] = useState([]);
+  const [cnt, setCnt] = useState({ smc: null, rec: null, orders: null });
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let on = true;
+    const countOf = (t) => supabase.from(t).select("id", { count: "exact", head: true })
+      .then(({ count, error }) => (error ? -1 : (count || 0))).catch(() => -1);
+    Promise.all([
+      supabase.from("inventory").select("store,product_name,asin,ship_date,landed_cost,stock_qty,listed_qty").limit(5000),
+      supabase.from("shipments").select("store,product_name,ship_date,qty,landed_cost,goods_value,listed").limit(5000),
+      countOf("store_monthly_costs"),
+      countOf("recoveries"),
+      countOf("order_records"),
+    ]).then(([a, b, c1, c2, c3]) => {
+      if (!on) return;
+      if (a.error) setErr(a.error.message);
+      setInv(a.data || []);
+      setShip(b.data || []);
+      setCnt({ smc: c1, rec: c2, orders: c3 });
+      setLoading(false);
+    }).catch((e) => { if (on) { setErr(String(e.message || e)); setLoading(false); } });
+    return () => { on = false; };
+  }, []);
+
+  const stockOf = (r) => Number(r.stock_qty ?? r.listed_qty ?? 0);
+  const ageOf = (r) => (r.ship_date ? Math.floor((Date.now() - new Date(r.ship_date + "T00:00:00").getTime()) / 86400000) : null);
+
+  const agg = useMemo(() => {
+    const st = {};
+    let qty = 0, val = 0, o90qty = 0, o90val = 0, noDate = 0;
+    inv.forEach((r) => {
+      const q = stockOf(r), v = q * Number(r.landed_cost || 0), s = r.store || "未知";
+      qty += q; val += v;
+      if (!st[s]) st[s] = { qty: 0, val: 0, o90val: 0, o90qty: 0, sku: 0 };
+      st[s].qty += q; st[s].val += v; if (q > 0) st[s].sku += 1;
+      const a = ageOf(r);
+      if (a === null) noDate += 1;
+      else if (a > 90) { o90qty += q; o90val += v; st[s].o90val += v; st[s].o90qty += q; }
+    });
+    const inTransit = (ship || []).filter((r) => !r.listed);
+    const tQty = inTransit.reduce((s, r) => s + Number(r.qty || 0), 0);
+    const tVal = inTransit.reduce((s, r) => s + Number(r.qty || 0) * Number(r.landed_cost || 0), 0);
+    return {
+      qty, val, o90qty, o90val, noDate,
+      o90pct: val ? (o90val / val) * 100 : 0,
+      stores: st,
+      transitQty: tQty, transitVal: tVal, transitRows: inTransit.length,
+      cap: val + tVal,
+    };
+  }, [inv, ship]);
+
+  const capStatus = "info";   // 资本占用不设上限, 只记录 (KK 2026-11-23)
+  const o90Status = agg.o90pct > 15 ? "red" : agg.o90pct > 10 ? "amber" : "green";
+  const missingRevenue = cnt.smc === 0 && cnt.orders === 0;
+  const missingCash = cnt.rec === 0;
+
+  if (loading) return <div style={{ fontSize: 12, color: C.sub }}>正在计算五个数…</div>;
+
+  return (
+    <div>
+      <SectionTitle t="监控指标体系" sub={"集团只看五个数 · 毛利润 / 毛利润率 / 资本占用 / 月度净现金流 / 超 90 天库存比例 · 数据时点 " + new Date().toLocaleString("zh-CN", { hour12: false })} />
+      {err && <div style={{ fontSize: 12, color: C.drop, marginBottom: 10 }}>读取失败: {err}</div>}
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+        <KpiCard label="毛利润" value="—" status="none"
+          note={"缺营收：store_monthly_costs " + (cnt.smc ?? "?") + " 条 · order_records " + (cnt.orders ?? "?") + " 条"}
+          calibre="= 营收未税 − 采购 − 头程 − 物流 − 佣金 − VAT − 退货 − 广告" />
+        <KpiCard label="毛利润率" value="—" status="none"
+          note={"同因：营收无来源，分子分母都算不出"}
+          calibre="= 毛利润 ÷ 营收未税｜绿 ≥15% 红 <12%" />
+        <KpiCard label="资本占用" value={fmtWan(agg.cap)} status={capStatus}
+          note={"在仓 " + fmtWan(agg.val) + " ＋ 在途 " + fmtWan(agg.transitVal) + " · 在途占 " + fmtPct(agg.cap ? (agg.transitVal / agg.cap) * 100 : 0)}
+          calibre="= 在仓货值 + 未上架发货货值｜不设上限，只记录；好坏看资本回报率，不看金额大小" />
+        <KpiCard label="月度净现金流" value="—" status="none"
+          note={"缺回款：recoveries " + (cnt.rec ?? "?") + " 条 → v_cashflow_monthly 只有支出、无收入"}
+          calibre="= 当月回款 − 采购付现 − 物流 − 人工 − 场地 − 其他" />
+        <KpiCard label="超 90 天库存比例" value={fmtPct(agg.o90pct)} status={o90Status}
+          note={"超 90 天 " + fmtWan(agg.o90val) + " ÷ 在仓 " + fmtWan(agg.val) + "（" + agg.o90qty + " 件）"}
+          calibre="= 库龄 >90 天货值 ÷ 在仓总货值｜绿 ≤10% 红 >15%" />
+      </div>
+
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>资本占用构成</div>
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          <Stat label={"在仓（" + agg.qty + " 件）"} value={fmtWan(agg.val)} />
+          <Stat label={"在途 / 未上架（" + agg.transitQty + " 件 · " + agg.transitRows + " 条）"} value={fmtWan(agg.transitVal)} />
+          <Stat label="资本占用合计" value={fmtWan(agg.cap)} accent={C.brand} />
+          <Stat label="单件平均占用" value={"¥" + Math.round(agg.cap / Math.max(agg.qty + agg.transitQty, 1))} />
+          <Stat label="资本回报率（派生）" value="—" accent={C.faint} />
+        </div>
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>
+          资本占用不设上限，只作为记录值与分母。金额变大本身不是坏事（备货增加会推高它），
+          真正的判据是资本回报率 = 年化毛利润 ÷ 资本占用；毛利润缺营收算不出，所以这一项暂时为空。
+        </div>
+      </div>
+
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14, overflowX: "auto" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>分店拆解（只注释，不改灯）</div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: C.sub, textAlign: "right" }}>
+              <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 500 }}>店铺</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>件数</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>在仓货值</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>超 90 天</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>占比</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>灯</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(agg.stores).sort((a, b) => b[1].val - a[1].val).map(([s, b]) => {
+              const pct = b.val ? (b.o90val / b.val) * 100 : 0;
+              const c = pct > 15 ? C.drop : pct > 10 ? C.watch : C.rec;
+              return (
+                <tr key={s} style={{ borderTop: `1px solid ${C.line}`, textAlign: "right" }}>
+                  <td style={{ textAlign: "left", padding: "7px 8px" }}>{s}</td>
+                  <td style={{ padding: "7px 8px", color: C.sub }}>{b.qty}</td>
+                  <td style={{ padding: "7px 8px" }}>{fmtWan(b.val)}</td>
+                  <td style={{ padding: "7px 8px", color: C.sub }}>{fmtWan(b.o90val)}</td>
+                  <td style={{ padding: "7px 8px", color: c, fontWeight: 600 }}>{fmtPct(pct)}</td>
+                  <td style={{ padding: "7px 8px" }}><Pill color={c} text={pct > 15 ? "红" : pct > 10 ? "黄" : "绿"} /></td>
+                </tr>
+              );
+            })}
+            <tr style={{ borderTop: `1px solid ${C.line}`, textAlign: "right", fontWeight: 700 }}>
+              <td style={{ textAlign: "left", padding: "8px" }}>合计</td>
+              <td style={{ padding: "8px" }}>{agg.qty}</td>
+              <td style={{ padding: "8px" }}>{fmtWan(agg.val)}</td>
+              <td style={{ padding: "8px" }}>{fmtWan(agg.o90val)}</td>
+              <td style={{ padding: "8px", color: o90Status === "red" ? C.drop : C.watch }}>{fmtPct(agg.o90pct)}</td>
+              <td style={{ padding: "8px" }}><Pill color={o90Status === "red" ? C.drop : o90Status === "amber" ? C.watch : C.rec} text={o90Status === "red" ? "红" : o90Status === "amber" ? "黄" : "绿"} /></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>
+          库龄以「发货日 ship_date」起算，只计当前库存件数（stock_qty × 落地成本）。与「库存统计」页的货值口径一致。
+          注：历史上 24.4% 那组是「死货 + 库龄预警」口径（另含无销判定），与本页的纯 90 天库龄口径不同，两个数不能直接比。
+        </div>
+      </div>
+
+      <div style={{ background: C.panel, border: `1px solid ${C.drop}55`, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: C.drop }}>三张数算不出来，缺什么</div>
+        <div style={{ fontSize: 11, color: C.sub, marginBottom: 10 }}>补齐这些，五个数就全活了。缺的都在「收入 / 回款」这一头，成本侧是齐的。</div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: C.sub, textAlign: "left" }}>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>缺的数</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>需要哪张表</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>现状</th>
+              <th style={{ padding: "6px 8px", fontWeight: 500 }}>谁能补</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ["营收（未税）", "store_monthly_costs item=收入", (cnt.smc ?? "?") + " 条", "夏蕾 / 财务专员"],
+              ["订单级销售额", "order_records 或 finance_daily_sales", (cnt.orders ?? "?") + " 条", "SP-API 拉取（权限已有）"],
+              ["回款", "recoveries", (cnt.rec ?? "?") + " 条", "夏蕾（平台回款单）"],
+            ].map((r) => (
+              <tr key={r[0]} style={{ borderTop: `1px solid ${C.line}` }}>
+                <td style={{ padding: "7px 8px" }}>{r[0]}</td>
+                <td style={{ padding: "7px 8px", color: C.sub, fontFamily: "monospace" }}>{r[1]}</td>
+                <td style={{ padding: "7px 8px", color: C.drop }}>{r[2]}</td>
+                <td style={{ padding: "7px 8px", color: C.sub }}>{r[3]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {missingRevenue && <div style={{ fontSize: 11, color: C.watch, marginTop: 10 }}>⚠️ 营收一条都没有 → 毛利润、毛利润率、以及依赖它的提成与季度利润奖，全部悬空。</div>}
+        {missingCash && <div style={{ fontSize: 11, color: C.watch, marginTop: 4 }}>⚠️ 回款一条都没有 → 月度净现金流只有支出、没有进项，net_all 全为负，不可用于判断。</div>}
+      </div>
+    </div>
+  );
+}
 
 // build trigger 1786350204773
