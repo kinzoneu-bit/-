@@ -8422,6 +8422,7 @@ function KpiDashboard() {
   const [inv, setInv] = useState([]);
   const [ship, setShip] = useState([]);
   const [pur, setPur] = useState([]);
+  const [flow, setFlow] = useState({ pay: [], op: [], office: [], other: [], rec: [] });
   const [cnt, setCnt] = useState({ smc: null, rec: null, orders: null });
   const [cf, setCf] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -8439,12 +8440,24 @@ function KpiDashboard() {
       countOf("order_records"),
       supabase.from("v_cashflow_monthly").select("period,total_in,total_out,recovery,net_core,net_all").order("period", { ascending: false }).limit(6),
       supabase.from("purchase_records").select("store,product_name,qty,total_amount,paid_amount,pay_status,receive_status").limit(2000),
-    ]).then(([a, b, c1, c2, c3, dv, pr]) => {
+      supabase.from("purchase_payments").select("amount,pay_date").limit(1000),
+      supabase.from("opsfee_monthly").select("amount,month,category").limit(3000),
+      supabase.from("office_expense").select("amount,exp_date").limit(1000),
+      supabase.from("store_other_expense").select("amount,exp_date").limit(1000),
+      supabase.from("recoveries").select("amount_cny,recv_date").limit(3000),
+    ]).then(([a, b, c1, c2, c3, dv, pr, pp, op, of, ot, rc]) => {
       if (!on) return;
       if (a.error) setErr(a.error.message);
       setInv(a.data || []);
       setShip(b.data || []);
       setPur(pr && !pr.error && pr.data ? pr.data : []);
+      setFlow({
+        pay: pp && !pp.error ? (pp.data || []) : [],
+        op: op && !op.error ? (op.data || []) : [],
+        office: of && !of.error ? (of.data || []) : [],
+        other: ot && !ot.error ? (ot.data || []) : [],
+        rec: rc && !rc.error ? (rc.data || []) : [],
+      });
       setCnt({ smc: c1, rec: c2, orders: c3 });
       setCf(dv && !dv.error && dv.data ? dv.data : []);
       setLoading(false);
@@ -8483,6 +8496,16 @@ function KpiDashboard() {
       cap: val + tVal + preVal,
     };
   }, [inv, ship, pur]);
+
+  // 现金口径（KK 2026-11-23 要求）：累计投入 = 付出去的现金；净投入 = 累计投入 − 累计回款
+  // 注意：采购付款与"存货"不能相加（同一笔钱，一次是付款、一次是货），本式只用付款，不用存货
+  const cash = useMemo(() => {
+    const sum = (rows, k = "amount") => (rows || []).reduce((t, r) => t + Number(r[k] || 0), 0);
+    const pay = sum(flow.pay), op = sum(flow.op), office = sum(flow.office), other = sum(flow.other);
+    const out = pay + op + office + other;
+    const inflow = sum(flow.rec, "amount_cny");
+    return { pay, op, office, other, out, inflow, net: out - inflow, recRows: (flow.rec || []).length, payRows: (flow.pay || []).length };
+  }, [flow]);
 
   const capStatus = "info";   // 资本占用不设上限, 只记录 (KK 2026-11-23)
   const cfLatest = (cf && cf.length) ? (cf.find((r) => Number(r.total_in) > 0) || cf[0]) : null;
@@ -8545,6 +8568,53 @@ function KpiDashboard() {
         <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>
           资本占用不设上限，只作为记录值与回报率分母。金额变大本身不是坏事（备货增加会推高它）；
           判据是资本回报率 = 年化毛利润 ÷ 资本占用。注意：仅存货口径会低估占用、推高回报率，接入应收后才准。
+        </div>
+      </div>
+
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>现金口径：累计投入 − 累计回款</div>
+          <div style={{ fontSize: 11, color: C.faint }}>钱投进去多少、收回多少、还剩多少没回来</div>
+        </div>
+        <div style={{ display: "flex", gap: 26, flexWrap: "wrap", marginTop: 10 }}>
+          <Stat label="累计投入（已付现金）" value={fmtWan(cash.out)} />
+          <Stat label="累计回款" value={fmtWan(cash.inflow)} accent={cash.inflow > 0 ? C.rec : C.faint} />
+          <Stat label="净投入（还压着）" value={fmtWan(cash.net)} accent={C.brand} />
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 10 }}>
+          <thead>
+            <tr style={{ color: C.sub, textAlign: "right" }}>
+              <th style={{ textAlign: "left", padding: "5px 8px", fontWeight: 500 }}>支出项</th>
+              <th style={{ padding: "5px 8px", fontWeight: 500 }}>金额</th>
+              <th style={{ padding: "5px 8px", fontWeight: 500 }}>条数</th>
+              <th style={{ padding: "5px 8px", fontWeight: 500 }}>数据区间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              ["采购付款", cash.pay, cash.payRows, "仅 11 月，历史未录 ⚠️"],
+              ["平台 / 运维费", cash.op, (flow.op || []).length, "2025-01 ~ 2026-10"],
+              ["办公费用", cash.office, (flow.office || []).length, "2026-01 ~ 2026-11"],
+              ["店铺其他", cash.other, (flow.other || []).length, "VAT/美工/说明书等"],
+            ].map(([n, v, c, r], i) => (
+              <tr key={i} style={{ borderTop: `1px solid ${C.line}`, textAlign: "right" }}>
+                <td style={{ textAlign: "left", padding: "6px 8px" }}>{n}</td>
+                <td style={{ padding: "6px 8px" }}>{fmtWan(v)}</td>
+                <td style={{ padding: "6px 8px", color: C.sub }}>{c}</td>
+                <td style={{ padding: "6px 8px", color: C.faint, textAlign: "left" }}>{r}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ fontSize: 11, color: C.drop, marginTop: 9, lineHeight: 1.75 }}>
+          ⚠️ 这个数现在还不能用于决策，三处断点：<br />
+          ① <b>历史采购付款未录</b> —— 存货 ¥71.7 万，付款记录只有 ¥{Math.round(cash.pay).toLocaleString()}，差 ¥67 万以上没进系统<br />
+          ② <b>人工与场地未录</b> —— store_monthly_costs 0 条<br />
+          ③ <b>回款未导入</b> —— recoveries {cash.recRows} 条（乾霖 53 笔待执行 SQL）
+        </div>
+        <div style={{ fontSize: 11, color: C.faint, marginTop: 6, lineHeight: 1.6 }}>
+          口径说明：采购付款与「存货」不能相加 —— 同一笔钱，付出去时算付款、到仓后算存货，加两次就是重复。
+          所以本式只用支出流水，不掺存货；存货是「钱变成了什么形态」，用上面那个面板看。
         </div>
       </div>
 
