@@ -66,3 +66,13 @@ values
 select currency, count(*) as 笔数, round(sum(received_amount),2) as 原币合计, round(sum(amount_cny),2) as 折人民币
 from public.recoveries where store='乾霖' group by currency;
 -- 期望：EUR 52 笔 / 26,260.45 / 199,579.42 ； GBP 1 笔 / 2.04 / 18.77 ；合计 ¥199,598.19
+
+-- 分月核对（应与截图一致：10月 24 笔 €11,504.55+£2.04 ≈ ¥87,453；11月 29 笔 €14,755.90 ≈ ¥112,145）
+select to_char(recv_date,'YYYY-MM') as 月份, count(*) as 笔数,
+       round(sum(received_amount) filter (where currency='EUR'),2) as EUR合计,
+       round(sum(amount_cny),2) as 折人民币
+from public.recoveries where store='乾霖' group by 1 order by 1;
+
+-- 逐日核对（拿这张表对着截图逐日比，有差异立即能看出来）
+select recv_date, count(*) as 笔数, round(sum(received_amount),2) as 原币合计
+from public.recoveries where store='乾霖' group by 1 order by 1 desc;
