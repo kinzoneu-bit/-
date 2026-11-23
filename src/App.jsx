@@ -8421,6 +8421,7 @@ function KpiDashboard() {
   const [inv, setInv] = useState([]);
   const [ship, setShip] = useState([]);
   const [cnt, setCnt] = useState({ smc: null, rec: null, orders: null });
+  const [cf, setCf] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -8434,12 +8435,14 @@ function KpiDashboard() {
       countOf("store_monthly_costs"),
       countOf("recoveries"),
       countOf("order_records"),
-    ]).then(([a, b, c1, c2, c3]) => {
+      supabase.from("v_cashflow_monthly").select("period,total_in,total_out,recovery,net_core,net_all").order("period", { ascending: false }).limit(6),
+    ]).then(([a, b, c1, c2, c3, dv]) => {
       if (!on) return;
       if (a.error) setErr(a.error.message);
       setInv(a.data || []);
       setShip(b.data || []);
       setCnt({ smc: c1, rec: c2, orders: c3 });
+      setCf(dv && !dv.error && dv.data ? dv.data : []);
       setLoading(false);
     }).catch((e) => { if (on) { setErr(String(e.message || e)); setLoading(false); } });
     return () => { on = false; };
@@ -8473,6 +8476,7 @@ function KpiDashboard() {
   }, [inv, ship]);
 
   const capStatus = "info";   // 资本占用不设上限, 只记录 (KK 2026-11-23)
+  const cfLatest = (cf && cf.length) ? (cf.find((r) => Number(r.total_in) > 0) || cf[0]) : null;
   const o90Status = agg.o90pct > 15 ? "red" : agg.o90pct > 10 ? "amber" : "green";
   const missingRevenue = cnt.smc === 0 && cnt.orders === 0;
   const missingCash = cnt.rec === 0;
@@ -8494,8 +8498,11 @@ function KpiDashboard() {
         <KpiCard label="资本占用" value={fmtWan(agg.cap)} status={capStatus}
           note={"在仓 " + fmtWan(agg.val) + " ＋ 在途 " + fmtWan(agg.transitVal) + " · 在途占 " + fmtPct(agg.cap ? (agg.transitVal / agg.cap) * 100 : 0)}
           calibre="= 在仓货值 + 未上架发货货值｜不设上限，只记录；好坏看资本回报率，不看金额大小" />
-        <KpiCard label="月度净现金流" value="—" status="none"
-          note={"缺回款：recoveries " + (cnt.rec ?? "?") + " 条 → v_cashflow_monthly 只有支出、无收入"}
+        <KpiCard label="月度净现金流" value={cfLatest ? fmtWan(cfLatest.net_all) : "—"}
+          status={!cfLatest ? "none" : Number(cfLatest.net_all) >= 0 ? "green" : "red"}
+          note={cfLatest
+            ? cfLatest.period + " 回款 " + fmtWan(cfLatest.total_in) + " − 支出 " + fmtWan(cfLatest.total_out) + (cnt.rec === 0 ? " · 回款表仍为空" : "")
+            : "缺回款：recoveries " + (cnt.rec ?? "?") + " 条 → v_cashflow_monthly 只有支出、无收入"}
           calibre="= 当月回款 − 采购付现 − 物流 − 人工 − 场地 − 其他" />
         <KpiCard label="超 90 天库存比例" value={fmtPct(agg.o90pct)} status={o90Status}
           note={"超 90 天 " + fmtWan(agg.o90val) + " ÷ 在仓 " + fmtWan(agg.val) + "（" + agg.o90qty + " 件）"}
