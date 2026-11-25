@@ -4379,6 +4379,8 @@ function OrderRecords() {
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [fPlat, setFPlat] = useState("");      // 平台筛选: "" = 全部
+  const [fStore, setFStore] = useState("");    // 店铺筛选: "" = 全部店铺
   useEffect(() => {
     supabase.from("order_records").select("*")
       .order("order_date", { ascending: false }).limit(3000)
@@ -4387,6 +4389,18 @@ function OrderRecords() {
         setLoaded(true);
       });
   }, []);
+  // 平台 → 该平台下的店铺 (KK 2026-11-25: 三个平台, 店铺名按系统现有口径生成)
+  const PLAT_STORES = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: [] };
+  // 选「全部平台」时: 系统 6 店 + 数据里出现过的其他店铺(如 梦想)
+  const storeOpts = fPlat
+    ? (PLAT_STORES[fPlat] || [])
+    : Array.from(new Set([...OPS_FIXED_STORES, ...rows.map(r => r.store).filter(Boolean)]));
+  const view = rows.filter(r => {
+    const p = r.platform || "amazon";              // 老数据没有 platform, 一律视为亚马逊
+    if (fPlat && p !== fPlat) return false;
+    if (fStore && (r.store || "") !== fStore) return false;
+    return true;
+  });
   const OC = [
     { k: "idx", l: "序号", w: 60 },
     { k: "order_date", l: "日期", w: 100 },
@@ -4414,9 +4428,9 @@ function OrderRecords() {
     if (c.t === "pct") return (v === null || v === undefined || v === "") ? "—" : (Number(v) * 100).toFixed(2) + "%";
     return (v === null || v === undefined || v === "") ? "—" : v;
   };
-  const sum = (k) => rows.reduce((s, r) => s + Number(r[k] || 0), 0);
+  const sum = (k) => view.reduce((s, r) => s + Number(r[k] || 0), 0);
   const avgMargin = (() => {
-    const ok = rows.filter(r => r.gross_margin !== null && r.gross_margin !== undefined && r.gross_margin !== "");
+    const ok = view.filter(r => r.gross_margin !== null && r.gross_margin !== undefined && r.gross_margin !== "");
     return ok.length ? ok.reduce((s, r) => s + Number(r.gross_margin), 0) / ok.length : null;
   })();
   return (
@@ -4425,11 +4439,24 @@ function OrderRecords() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>订单记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            逐单明细 · 16 列同 Excel (序号/日期/订单号/地区/名字/产品/sku/到仓价/售价/到手营业额/折合/毛利润/毛利率/邮件/索评/退款) · 全员可见
+            逐单明细 · 16 列同 Excel (序号/日期/订单号/地区/名字/产品/sku/到仓价/售价/到手营业额/折合/毛利润/毛利率/邮件/索评/退款) · 可按平台与店铺筛选 · 全员可见
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 11, color: C.faint }}>共 {rows.length} 单</span>
+          {/* 平台 / 店铺 筛选 — KK 2026-11-25 */}
+          <span style={{ fontSize: 12, color: C.sub }}>平台:</span>
+          <select value={fPlat} onChange={e => { setFPlat(e.target.value); setFStore(""); }}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${fPlat ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: fPlat ? 700 : 400 }}>
+            <option value="">全部平台</option>
+            {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+          <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
+          <select value={fStore} onChange={e => setFStore(e.target.value)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${fStore ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: fStore ? 700 : 400 }}>
+            <option value="">全部店铺</option>
+            {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>共 {view.length} 单</span>
           <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
             毛利润合计 ¥{sum("gross_profit").toFixed(2)}
           </span>
@@ -4447,13 +4474,13 @@ function OrderRecords() {
 
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
 
-      {loaded && rows.length > 0 && (
+      {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
           <div style={{ minWidth: 1600 }}>
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2 }}>
               {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
             </div>
-            {rows.map((r, i) => (
+            {view.map((r, i) => (
               <div key={r.id} style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
                 {OC.map(c => (
                   <div key={c.k} title={cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i))}
@@ -4473,7 +4500,7 @@ function OrderRecords() {
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 11, fontWeight: 700 }}>
               <div style={{ padding: "9px 8px", color: C.faint }} />
               <div style={{ padding: "9px 8px", color: C.brand }}>合计</div>
-              <div style={{ padding: "9px 8px", color: C.faint }}>{rows.length} 单</div>
+              <div style={{ padding: "9px 8px", color: C.faint }}>{view.length} 单</div>
               {["region", "customer", "product", "sku"].map(k => <div key={k} style={{ padding: "9px 8px" }} />)}
               {["landed_cost", "price", "net_revenue", "converted", "gross_profit"].map(k => (
                 <div key={k} style={{ padding: "9px 8px", textAlign: "right", color: k === "gross_profit" ? C.brand : C.ink }}>{money(sum(k))}</div>
@@ -4485,10 +4512,15 @@ function OrderRecords() {
         </div>
       )}
 
-      {loaded && rows.length === 0 && !err && (
+      {loaded && view.length === 0 && !err && (
         <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13, lineHeight: 1.9 }}>
-          暂无订单记录<br />
-          <span style={{ fontSize: 12 }}>Excel 导入: node scripts/import-orders.mjs {"<文件>"}（表头按 Excel：日期/订单号/地区/名字/产品/sku/到仓价/售价/到手营业额/折合/毛利润/毛利率/邮件/索评/退款）</span>
+          {rows.length === 0 ? <>
+            暂无订单记录<br />
+            <span style={{ fontSize: 12 }}>Excel 导入: node scripts/import-orders.mjs {"<文件>"}（表头按 Excel：日期/订单号/地区/名字/产品/sku/到仓价/售价/到手营业额/折合/毛利润/毛利率/邮件/索评/退款）</span>
+          </> : <>
+            当前筛选下没有订单<br />
+            <span style={{ fontSize: 12 }}>库里共 {rows.length} 单，换一个平台或店铺再看</span>
+          </>}
         </div>
       )}
     </div>
