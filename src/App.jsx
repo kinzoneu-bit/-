@@ -442,6 +442,7 @@ const C = {
   ink: "#e8edf2", sub: "#8b97a3", faint: "#5b6670",
   brand: "#4db6a4", // 主色 teal
   rec: "#4db6a4", watch: "#d9a441", drop: "#c05b52",
+  ref: "#e2564c", refBg: "rgba(226,86,76,0.13)", // 退款高亮（整行红底 + 左侧红条）
   fr: "#4db6a4", de: "#6f8fd0", uk: "#c08fd0",
 };
 
@@ -4580,7 +4581,7 @@ function OrderRecords() {
     { k: "landed_cost", l: "到仓价¥", w: 92, t: "money" },
     { k: "gross_profit", l: "毛利¥", w: 92, t: "money", hl: true },
     { k: "gross_margin", l: "毛利率", w: 78, t: "pct" },
-    { k: "refund", l: "退款", w: 62 },
+    { k: "refund", l: "退款", w: 84 },
     { k: "email_sent", l: "邮件", w: 62 },
     { k: "review_asked", l: "索评", w: 62 },
   ];
@@ -4613,8 +4614,15 @@ function OrderRecords() {
     a.click();
     URL.revokeObjectURL(a.href);
   };
+  // 有退款的行：整行红底 + 左侧红条凸显（KK 2026-11-25）
+  const isRefund = (r) => String(r.refund || "") === "是" || Number(r.refund_amt || 0) !== 0;
   const cellOf = (c, r, i) => {
     if (c.k === "idx") return i + 1;
+    // 退款：有金额显示金额，只有标记显示「是」
+    if (c.k === "refund") {
+      if (!isRefund(r)) return "—";
+      return (r.refund_amt ? eur(r.refund_amt) : (String(r.refund || "") === "是" ? "是" : "—"));
+    }
     // FBC 运费：按库存标准费预估的加 ≈，运营回传实际扣款的显示实值
     if (c.k === "fbc_fee") {
       if (r.fbc_fee === null || r.fbc_fee === undefined || r.fbc_fee === "") return "—";
@@ -4683,7 +4691,7 @@ function OrderRecords() {
 
       {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 2082 }}>
+          <div style={{ minWidth: 2104 }}>
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 3 }}>
               {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
             </div>
@@ -4695,26 +4703,41 @@ function OrderRecords() {
                 if (c.k === "order_date") return <div key={c.k} style={{ padding: "9px 8px", color: C.brand, ...bd }}>统计</div>;
                 if (c.k === "order_no") return <div key={c.k} style={{ padding: "9px 8px", color: C.sub, ...bd }}>{nOrders} 单</div>;
                 if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: C.ink, ...bd }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
+                if (c.k === "refund") {
+                  const refRows = view.filter(isRefund);
+                  const refSum = refRows.reduce((a, r) => a + Number(r.refund_amt || 0), 0);
+                  return <div key={c.k} title={refRows.length ? `${refRows.length} 行退款` : ""} style={{ padding: "9px 8px", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? eur(refSum) : "—"}</div>;
+                }
                 if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: c.hl ? C.brand : C.ink, ...bd }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
                 return <div key={c.k} style={{ padding: "9px 8px", ...bd }} />;
               })}
             </div>
-            {view.map((r, i) => (
-              <div key={r.id} style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
+            {view.map((r, i) => {
+              const rRef = isRefund(r);
+              return (
+              <div key={r.id} style={{
+                display: "grid", gridTemplateColumns: OC_GRID,
+                borderTop: `1px solid ${rRef ? "rgba(226,86,76,0.35)" : C.line}`,
+                fontSize: 11,
+                background: rRef ? C.refBg : (i % 2 ? C.bg : "transparent"),
+                boxShadow: rRef ? `inset 3px 0 0 ${C.ref}` : "none",
+                color: C.ink,
+              }}>
                 {OC.map(c => (
                   <div key={c.k} title={cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i))}
                     style={{
                       padding: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       borderRight: `1px solid ${C.line}`,
                       textAlign: ["idx", "order_date", "order_no", "region", "product", "sku", "email_sent", "review_asked", "refund"].includes(c.k) ? "left" : "right",
-                      fontWeight: c.hl ? 600 : 400,
-                      color: c.hl ? C.brand : (c.k === "idx" ? C.faint : C.ink),
+                      fontWeight: rRef && (c.k === "refund" || c.hl) ? 700 : (c.hl ? 600 : 400),
+                      color: c.hl ? (rRef ? C.ref : C.brand) : (c.k === "idx" ? C.faint : (c.k === "refund" ? (rRef ? C.ref : C.faint) : C.ink)),
                     }}>
                     {cellOf(c, r, i)}
                   </div>
                 ))}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
