@@ -3036,6 +3036,8 @@ function InventoryStats() {
   const [invRole, setInvRole] = useState(null);
   const [edInv, setEdInv] = useState(null);       // { id } 编辑库存行
   const [invForm, setInvForm] = useState({});
+  const [edCost, setEdCost] = useState(null);     // { id, val } 表格内直改盈亏价
+  const costEscRef = useRef(false);               // Esc 取消标记(避免 blur 又存一次)
   const [filterStore, setFilterStore] = useState("");
   const [filterPlatform, setFilterPlatform] = useState("amazon");   // 默认亚马逊, 保持现有使用习惯不变
   const [storeOpts, setStoreOpts] = useState(["飞鸟","野趣","俊业","乾霖","屿阔","胤顺"]);
@@ -3171,6 +3173,20 @@ function InventoryStats() {
     if (error) { alert("保存失败: " + error.message); return; }
     setEdInv(null); load();
   };
+  // 盈亏价: 表格里点格子直接改 (回车/失焦保存, Esc 取消) — KK 2026-11-25
+  const saveCostCell = async (id, raw) => {
+    const s = String(raw ?? "").trim();
+    if (s !== "" && !isFinite(Number(s))) { alert("盈亏价格式不对, 请填数字"); return; }
+    const num = s === "" ? null : Number(s);
+    const old = rows.find(r => r.id === id);
+    const oldNum = old && old.landed_cost != null ? Number(old.landed_cost) : null;
+    if (oldNum === num) return;                       // 没改动就不写库
+    // RLS 无权限时会返回 200 + 空数组, 必须用 select 校验真的改到
+    const { data, error } = await supabase.from("inventory").update({ landed_cost: num }).eq("id", id).select("id");
+    if (error) { alert("保存失败: " + error.message); return; }
+    if (!data || !data.length) { alert("保存失败: 数据库未返回该行(权限不足或记录不存在)"); return; }
+    setRows(rs => rs.map(r => (r.id === id ? { ...r, landed_cost: num } : r)));
+  };
   const totalQty = view.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
   const totalStock = view.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
   const totalAmount = view.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0) * Number(r.landed_cost || 0), 0);
@@ -3263,7 +3279,7 @@ function InventoryStats() {
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
             {isAmazon
               ? "发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 原始批次整批合并一格, 仓库/货发日期逐行) · 可按 仓库/发货批次/款式/ASIN 筛选"
-              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 货值(盈亏价)留空待运营补, 填了自动算库存金额 · 改款式/SKU 点行末「✎ 改」或直接点格子`}
+              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 点「盈亏价」格子直接填货值(回车保存), 填了自动算库存金额 · 改款式/SKU 点格子或行末「✎ 改」`}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -3382,18 +3398,45 @@ function InventoryStats() {
                       const v = fmt(c, r[c.k], r);
                       const isAge = c.k === "age_days";
                       const ageN = isAge ? Number(v) : null;
+                      const isCost = c.k === "landed_cost";
+                      const editingCost = isCost && !!edCost && edCost.id === r.id;
                       // 平台库存(非亚马逊): 款式 / SKU 格子可直接点开改 (权限同 canEditNameSku) — KK 2026-11-25
                       const clickEdit = !isAmazon && canEditNameSku && (c.k === "product_name" || c.k === "asin");
+                      // 盈亏价: 点格子直接填 (权限同编辑弹窗 canEditInv) — KK 2026-11-25
+                      const clickCost = isCost && canEditInv && !editingCost;
+                      const canClick = clickEdit || clickCost;
+                      const tip = clickEdit ? "点击修改款式 / SKU"
+                        : clickCost ? "点击直接改盈亏价 (回车保存 / Esc 取消)" : undefined;
                       return (
                         <div key={r.id + c.k}
-                          onClick={clickEdit ? () => openEditInv(r) : undefined}
-                          title={clickEdit ? "点击修改款式 / SKU" : undefined}
+                          onClick={clickEdit ? () => openEditInv(r)
+                            : clickCost ? () => setEdCost({ id: r.id, val: r.landed_cost != null ? String(r.landed_cost) : "" })
+                            : undefined}
+                          title={tip}
                           style={{
                           ...cell(c.k), fontWeight: (c.bold || isAge) ? 600 : 400,
                           color: isAge ? (ageN > 90 ? "#e0857a" : ageN > 60 ? C.watch : C.ink) : C.ink,
-                          cursor: clickEdit ? "pointer" : "default",
+                          cursor: canClick ? "pointer" : "default",
                           textDecoration: clickEdit ? "underline dotted rgba(77,182,164,.55)" : "none",
-                        }}>{v}</div>
+                        }}>
+                          {editingCost ? (
+                            <input autoFocus type="number" step="0.01" value={edCost.val}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => { const val = e.target.value; setEdCost(s => ({ ...s, val })); }}
+                              onBlur={() => {
+                                if (costEscRef.current) { costEscRef.current = false; return; }
+                                const t = edCost; setEdCost(null); saveCostCell(t.id, t.val);
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+                                if (e.key === "Escape") { costEscRef.current = true; setEdCost(null); }
+                              }}
+                              style={{ width: "100%", padding: "1px 4px", background: C.bg, border: `1px solid ${C.brand}`, borderRadius: 4, color: C.ink, fontSize: 11, outline: "none" }} />
+                          ) : (<>
+                            {v}
+                            {clickCost && <span style={{ color: C.brand, fontWeight: 600, marginLeft: 3, opacity: .8 }}>✎</span>}
+                          </>)}
+                        </div>
                       );
                     })}
                     {/* 平台表: 每行一个 ✎, 不用滚到最右找批次按钮 */}
@@ -3449,7 +3492,7 @@ function InventoryStats() {
               })}
             </div>
             <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
-              采购时间 / 售完时间 / 库存数量 可手填；以后接订单后售完时间按批次自动更新
+              盈亏价 / 采购时间 / 售完时间 / 库存数量 可手填（表格里点盈亏价格子也能直接改）；以后接订单后售完时间按批次自动更新
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
               <button onClick={() => setEdInv(null)}
@@ -3508,27 +3551,10 @@ function CatDash({ setProjectFor }) {
       if (cat.children) cat.children.forEach(s => walk(s));
     };
     walk(c);
-    return { sell, idleP, skip };const tallyCatDeep = (c) => {
-    let sell = 0, idleP = 0, skip = 0;
-    const collect = (catId) => {
-      const d = CAT_DETAIL[catId];
-      if (d && d.leaves) d.leaves.forEach(lf => {
-        if (lf.st === "researched_skip") skip++;
-        else if (lf.products && lf.products.some(p => p.st === "selling")) sell++;
-        else if (lf.st === "idle" && (!lf.products || !lf.products.length)) idleP++;
-      });
-    };
-    const walk = (cat) => {
-      collect(cat.id);
-      if (cat.children) cat.children.forEach(s => walk(s));
-    };
-    walk(c);
     return { sell, idleP, skip };
   };
 
   // 新模型递归统计: cat + 子 cat + 产品 (基于 cat_id, KK 2026-08-10)
-  
-  };
 
   const PhaseTag = ({ lid }) => {
     const b = handoffMap[lid];
