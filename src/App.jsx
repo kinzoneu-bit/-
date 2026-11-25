@@ -3036,7 +3036,9 @@ function InventoryStats() {
   const [invRole, setInvRole] = useState(null);
   const [edInv, setEdInv] = useState(null);       // { id } 编辑库存行
   const [invForm, setInvForm] = useState({});
-  const [edCost, setEdCost] = useState(null);     // { id, val } 表格内直改到仓价
+  const [edCost, setEdCost] = useState(null);     // { id, field, val } 表格内直改 到仓价/FBC标准费
+  const [fbcTip, setFbcTip] = useState("");       // 标准 FBC 费保存后的轻提示
+  const [fbcBatch, setFbcBatch] = useState(null); // 批量维护标准 FBC 费的弹窗数据
   const costEscRef = useRef(false);               // Esc 取消标记(避免 blur 又存一次)
   const [filterStore, setFilterStore] = useState("");
   const [filterPlatform, setFilterPlatform] = useState("amazon");   // 默认亚马逊, 保持现有使用习惯不变
@@ -3176,19 +3178,44 @@ function InventoryStats() {
     if (error) { alert("保存失败: " + error.message); return; }
     setEdInv(null); load();
   };
-  // 到仓价: 表格里点格子直接改 (回车/失焦保存, Esc 取消) — KK 2026-11-25
-  const saveCostCell = async (id, raw) => {
+  // 表格内直改单元格: 到仓价 / 标准FBC费 (回车/失焦保存, Esc 取消) — KK 2026-11-25
+  const saveCostCell = async (id, field, raw) => {
+    const label = field === "fbc_fee_std" ? "标准 FBC 费用" : "到仓价";
     const s = String(raw ?? "").trim();
-    if (s !== "" && !isFinite(Number(s))) { alert("到仓价格式不对, 请填数字"); return; }
+    if (s !== "" && !isFinite(Number(s))) { alert(label + "格式不对, 请填数字"); return; }
     const num = s === "" ? null : Number(s);
     const old = rows.find(r => r.id === id);
-    const oldNum = old && old.landed_cost != null ? Number(old.landed_cost) : null;
+    const oldNum = old && old[field] != null ? Number(old[field]) : null;
     if (oldNum === num) return;                       // 没改动就不写库
     // RLS 无权限时会返回 200 + 空数组, 必须用 select 校验真的改到
-    const { data, error } = await supabase.from("inventory").update({ landed_cost: num }).eq("id", id).select("id");
+    const { data, error } = await supabase.from("inventory").update({ [field]: num }).eq("id", id).select("id");
     if (error) { alert("保存失败: " + error.message); return; }
     if (!data || !data.length) { alert("保存失败: 数据库未返回该行(权限不足或记录不存在)"); return; }
-    setRows(rs => rs.map(r => (r.id === id ? { ...r, landed_cost: num } : r)));
+    setRows(rs => rs.map(r => (r.id === id ? { ...r, [field]: num } : r)));
+    if (field === "fbc_fee_std") setFbcTip("已保存 · 订单记录里的预估 FBC 会在下次同步时按新标准重算");
+  };
+  // 批量维护标准 FBC 费：一次填完整平台的 SKU，避免一格一格点
+  const saveFbcBatch = async () => {
+    if (!fbcBatch) return;
+    const todo = fbcBatch.filter(x => String(x.val).trim() !== "" && isFinite(Number(x.val)));
+    if (!todo.length) { setFbcBatch(null); return; }
+    let ok = 0; const fail = [];
+    for (const it of todo) {
+      const num = Number(it.val);
+      const row = rows.find(r => r.sku === it.sku);
+      if (row && row.fbc_fee_std != null && Number(row.fbc_fee_std) === num) { ok++; continue; }
+      const { data, error } = await supabase.from("inventory").update({ fbc_fee_std: num })
+        .eq("platform", platView).eq("sku", it.sku).select("id");
+      if (error) { fail.push(it.sku + " " + error.message); continue; }
+      if (!data || !data.length) { fail.push(it.sku + " 无权限"); continue; }
+      ok++;
+    }
+    setRows(rs => rs.map(r => {
+      const hit = todo.find(x => x.sku === r.sku);
+      return hit ? { ...r, fbc_fee_std: Number(hit.val) } : r;
+    }));
+    setFbcBatch(null);
+    setFbcTip(`已保存 ${ok} 个 SKU 的标准 FBC 费${fail.length ? "，失败 " + fail.length + " 个：" + fail.slice(0, 3).join("; ") : ""}`);
   };
   const totalQty = view.reduce((s, r) => s + Number(r.listed_qty || 0), 0);
   const totalStock = view.reduce((s, r) => s + Number(r.stock_qty ?? r.listed_qty ?? 0), 0);
@@ -3237,6 +3264,8 @@ function InventoryStats() {
     }]),
     { k: "age_days",       l: "库龄(天)", calc: r => ageDays(r) },
     { k: "landed_cost",    l: "到仓价", fmt: "money" },
+    // 非亚马逊平台：标准 FBC 配送费(EUR/件)，运营手填 → 订单按 SKU 自动带入 (KK 2026-11-25)
+    ...(isAmazon ? [] : [{ k: "fbc_fee_std", l: "FBC标准费", fmt: "eur" }]),
     { k: "purchase_date",  l: "采购时间" },
     { k: "ship_date_disp", l: "发货时间", disp: r => r.ship_date },
     { k: "prep_days",      l: "准备周期", calc: r => daysBetween(r.purchase_date, r.ship_date) },
@@ -3258,6 +3287,7 @@ function InventoryStats() {
     if (col.disp) v = col.disp(r);
     if (v == null || v === "") return "—";
     if (col.fmt === "money" && v != null) return "¥" + Number(v).toFixed(2);
+    if (col.fmt === "eur" && v != null) return "€" + Number(v).toFixed(2);
     return v;
   };
   // —— 批次分组显示 (KK 2026-09-16): 每个批次一块底色+描边, 批次级列整批合并 ——
@@ -3268,7 +3298,7 @@ function InventoryStats() {
   // 列宽：非亚马逊多一列「FBC明细」
   const W_INV = isAmazon
     ? [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70]
-    : [100, 100, 100, 130, 130, 90, 90, 180, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
+    : [100, 100, 100, 130, 130, 90, 90, 180, 95, 100, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
   const GRID_INV = (canEditInv ? W_INV : W_INV.slice(0, W_INV.length - 1)).map(w => `${w}px`).join(" ");
   const colIdxInv = (k) => COLS.findIndex(c => c.k === k) + 1;
   const invBatches = useMemo(() => {
@@ -3357,8 +3387,18 @@ function InventoryStats() {
             <span onClick={resetInvFilter} style={{ fontSize: 12, color: C.brand, cursor: "pointer", fontWeight: 600 }}>重置</span>
           )}
 
+          {!isAmazon && canEditPlat && (
+            <button onClick={() => setFbcBatch(baseRows.map(r => ({
+                sku: r.sku, name: r.product_name, stock: stockOf(r),
+                val: r.fbc_fee_std != null ? String(r.fbc_fee_std) : "",
+              })))}
+              title="为每个 SKU 填标准 FBC 配送费(欧元/件) — 订单记录会按此自动带入预估，一月底再用实际扣款覆盖"
+              style={{ marginLeft: "auto", padding: "6px 14px", background: C.panel2, color: C.brand, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600, fontFamily: "inherit" }}>
+              € FBC标准费
+            </button>
+          )}
           <button onClick={exportInvCsv} title="把当前筛选结果导出成 Excel 可打开的 CSV"
-            style={{ marginLeft: "auto", padding: "6px 14px", background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+            style={{ marginLeft: (!isAmazon && canEditPlat) ? 0 : "auto", padding: "6px 14px", background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
             ↓ 导出明细 ({view.length})
           </button>
           <span style={{ fontSize: 11, color: C.faint }}>
@@ -3370,9 +3410,16 @@ function InventoryStats() {
         </div>
       </div>
 
+      {fbcTip && (
+        <div style={{ background: C.panel2, border: `1px solid ${C.brand}`, borderRadius: 8, padding: "8px 14px", marginBottom: 10, fontSize: 12, color: C.brand, display: "flex", alignItems: "center" }}>
+          {fbcTip}
+          <span onClick={() => setFbcTip("")} style={{ marginLeft: "auto", cursor: "pointer", color: C.sub }}>✕</span>
+        </div>
+      )}
+
       {view.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: canEditInv ? 1790 : 1710, padding: "0 6px 4px" }}>
+          <div style={{ minWidth: canEditInv ? 1890 : 1810, padding: "0 6px 4px" }}>
             <div style={{ display: "grid", gridTemplateColumns: GRID_INV, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2, margin: "0 -6px" }}>
               {COLS.map(c => (
                 <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>
@@ -3417,23 +3464,26 @@ function InventoryStats() {
                       const isAge = c.k === "age_days";
                       const ageN = isAge ? Number(v) : null;
                       const isCost = c.k === "landed_cost";
-                      const editingCost = isCost && !!edCost && edCost.id === r.id;
+                      const isFbc  = c.k === "fbc_fee_std";
+                      const editingCost = (isCost || isFbc) && !!edCost && edCost.id === r.id && edCost.field === c.k;
                       // 平台库存(非亚马逊)专属: 款式 / SKU 格子可直接点开改 — 仅雪梅/诗琪/admin
                       const clickEdit = canEditPlat && (c.k === "product_name" || c.k === "asin");
-                      // 到仓价: 点格子直接填 — 同样只在平台库存里开放给 雪梅/诗琪/admin
-                      const clickCost = isCost && canEditPlat && !editingCost;
+                      // 到仓价 / 标准FBC费: 点格子直接填 — 同样只在平台库存里开放给 雪梅/诗琪/admin
+                      const clickCost = (isCost || isFbc) && canEditPlat && !editingCost;
                       const canClick = clickEdit || clickCost;
                       const tip = clickEdit ? "点击修改款式 / SKU"
-                        : clickCost ? "到仓价 = 成本价(人民币)，点格子直接改 (回车保存 / Esc 取消)" : undefined;
+                        : isCost && clickCost ? "到仓价 = 成本价(人民币)，点格子直接改 (回车保存 / Esc 取消)"
+                        : isFbc && clickCost ? "标准 FBC 配送费(欧元/件) — 订单按 SKU 自动带入，点格子直接改 (回车保存 / Esc 取消)"
+                        : undefined;
                       return (
                         <div key={r.id + c.k}
                           onClick={clickEdit ? () => openEditInv(r)
-                            : clickCost ? () => setEdCost({ id: r.id, val: r.landed_cost != null ? String(r.landed_cost) : "" })
+                            : clickCost ? () => setEdCost({ id: r.id, field: c.k, val: r[c.k] != null ? String(r[c.k]) : "" })
                             : undefined}
                           title={tip}
                           style={{
                           ...cell(c.k), fontWeight: (c.bold || isAge) ? 600 : 400,
-                          color: isAge ? (ageN > 90 ? "#e0857a" : ageN > 60 ? C.watch : C.ink) : C.ink,
+                          color: isAge ? (ageN > 90 ? "#e0857a" : ageN > 60 ? C.watch : C.ink) : (isFbc && v !== "—" ? C.brand : C.ink),
                           cursor: canClick ? "pointer" : "default",
                           textDecoration: clickEdit ? "underline dotted rgba(77,182,164,.55)" : "none",
                         }}>
@@ -3443,7 +3493,7 @@ function InventoryStats() {
                               onChange={e => { const val = e.target.value; setEdCost(s => ({ ...s, val })); }}
                               onBlur={() => {
                                 if (costEscRef.current) { costEscRef.current = false; return; }
-                                const t = edCost; setEdCost(null); saveCostCell(t.id, t.val);
+                                const t = edCost; setEdCost(null); saveCostCell(t.id, t.field, t.val);
                               }}
                               onKeyDown={e => {
                                 if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
@@ -3485,6 +3535,67 @@ function InventoryStats() {
                                : `${PLATFORM_LABEL[platView]} 当前库存全为 0（${rows.length} 个 SKU 已隐藏），等平台同步补货后再看`)
             : isAmazon ? "暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录"
             : `${PLATFORM_LABEL[platView]} 暂无库存数据 · 等平台同步写入后自动出现`}
+        </div>
+      )}
+
+      {/* 批量维护标准 FBC 配送费 — 每 SKU 一个欧元标准值 */}
+      {fbcBatch && (
+        <div onClick={() => setFbcBatch(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 20, width: 620, maxHeight: "86vh", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>标准 FBC 配送费</div>
+              <div style={{ fontSize: 11, color: C.sub }}>欧元 / 件 · {PLATFORM_LABEL[platView]} · 共 {fbcBatch.length} 个 SKU</div>
+            </div>
+            <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.7, marginBottom: 12 }}>
+              填每个 SKU 在平台仓发货的<b>标准运费</b>。订单记录按 SKU 自动带这个数算毛利（标记为预估）；一月底运营回传平台实际扣款后，再用实际值覆盖。
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 12, color: C.sub }}>一键填全部:</span>
+              <input id="fbcAll" type="number" step="0.01" placeholder="€"
+                style={{ width: 90, padding: "5px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+              <button onClick={() => {
+                  const el = document.getElementById("fbcAll");
+                  const v = el && el.value;
+                  if (v === "" || v == null || !isFinite(Number(v))) return;
+                  setFbcBatch(list => list.map(x => ({ ...x, val: String(v) })));
+                  el.value = "";
+                }}
+                style={{ padding: "5px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>应用到全部</button>
+              <span style={{ fontSize: 11, color: C.faint }}>（填完再个别改）</span>
+            </div>
+
+            <div style={{ flex: 1, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "150px 1fr 70px 100px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+                <div style={{ padding: "8px" }}>SKU</div>
+                <div style={{ padding: "8px" }}>款式</div>
+                <div style={{ padding: "8px", textAlign: "right" }}>库存</div>
+                <div style={{ padding: "8px" }}>标准费 €</div>
+              </div>
+              {fbcBatch.map((it, i) => (
+                <div key={it.sku} style={{ display: "grid", gridTemplateColumns: "150px 1fr 70px 100px", fontSize: 11, borderTop: i ? `1px solid ${C.line}` : "none", background: i % 2 ? C.bg : "transparent" }}>
+                  <div style={{ padding: "6px 8px", color: C.ink, fontFamily: "monospace" }}>{it.sku}</div>
+                  <div style={{ padding: "6px 8px", color: C.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.name}>{it.name || "—"}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", color: C.ink }}>{it.stock}</div>
+                  <div style={{ padding: "4px 8px" }}>
+                    <input type="number" step="0.01" value={it.val}
+                      onChange={e => { const val = e.target.value; setFbcBatch(list => list.map(x => x.sku === it.sku ? { ...x, val } : x)); }}
+                      style={{ width: "100%", padding: "3px 6px", background: C.panel2, border: `1px solid ${it.val !== "" ? C.brand : C.line}`, borderRadius: 4, color: C.ink, fontSize: 11, outline: "none" }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+              <div style={{ fontSize: 11, color: C.faint, alignSelf: "center" }}>
+                已填 {fbcBatch.filter(x => String(x.val).trim() !== "").length} / {fbcBatch.length}
+              </div>
+              <button onClick={() => setFbcBatch(null)}
+                style={{ marginLeft: "auto", padding: "7px 18px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
+              <button onClick={saveFbcBatch}
+                style={{ padding: "7px 20px", background: C.brand, border: "none", borderRadius: 6, color: "#0b1116", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>保存</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -4481,6 +4592,11 @@ function OrderRecords() {
     if (c.k === "idx") return i + 1;
     if (c.k === "customer") return custName(r);
     if (c.k === "ship_city") return [r.ship_postal, r.ship_city].filter(Boolean).join(" ") || "—";
+    // FBC 运费：按库存标准费预估的加 ≈，运营回传实际扣款的显示实值
+    if (c.k === "fbc_fee") {
+      if (r.fbc_fee === null || r.fbc_fee === undefined || r.fbc_fee === "") return "—";
+      return eur(r.fbc_fee) + (r.fbc_src === "std" ? " ≈" : "");
+    }
     const v = r[c.k];
     if (c.t === "money") return money(v);
     if (c.t === "eur") return eur(v);
