@@ -3048,19 +3048,20 @@ function InventoryStats() {
   const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier" || invRole === "cd_procurement" || invRole === "finance";
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (invRole && ROLE_STORES[invRole]) || null;
+  // 收窄角色(黄丹)只给亚马逊, Cdiscount/ManoMano 一律不给看 — KK 2026-11-25 定
+  const platView = myStores ? "amazon" : filterPlatform;
   const load = () => {
-    let q = supabase.from("inventory").select("*").eq("platform", filterPlatform).order("ship_date", { ascending: true });
-    // 三家收窄是亚马逊六店的规则, 其他平台不套用 (否则黄丹切 Cdiscount 会空表)
-    if (myStores && filterPlatform === "amazon") q = q.in("store", myStores);
+    let q = supabase.from("inventory").select("*").eq("platform", platView).order("ship_date", { ascending: true });
+    if (myStores) q = q.in("store", myStores);
     if (filterStore) q = q.eq("store", filterStore);
     q.then(({ data, error }) => {
       if (error) { setErr(error.message); setRows([]); return; }
       setRows(data || []); setErr("");
       // 拉当前平台的 store 去重: 亚马逊合并 KK 写死的 6 家, 其他平台用库里实际出现过的
-      let qa = supabase.from("inventory").select("store").eq("platform", filterPlatform);
+      let qa = supabase.from("inventory").select("store").eq("platform", platView);
       qa.then(({ data: all }) => {
         const fromDb = [...new Set((all || []).map(r => r.store).filter(Boolean))];
-        if (filterPlatform !== "amazon") { setStoreOpts(fromDb.sort()); return; }
+        if (platView !== "amazon") { setStoreOpts(fromDb.sort()); return; }
         setStoreOpts(() => {
           const merged = myStores ? [...new Set([...myStores, ...fromDb.filter(s => myStores.includes(s))])] : [...new Set([...ALL_STORES, ...fromDb])];
           return merged.sort();
@@ -3084,7 +3085,7 @@ function InventoryStats() {
   const whOpts = useMemo(() => optsOf("ship_warehouse"), [rows]);
   const styleOpts = useMemo(() => optsOf("product_name"), [rows]);
   // 亚马逊看 asin, 其他平台看卖家 SKU
-  const isAmazon = filterPlatform === "amazon";
+  const isAmazon = platView === "amazon";
   const skuOf = (r) => isAmazon ? r.asin : (r.sku || r.asin);
   const skuHead = isAmazon ? "ASIN" : "SKU";
   const asinOpts = useMemo(() => {
@@ -3224,8 +3225,8 @@ function InventoryStats() {
   const colIdxInv = (k) => COLS.findIndex(c => c.k === k) + 1;
   const invBatches = useMemo(() => {
     // 非亚马逊平台没有发货批次概念, 整表一块即可 (否则每行一个彩块, 视觉灾难)
-    if (filterPlatform !== "amazon") {
-      return view.length ? [{ key: `__${filterPlatform}__`, rows: view, color: C.line }] : [];
+    if (platView !== "amazon") {
+      return view.length ? [{ key: `__${platView}__`, rows: view, color: C.line }] : [];
     }
     const list = [], map = {};
     let lastBatch = null;
@@ -3248,7 +3249,7 @@ function InventoryStats() {
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
             {isAmazon
               ? "发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 货发日期/仓库/批次整批合并) · 可按 仓库/发货批次/款式/ASIN 筛选"
-              : `${PLATFORM_LABEL[filterPlatform]} 店铺库存(平台仓同步) · 货值(盈亏价)留空待运营补, 填了自动算库存金额 · 可按 款式/SKU 筛选`}
+              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 货值(盈亏价)留空待运营补, 填了自动算库存金额 · 可按 款式/SKU 筛选`}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -3264,12 +3265,15 @@ function InventoryStats() {
       {/* 筛选: 店铺 + 仓库/发货批次/款式/ASIN */}
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 18px", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* 收窄角色(黄丹)只给亚马逊, 平台下拉不显示 — KK 2026-11-25 定 */}
+          {!myStores && <>
           <span style={{ fontSize: 12, color: C.sub }}>平台:</span>
           <select value={filterPlatform}
             onChange={e => { setFilterPlatform(e.target.value); setFilterStore(""); resetInvFilter(); }}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${filterPlatform !== "amazon" ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: filterPlatform !== "amazon" ? 700 : 400 }}>
             {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
+          </>}
 
           <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
           <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
@@ -3386,7 +3390,7 @@ function InventoryStats() {
         <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13 }}>
           {rows.length ? "没有符合筛选条件的记录 · 点「重置」看全部"
             : isAmazon ? "暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录"
-            : `${PLATFORM_LABEL[filterPlatform]} 暂无库存数据 · 等平台同步写入后自动出现`}
+            : `${PLATFORM_LABEL[platView]} 暂无库存数据 · 等平台同步写入后自动出现`}
         </div>
       )}
 
