@@ -4588,7 +4588,11 @@ function OrderRecords() {
   const OC_GRID = OC.map(c => `${c.w}px`).join(" ");
   // 合计行要参与求和的列（单价 price 是单价，不求和）
   const OC_SUM = ["qty", "revenue_ttc", "vat_amount", "revenue_ht", "commission_amt", "service_fee", "fbc_fee", "eco_tax", "net_revenue", "converted", "landed_cost", "gross_profit"];
-  const money = (v) => (v === null || v === undefined || v === "") ? "—" : "¥" + Number(v).toFixed(2);
+  const money = (v) => {
+    if (v === null || v === undefined || v === "") return "—";
+    const n = Number(v);
+    return n < 0 ? "-¥" + Math.abs(n).toFixed(2) : "¥" + n.toFixed(2);
+  };
   const eur = (v) => (v === null || v === undefined || v === "") ? "—" : "€" + Number(v).toFixed(2);
   // 客户姓名：优先收货人姓名，回退平台客户编号
   const custName = (r) => {
@@ -4616,6 +4620,20 @@ function OrderRecords() {
   };
   // 有退款的行：整行红底 + 左侧红条凸显（KK 2026-11-25）
   const isRefund = (r) => String(r.refund || "") === "是" || Number(r.refund_amt || 0) !== 0;
+  // 退款原因（平台 cancellationDetails.reason）与货是否已出库
+  const REFUND_REASON = {
+    "refund-from-seller": "卖家主动退款",
+    "customer-cancellation": "客户取消",
+    "payment-failed": "支付失败",
+    "shipping-refused": "客户拒收",
+  };
+  const refundTitle = (r) => {
+    if (!isRefund(r)) return "";
+    const rs = REFUND_REASON[r.refund_reason] || r.refund_reason || "退款";
+    const ship = r.refund_shipped ? "货已出库，按未回仓计损" : "未出库，无货损";
+    const loss = Number(r.refund_loss || 0) !== 0 ? "｜净损失 " + money(Math.abs(Number(r.refund_loss))) : "";
+    return `${rs} · ${ship}${loss}`;
+  };
   const cellOf = (c, r, i) => {
     if (c.k === "idx") return i + 1;
     // 退款：有金额显示金额，只有标记显示「是」
@@ -4724,7 +4742,7 @@ function OrderRecords() {
                 color: C.ink,
               }}>
                 {OC.map(c => (
-                  <div key={c.k} title={cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i))}
+                  <div key={c.k} title={c.k === "refund" ? refundTitle(r) : (cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i)))}
                     style={{
                       padding: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       borderRight: `1px solid ${C.line}`,
