@@ -4409,26 +4409,33 @@ function OrderRecords() {
     { k: "idx", l: "序号", w: 60 },
     { k: "order_date", l: "日期", w: 100 },
     { k: "order_no", l: "订单号", w: 175 },
-    { k: "region", l: "地区", w: 90 },
-    { k: "customer", l: "名字", w: 110 },
-    { k: "product", l: "产品", w: 160 },
-    { k: "sku", l: "sku", w: 120 },
-    { k: "landed_cost", l: "到仓价", w: 90, t: "money" },
-    { k: "price", l: "售价", w: 85, t: "money" },
-    { k: "net_revenue", l: "到手营业额", w: 105, t: "money" },
-    { k: "converted", l: "折合", w: 100, t: "money" },
-    { k: "gross_profit", l: "毛利润", w: 95, t: "money", hl: true },
-    { k: "gross_margin", l: "毛利率", w: 85, t: "pct" },
-    { k: "email_sent", l: "邮件", w: 80 },
-    { k: "review_asked", l: "索评", w: 80 },
-    { k: "refund", l: "退款", w: 80 },
+    { k: "region", l: "地区", w: 70 },
+    { k: "customer", l: "名字", w: 105 },
+    { k: "product", l: "产品", w: 150 },
+    { k: "sku", l: "sku", w: 115 },
+    { k: "qty", l: "数量", w: 60 },
+    { k: "revenue_ttc", l: "售价(含税)", w: 96, t: "eur" },
+    { k: "vat_amount", l: "VAT", w: 80, t: "eur" },
+    { k: "revenue_ht", l: "去税收入", w: 96, t: "eur" },
+    { k: "commission_amt", l: "佣金", w: 80, t: "eur" },
+    { k: "eco_tax", l: "环保金", w: 78, t: "eur" },
+    { k: "net_revenue", l: "到手", w: 84, t: "eur" },
+    { k: "converted", l: "到手¥", w: 92, t: "money" },
+    { k: "landed_cost", l: "到仓价¥", w: 92, t: "money" },
+    { k: "gross_profit", l: "毛利¥", w: 92, t: "money", hl: true },
+    { k: "gross_margin", l: "毛利率", w: 78, t: "pct" },
+    { k: "refund", l: "退款", w: 62 },
+    { k: "email_sent", l: "邮件", w: 62 },
+    { k: "review_asked", l: "索评", w: 62 },
   ];
   const OC_GRID = OC.map(c => `${c.w}px`).join(" ");
   const money = (v) => (v === null || v === undefined || v === "") ? "—" : "¥" + Number(v).toFixed(2);
+  const eur = (v) => (v === null || v === undefined || v === "") ? "—" : "€" + Number(v).toFixed(2);
   const cellOf = (c, r, i) => {
     if (c.k === "idx") return i + 1;
     const v = r[c.k];
     if (c.t === "money") return money(v);
+    if (c.t === "eur") return eur(v);
     if (c.t === "pct") return (v === null || v === undefined || v === "") ? "—" : (Number(v) * 100).toFixed(2) + "%";
     return (v === null || v === undefined || v === "") ? "—" : v;
   };
@@ -4443,7 +4450,7 @@ function OrderRecords() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>订单记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            逐单明细 · 16 列同 Excel (序号/日期/订单号/地区/名字/产品/sku/到仓价/售价/到手营业额/折合/毛利润/毛利率/邮件/索评/退款) · 可按平台与店铺筛选 · 全员可见
+            逐单明细 · 订单级可归因口径：售价(含税) → 扣 VAT(平台代缴) = 去税收入 → 扣佣金/环保金 = 到手(€) → 折人民币 → 减到仓价 = 毛利¥ · 可按平台与店铺筛选 · 全员可见
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
@@ -4481,7 +4488,7 @@ function OrderRecords() {
 
       {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 1600 }}>
+          <div style={{ minWidth: 2020 }}>
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2 }}>
               {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
             </div>
@@ -6572,17 +6579,23 @@ function RateField({ month, canEdit, pwd, onRate }) {
 // 维度: 月份 × 店铺 × 站点 × 费用类别 → 金额
 // 店铺筛选: 不选=全部店铺汇总(只读) / 选具体店铺=该店铺数据(可编辑)
 function OpsFee() {
-  const SITES = OPS_SITES;
+  // 平台维度 (KK 2026-11-25): 亚马逊 = 六店多站点; Cdiscount = 梦想店, 费用口径=回款单服务费;
+  // ManoMano = 飞鸟主体开的店(与亚马逊飞鸟是两个平台的两家店)
+  const PLAT_SITES = { amazon: OPS_SITES, cdiscount: ["CDiscount France"], manomano: ["ManoMano FR"] };
+  const PLAT_STORES_OPS = { amazon: ALL_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
+  const [plat, setPlat] = useState("amazon");
+  const SITES = PLAT_SITES[plat] || OPS_SITES;
   const MONTHLY_SITE = OPS_MONTHLY_SITE;
   const MONTHLY_CATS = OPS_MONTHLY_CATS;
-  const CATS = OPS_CATS;
+  const CATS = plat === "amazon" ? OPS_CATS
+    : ["平台服务费", "广告", "仓储", "长期仓储", "服务订阅", "店铺月租", "入库费用", "弃置费用", "生产者延伸费", "优惠券"];
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);   // 前3年 ~ 后2年
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
   const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-01`);
   const [rows, setRows] = useState([]);
   const [filterStore, setFilterStore] = useState("飞鸟");                  // "" = 全部店铺汇总(只读)
-  const [storeOpts, setStoreOpts] = useState(["飞鸟", "野趣", "俊业", "乾霖", "屿阔", "胤顺"]);
+  const [storeOpts, setStoreOpts] = useState(PLAT_STORES_OPS.amazon);
   const [loaded, setLoaded] = useState(false);
   const [opsRole, setOpsRole] = useState(null);
   useEffect(() => {
@@ -6595,26 +6608,19 @@ function OpsFee() {
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (opsRole && ROLE_STORES[opsRole]) || null;
   const load = () => {
-    let q = supabase.from("opsfee_monthly").select("*").eq("month", month).order("site, category");
+    let q = supabase.from("opsfee_monthly").select("*").eq("month", month).eq("platform", plat).order("site, category");
     if (myStores) q = q.in("store", myStores);
     q.then(({ data, error }) => {
         if (error) { alert("读取失败(请先建表 opsfee_monthly): " + error.message); setRows([]); return; }
         setRows(data || []); setLoaded(true);
-        // 拉 store 字段去重, 合并固定店铺清单 (收窄角色固定只给三家)
-        let qa = supabase.from("opsfee_monthly").select("store");
-        if (myStores) qa = qa.in("store", myStores);
-        qa.then(({ data: all }) => {
-          const fromDb = [...new Set((all || []).map(r => r.store).filter(Boolean))];
-          setStoreOpts(() => {
-            const merged = myStores ? [...new Set([...myStores, ...fromDb.filter(s => myStores.includes(s))])] : [...new Set([...ALL_STORES, ...fromDb])];
-            return merged.sort();
-          });
-        });
+        // 店铺清单按平台给: 亚马逊六店(收窄角色只给三家) / Cdiscount=梦想 / ManoMano=飞鸟
+        const base = PLAT_STORES_OPS[plat] || ALL_STORES;
+        setStoreOpts(() => (myStores ? base.filter(s => myStores.includes(s)) : base.slice()));
       });
   };
   // 角色取回后才拉数 (黄丹只取三家, 不闪现其他店) — KK 2026-09-18
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (opsRole) load(); }, [month, opsRole]);
+  useEffect(() => { if (opsRole) load(); }, [month, opsRole, plat]);
   // 不选店铺 = 全部店铺汇总(只读); 选店铺 = 该店铺数据(单元格直接输入)
   const getVal = (site, category) => {
     const m = rows.filter(x => x.site === site && x.category === category);
@@ -6683,7 +6689,7 @@ function OpsFee() {
         done.push(it);
       } else {
         const { data, error } = await supabase.from("opsfee_monthly")
-          .insert({ month: it.month || month, store: it.store, site: it.site, category: it.category, amount: it.amount }).select().single();
+          .insert({ month: it.month || month, platform: plat, store: it.store, site: it.site, category: it.category, amount: it.amount }).select().single();
         if (error) { errMsg = error.message; continue; }
         if (data) added.push(data);
         done.push(it);
@@ -6733,6 +6739,19 @@ function OpsFee() {
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, color: C.sub }}>平台:</span>
+          <select value={plat} onChange={e => {
+              if (!guardSwitch()) return;
+              const np = e.target.value;
+              setPlat(np);
+              const first = (PLAT_STORES_OPS[np] || [])[0] || "";
+              setFilterStore(first);
+            }}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${plat !== "amazon" ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: plat !== "amazon" ? 700 : 400 }}>
+            <option value="amazon">亚马逊</option>
+            <option value="cdiscount">Cdiscount</option>
+            <option value="manomano">ManoMano</option>
+          </select>
           <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
           <select value={filterStore} onChange={e => { if (!guardSwitch()) return; setFilterStore(e.target.value); }}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
