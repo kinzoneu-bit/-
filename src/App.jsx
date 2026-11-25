@@ -3263,7 +3263,7 @@ function InventoryStats() {
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
             {isAmazon
               ? "发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 原始批次整批合并一格, 仓库/货发日期逐行) · 可按 仓库/发货批次/款式/ASIN 筛选"
-              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 货值(盈亏价)留空待运营补, 填了自动算库存金额 · 可按 款式/SKU 筛选`}
+              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 货值(盈亏价)留空待运营补, 填了自动算库存金额 · 改款式/SKU 点行末「✎ 改」或直接点格子`}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -3377,20 +3377,36 @@ function InventoryStats() {
                       borderRight: `1px solid ${C.line}`, borderTop: ri ? `1px solid ${C.line}` : "none",
                       color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                     });
-                    return INV_ROW_COLS.map(c => {
+                    return (<div key={r.id} style={{ display: "contents" }}>
+                    {INV_ROW_COLS.map(c => {
                       const v = fmt(c, r[c.k], r);
                       const isAge = c.k === "age_days";
                       const ageN = isAge ? Number(v) : null;
+                      // 平台库存(非亚马逊): 款式 / SKU 格子可直接点开改 (权限同 canEditNameSku) — KK 2026-11-25
+                      const clickEdit = !isAmazon && canEditNameSku && (c.k === "product_name" || c.k === "asin");
                       return (
-                        <div key={r.id + c.k} style={{
+                        <div key={r.id + c.k}
+                          onClick={clickEdit ? () => openEditInv(r) : undefined}
+                          title={clickEdit ? "点击修改款式 / SKU" : undefined}
+                          style={{
                           ...cell(c.k), fontWeight: (c.bold || isAge) ? 600 : 400,
                           color: isAge ? (ageN > 90 ? "#e0857a" : ageN > 60 ? C.watch : C.ink) : C.ink,
+                          cursor: clickEdit ? "pointer" : "default",
+                          textDecoration: clickEdit ? "underline dotted rgba(77,182,164,.55)" : "none",
                         }}>{v}</div>
                       );
-                    });
+                    })}
+                    {/* 平台表: 每行一个 ✎, 不用滚到最右找批次按钮 */}
+                    {canEditInv && !isAmazon && (
+                      <div key={r.id + "__op"} style={{ gridColumn: COLS.length + 1, gridRow: ri + 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px", borderTop: ri ? `1px solid ${C.line}` : "none" }}>
+                        <span onClick={() => openEditInv(r)} title="修改该行"
+                          style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 12 }}>✎ 改</span>
+                      </div>
+                    )}
+                    </div>);
                   })}
-                  {/* 操作列 (整批一个, 点 ✎ 改该批次第一行的记录) */}
-                  {canEditInv && (
+                  {/* 亚马逊: 操作列整批一个, 点 ✎ 改该批次第一行的记录 */}
+                  {canEditInv && isAmazon && (
                     <div style={{ gridColumn: COLS.length + 1, gridRow: `span ${N}`, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px" }}>
                       <span onClick={() => openEditInv(g.rows[0])} title="编辑该批次记录"
                         style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
