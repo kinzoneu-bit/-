@@ -4390,9 +4390,15 @@ function OrderRecords() {
       });
   }, []);
   // 平台 → 该平台下的店铺 (KK 2026-11-25: 三个平台, 店铺名按系统现有口径生成)
-  const PLAT_STORES = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: [] };
+  // ManoMano 是飞鸟这个主体开的店 → 店铺名就叫「飞鸟」, 与亚马逊的飞鸟是两个平台的两家店
+  const PLAT_STORES = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
   // KK 2026-11-25: 必须先选平台才出店铺, 不再混成一个总表
   const storeOpts = PLAT_STORES[fPlat] || [];
+  // 同名店铺跨平台(如飞鸟同时有亚马逊店和 ManoMano 店) → 下拉里带平台名区分, 值仍是店铺名
+  const storeLabel = (s) => {
+    const dup = Object.entries(PLAT_STORES).some(([k, arr]) => k !== fPlat && arr.includes(s));
+    return dup ? `${s}（${PLATFORM_LABEL[fPlat] || fPlat}）` : s;
+  };
   const view = rows.filter(r => {
     const p = r.platform || "amazon";              // 老数据没有 platform, 一律视为亚马逊
     if (fPlat && p !== fPlat) return false;
@@ -4453,7 +4459,7 @@ function OrderRecords() {
             title={fPlat ? "" : "请先选择平台"}
             style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${fStore ? C.brand : C.line}`, borderRadius: 6, color: fPlat ? C.ink : C.faint, fontSize: 12, fontWeight: fStore ? 700 : 400, opacity: fPlat ? 1 : .55, cursor: fPlat ? "pointer" : "not-allowed" }}>
             <option value="">{fPlat ? "全部店铺" : "先选平台"}</option>
-            {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
+            {storeOpts.map(s => <option key={s} value={s}>{storeLabel(s)}</option>)}
           </select>
           <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>共 {view.length} 单</span>
           <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
