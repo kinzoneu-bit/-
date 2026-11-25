@@ -4391,10 +4391,8 @@ function OrderRecords() {
   }, []);
   // 平台 → 该平台下的店铺 (KK 2026-11-25: 三个平台, 店铺名按系统现有口径生成)
   const PLAT_STORES = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: [] };
-  // 选「全部平台」时: 系统 6 店 + 数据里出现过的其他店铺(如 梦想)
-  const storeOpts = fPlat
-    ? (PLAT_STORES[fPlat] || [])
-    : Array.from(new Set([...OPS_FIXED_STORES, ...rows.map(r => r.store).filter(Boolean)]));
+  // KK 2026-11-25: 必须先选平台才出店铺, 不再混成一个总表
+  const storeOpts = PLAT_STORES[fPlat] || [];
   const view = rows.filter(r => {
     const p = r.platform || "amazon";              // 老数据没有 platform, 一律视为亚马逊
     if (fPlat && p !== fPlat) return false;
@@ -4451,9 +4449,10 @@ function OrderRecords() {
             {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
           <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
-          <select value={fStore} onChange={e => setFStore(e.target.value)}
-            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${fStore ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: fStore ? 700 : 400 }}>
-            <option value="">全部店铺</option>
+          <select value={fStore} onChange={e => setFStore(e.target.value)} disabled={!fPlat}
+            title={fPlat ? "" : "请先选择平台"}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${fStore ? C.brand : C.line}`, borderRadius: 6, color: fPlat ? C.ink : C.faint, fontSize: 12, fontWeight: fStore ? 700 : 400, opacity: fPlat ? 1 : .55, cursor: fPlat ? "pointer" : "not-allowed" }}>
+            <option value="">{fPlat ? "全部店铺" : "先选平台"}</option>
             {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>共 {view.length} 单</span>
