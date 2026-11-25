@@ -3050,6 +3050,11 @@ function InventoryStats() {
   const myStores = (invRole && ROLE_STORES[invRole]) || null;
   // 收窄角色(黄丹)只给亚马逊, Cdiscount/ManoMano 一律不给看 — KK 2026-11-25 定
   const platView = myStores ? "amazon" : filterPlatform;
+  // 平台仓同步(非亚马逊): 当前库存为 0 的 SKU 不展示 — KK 2026-11-25 定
+  const baseRows = useMemo(
+    () => platView === "amazon" ? rows : rows.filter(r => Number(r.stock_qty ?? r.listed_qty ?? 0) > 0),
+    [rows, platView]
+  );
   const load = () => {
     let q = supabase.from("inventory").select("*").eq("platform", platView).order("ship_date", { ascending: true });
     if (myStores) q = q.in("store", myStores);
@@ -3079,39 +3084,41 @@ function InventoryStats() {
   const [fAsin, setFAsin] = useState([]);
   const [fAge, setFAge] = useState(0);        // 库龄筛选: 0=不限 / 30 / 60 / 90 / 180 天
   const optsOf = (key, sortDesc) => {
-    const s = [...new Set(rows.map(r => r[key]).filter(v => v !== null && v !== undefined && v !== ""))];
+    const s = [...new Set(baseRows.map(r => r[key]).filter(v => v !== null && v !== undefined && v !== ""))];
     return sortDesc ? s.sort((a, b) => String(b).localeCompare(String(a))) : s.sort((a, b) => String(a).localeCompare(String(b)));
   };
-  const whOpts = useMemo(() => optsOf("ship_warehouse"), [rows]);
-  const styleOpts = useMemo(() => optsOf("product_name"), [rows]);
+  const whOpts = useMemo(() => optsOf("ship_warehouse"), [baseRows]);
+  const styleOpts = useMemo(() => optsOf("product_name"), [baseRows]);
   // 亚马逊看 asin, 其他平台看卖家 SKU
   const isAmazon = platView === "amazon";
   const skuOf = (r) => isAmazon ? r.asin : (r.sku || r.asin);
   const skuHead = isAmazon ? "ASIN" : "SKU";
   const asinOpts = useMemo(() => {
-    const s = [...new Set(rows.map(r => isAmazon ? r.asin : (r.sku || r.asin)).filter(v => v !== null && v !== undefined && v !== ""))];
+    const s = [...new Set(baseRows.map(r => isAmazon ? r.asin : (r.sku || r.asin)).filter(v => v !== null && v !== undefined && v !== ""))];
     return s.sort((a, b) => String(a).localeCompare(String(b)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, filterPlatform]);
+  }, [baseRows, platView]);
   // 批次按发货时间倒序, 最近的在上面
   const batchOpts = useMemo(() => {
     const m = {};
-    rows.forEach(r => { if (r.ship_batch) m[r.ship_batch] = m[r.ship_batch] && m[r.ship_batch] > r.ship_date ? m[r.ship_batch] : (r.ship_date || ""); });
+    baseRows.forEach(r => { if (r.ship_batch) m[r.ship_batch] = m[r.ship_batch] && m[r.ship_batch] > r.ship_date ? m[r.ship_batch] : (r.ship_date || ""); });
     return Object.keys(m).sort((a, b) => String(m[b]).localeCompare(String(m[a])));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows]);
+  }, [baseRows]);
   const hit = (sel, v) => sel.length === 0 || sel.includes(v);
-  const view = useMemo(() => rows.filter(r => {
+  const view = useMemo(() => baseRows.filter(r => {
     if (!(hit(fWh, r.ship_warehouse) && hit(fBatch, r.ship_batch) && hit(fStyle, r.product_name) && hit(fAsin, isAmazon ? r.asin : (r.sku || r.asin)))) return false;
     if (fAge > 0) {                                   // 滞销: 还有库存 且 库龄 > N 天
-      if (!(stockOf(r) > 0)) return false;
+      if (!(Number(r.stock_qty ?? r.listed_qty ?? 0) > 0)) return false;
       const a = ageDays(r);
       if (a === null || a <= fAge) return false;
     }
     return true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [rows, fWh, fBatch, fStyle, fAsin, fAge, filterPlatform]);
+  }), [baseRows, fWh, fBatch, fStyle, fAsin, fAge]);
   const hasFilter = !!(fWh.length || fBatch.length || fStyle.length || fAsin.length || fAge > 0);
+  // 非亚马逊平台被隐藏的零库存行数 (仅用于提示)
+  const zeroHidden = rows.filter(r => !(Number(r.stock_qty ?? r.listed_qty ?? 0) > 0)).length;
   const resetInvFilter = () => { setFWh([]); setFBatch([]); setFStyle([]); setFAsin([]); setFAge(0); };
   // 导出当前筛选结果为 CSV (Excel 可直接打开)
   const exportInvCsv = () => {
@@ -3255,6 +3262,7 @@ function InventoryStats() {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 11, color: C.faint }}>
             {hasFilter ? "筛选后" : "共"} {view.length} 条 · {isAmazon ? "上架合计" : "库存合计"} {totalQty} 件 · 当前库存 {totalStock}
+            {!isAmazon && zeroHidden > 0 && ` · 已隐藏 ${zeroHidden} 个零库存 SKU`}
           </span>
         </div>
       </div>
@@ -3388,7 +3396,9 @@ function InventoryStats() {
         </div>
       ) : (
         <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13 }}>
-          {rows.length ? "没有符合筛选条件的记录 · 点「重置」看全部"
+          {rows.length
+            ? (baseRows.length ? "没有符合筛选条件的记录 · 点「重置」看全部"
+                               : `${PLATFORM_LABEL[platView]} 当前库存全为 0（${rows.length} 个 SKU 已隐藏），等平台同步补货后再看`)
             : isAmazon ? "暂无库存 · 去「发货记录」里点某条发货的「↑上架」自动生成库存记录"
             : `${PLATFORM_LABEL[platView]} 暂无库存数据 · 等平台同步写入后自动出现`}
         </div>
