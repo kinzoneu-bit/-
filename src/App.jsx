@@ -4532,7 +4532,6 @@ function OrderRecords() {
   const [fPlat, setFPlat] = useState("");      // 平台筛选: "" = 全部
   const [fStore, setFStore] = useState("");    // 店铺筛选: "" = 全部店铺
   const [fMonth, setFMonth] = useState("");    // 月份筛选: "" = 全部月份 (KK 2026-11-25: 全量订单跨两年, 要能按周期看)
-  const [custCard, setCustCard] = useState(null);   // 客户详情浮层
   useEffect(() => {
     supabase.from("order_records").select("*")
       .order("order_date", { ascending: false }).limit(3000)
@@ -4566,9 +4565,6 @@ function OrderRecords() {
     { k: "order_date", l: "日期", w: 100 },
     { k: "order_no", l: "订单号", w: 175 },
     { k: "region", l: "地区", w: 70 },
-    { k: "customer", l: "客户", w: 130 },
-    { k: "ship_city", l: "城市", w: 118 },
-    { k: "ship_phone", l: "电话", w: 100 },
     { k: "product", l: "产品", w: 150 },
     { k: "sku", l: "sku", w: 115 },
     { k: "qty", l: "数量", w: 60 },
@@ -4619,8 +4615,6 @@ function OrderRecords() {
   };
   const cellOf = (c, r, i) => {
     if (c.k === "idx") return i + 1;
-    if (c.k === "customer") return custName(r);
-    if (c.k === "ship_city") return [r.ship_postal, r.ship_city].filter(Boolean).join(" ") || "—";
     // FBC 运费：按库存标准费预估的加 ≈，运营回传实际扣款的显示实值
     if (c.k === "fbc_fee") {
       if (r.fbc_fee === null || r.fbc_fee === undefined || r.fbc_fee === "") return "—";
@@ -4689,7 +4683,7 @@ function OrderRecords() {
 
       {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 2430 }}>
+          <div style={{ minWidth: 2082 }}>
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 3 }}>
               {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
             </div>
@@ -4709,16 +4703,12 @@ function OrderRecords() {
               <div key={r.id} style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
                 {OC.map(c => (
                   <div key={c.k} title={cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i))}
-                    onClick={c.k === "customer" ? () => setCustCard(r) : undefined}
                     style={{
                       padding: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       borderRight: `1px solid ${C.line}`,
-                      textAlign: ["idx", "order_date", "order_no", "region", "customer", "ship_city", "ship_phone", "product", "sku", "email_sent", "review_asked", "refund"].includes(c.k) ? "left" : "right",
+                      textAlign: ["idx", "order_date", "order_no", "region", "product", "sku", "email_sent", "review_asked", "refund"].includes(c.k) ? "left" : "right",
                       fontWeight: c.hl ? 600 : 400,
-                      color: c.hl ? C.brand : (c.k === "idx" ? C.faint : (c.k === "customer" ? C.ink : C.ink)),
-                      cursor: c.k === "customer" ? "pointer" : "default",
-                      textDecoration: c.k === "customer" ? "underline dotted" : "none",
-                      textUnderlineOffset: 3,
+                      color: c.hl ? C.brand : (c.k === "idx" ? C.faint : C.ink),
                     }}>
                     {cellOf(c, r, i)}
                   </div>
@@ -4741,53 +4731,6 @@ function OrderRecords() {
         </div>
       )}
 
-      {/* 客户详情浮层 —— 点客户名打开 (KK 2026-11-25: 姓名/地址/联系方式要能拉出来) */}
-      {custCard && (
-        <div onClick={() => setCustCard(null)}
-          style={{ position: "fixed", inset: 0, background: "#000a", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ width: 460, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", boxShadow: "0 18px 50px #000a" }}>
-            <div style={{ display: "flex", alignItems: "center", padding: "13px 16px", borderBottom: `1px solid ${C.line}`, background: C.panel2 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>客户详情</div>
-              <div style={{ marginLeft: "auto", fontSize: 11, color: C.sub }}>{custCard.order_no} · {custCard.order_date}</div>
-            </div>
-            <div style={{ padding: "14px 16px", display: "grid", gap: 10 }}>
-              {[
-                ["姓名", [custCard.cust_civility, custCard.cust_last, custCard.cust_first].filter(Boolean).join(" ") || custCard.customer],
-                ["公司", custCard.cust_company],
-                ["地址", [custCard.ship_addr1, custCard.ship_addr2, custCard.ship_addr3].filter(Boolean).join(" ")],
-                ["邮编 / 城市", [custCard.ship_postal, custCard.ship_city].filter(Boolean).join(" ")],
-                ["国家", custCard.ship_country],
-                ["电话", custCard.ship_phone],
-                ["邮箱", custCard.ship_email],
-                ["自提点", custCard.pickup_name ? `${custCard.pickup_name}${custCard.pickup_id ? "  #" + custCard.pickup_id : ""}` : ""],
-                ["产品", custCard.product],
-                ["SKU / 数量", [custCard.sku, custCard.qty ? custCard.qty + " 件" : ""].filter(Boolean).join("  ·  ")],
-              ].map(([l, v]) => (
-                <div key={l} style={{ display: "grid", gridTemplateColumns: "86px 1fr", gap: 10, fontSize: 12 }}>
-                  <div style={{ color: C.faint }}>{l}</div>
-                  <div style={{ color: v ? C.ink : C.faint, wordBreak: "break-all", lineHeight: 1.55 }}>{v || "—"}</div>
-                </div>
-              ))}
-              {custCard.ship_email && custCard.ship_email.indexOf("noreply") === 0 && (
-                <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.6, borderTop: `1px solid ${C.line}`, paddingTop: 9 }}>
-                  注：Cdiscount 出于隐私保护只提供中转邮箱，客户真实邮箱不对外暴露。
-                </div>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: 8, padding: "11px 16px", borderTop: `1px solid ${C.line}`, background: C.panel2 }}>
-              {custCard.ship_phone && (
-                <a href={"tel:" + custCard.ship_phone}
-                  style={{ padding: "6px 14px", background: C.bg, border: `1px solid ${C.brand}`, borderRadius: 6, color: C.brand, fontSize: 12, textDecoration: "none" }}>拨号</a>
-              )}
-              <button onClick={() => { exportCust(); }}
-                style={{ padding: "6px 14px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>导出全部客户</button>
-              <button onClick={() => setCustCard(null)}
-                style={{ marginLeft: "auto", padding: "6px 16px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>关闭</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
