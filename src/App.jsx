@@ -3046,6 +3046,9 @@ function InventoryStats() {
   }, []);
   // 可编辑: admin + 成都推广 + 成都供应链(陈雪梅) + 成都采购(黄丹) — 2026-09-18 KK 定
   const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier" || invRole === "cd_procurement" || invRole === "finance";
+  // 款式 / SKU(ASIN) 的更改权只给 雪梅(cd_supplier) + 诗琪(cd_promotion) + admin — KK 2026-11-25 定
+  const canEditNameSku = ["admin", "cd_supplier", "cd_promotion"].includes(invRole);
+  const NAME_SKU_KEYS = ["product_name", "asin", "sku"];
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (invRole && ROLE_STORES[invRole]) || null;
   // 收窄角色(黄丹)只给亚马逊, Cdiscount/ManoMano 一律不给看 — KK 2026-11-25 定
@@ -3143,7 +3146,7 @@ function InventoryStats() {
   const openEditInv = (r) => {
     const f = {
       store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
-      ship_batch: r.ship_batch || "", product_name: r.product_name || "", asin: r.asin || "",
+      ship_batch: r.ship_batch || "", product_name: r.product_name || "", asin: r.asin || "", sku: r.sku || "",
       listed_qty: r.listed_qty != null ? String(r.listed_qty) : "",
       stock_qty: r.stock_qty != null ? String(r.stock_qty) : "",
       landed_cost: r.landed_cost != null ? String(r.landed_cost) : "",
@@ -3153,8 +3156,11 @@ function InventoryStats() {
   };
   const saveInv = async () => {
     if (!edInv) return;
+    const allowed = new Set(INV_FIELDS.map(f => f.k));
     const clean = {};
     Object.entries(invForm).forEach(([k, v]) => {
+      if (!allowed.has(k)) return;                                  // 只写当前弹窗里出现的字段
+      if (!canEditNameSku && NAME_SKU_KEYS.includes(k)) return;      // 无权限: 款式/SKU 不落库
       const s = (v || "").trim();
       if (s === "") { clean[k] = null; return; }
       if (["listed_qty", "stock_qty"].includes(k)) { clean[k] = parseInt(s, 10); return; }
@@ -3184,8 +3190,8 @@ function InventoryStats() {
   const stockOf = (r) => Number(r.stock_qty ?? r.listed_qty ?? 0);
   const INV_FIELDS = [
     { k: "ship_date", l: "货发日期", t: "date" }, { k: "ship_warehouse", l: "仓库" },
-    { k: "ship_batch", l: "发货批次" }, { k: "product_name", l: "款式" },
-    { k: "asin", l: "ASIN" }, { k: "listed_qty", l: "上架数量", t: "num" },
+    { k: "ship_batch", l: "原始批次" }, { k: "product_name", l: "款式" },
+    { k: isAmazon ? "asin" : "sku", l: skuHead }, { k: "listed_qty", l: "上架数量", t: "num" },
     { k: "stock_qty", l: "库存数量", t: "num" }, { k: "landed_cost", l: "盈亏价", t: "num" },
     { k: "purchase_date", l: "采购时间", t: "date" }, { k: "listed_date", l: "上架时间", t: "date" },
     { k: "sold_date", l: "售完时间", t: "date" },
@@ -3193,7 +3199,7 @@ function InventoryStats() {
   const COLS = [
     { k: "ship_date",      l: "货发日期" },
     { k: "ship_warehouse", l: "仓库" },
-    { k: "ship_batch",     l: "发货批次" },
+    { k: "ship_batch",     l: "原始批次" },
     { k: "product_name",   l: "款式" },
     { k: "asin",           l: skuHead, disp: r => isAmazon ? r.asin : (r.sku || r.asin) },
     { k: "listed_qty",     l: "上架数量", bold: true },
@@ -3224,7 +3230,8 @@ function InventoryStats() {
     return v;
   };
   // —— 批次分组显示 (KK 2026-09-16): 每个批次一块底色+描边, 批次级列整批合并 ——
-  const INV_BATCH_KEYS = ["ship_date", "ship_warehouse", "ship_batch"];
+  // 批次级合并只留「原始批次」一列; 仓库/货发日期改为逐行显示 — KK 2026-11-25 定
+  const INV_BATCH_KEYS = ["ship_batch"];
   const INV_BATCH_COLS = COLS.filter(c => INV_BATCH_KEYS.includes(c.k));
   const INV_ROW_COLS = COLS.filter(c => !INV_BATCH_KEYS.includes(c.k));
   const W_INV = [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
@@ -3255,7 +3262,7 @@ function InventoryStats() {
           <div style={{ fontSize: 14, fontWeight: 700 }}>库存记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
             {isAmazon
-              ? "发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 货发日期/仓库/批次整批合并) · 可按 仓库/发货批次/款式/ASIN 筛选"
+              ? "发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 原始批次整批合并一格, 仓库/货发日期逐行) · 可按 仓库/发货批次/款式/ASIN 筛选"
               : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 货值(盈亏价)留空待运营补, 填了自动算库存金额 · 可按 款式/SKU 筛选`}
           </div>
         </div>
@@ -3410,14 +3417,20 @@ function InventoryStats() {
           <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 22, width: 560, maxHeight: "85vh", overflow: "auto" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>编辑库存记录</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {INV_FIELDS.map(f => (
+              {INV_FIELDS.map(f => {
+                const locked = !canEditNameSku && NAME_SKU_KEYS.includes(f.k);
+                return (
                 <div key={f.k}>
-                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>{f.l}</div>
+                  <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>
+                    {f.l}{locked && <span style={{ color: C.faint }}>（仅雪梅/诗琪可改）</span>}
+                  </div>
                   <input type={f.t === "date" ? "date" : f.t === "num" ? "number" : "text"} value={invForm[f.k] || ""}
+                    readOnly={locked} disabled={locked}
                     onChange={(e) => setInvForm(s => ({ ...s, [f.k]: e.target.value }))}
-                    style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
+                    style={{ width: "100%", padding: "7px 9px", background: locked ? C.bg : C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: locked ? C.faint : C.ink, fontSize: 12, outline: "none", cursor: locked ? "not-allowed" : "text" }} />
                 </div>
-              ))}
+                );
+              })}
             </div>
             <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
               采购时间 / 售完时间 / 库存数量 可手填；以后接订单后售完时间按批次自动更新
