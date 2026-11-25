@@ -4490,8 +4490,20 @@ function OrderRecords() {
       {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
           <div style={{ minWidth: 2185 }}>
-            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2 }}>
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 3 }}>
               {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
+            </div>
+            {/* 统计行 —— 贴在表头下方，跟随平台/店铺筛选实时汇总 (KK 2026-11-25) */}
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: C.panel2, fontSize: 11, fontWeight: 700, borderBottom: `2px solid ${C.line}`, position: "sticky", top: 33, zIndex: 2 }}>
+              {OC.map(c => {
+                const bd = { borderRight: `1px solid ${C.line}` };
+                if (c.k === "idx") return <div key={c.k} style={{ padding: "9px 8px", color: C.faint, ...bd }} />;
+                if (c.k === "order_date") return <div key={c.k} style={{ padding: "9px 8px", color: C.brand, ...bd }}>统计</div>;
+                if (c.k === "order_no") return <div key={c.k} style={{ padding: "9px 8px", color: C.sub, ...bd }}>{view.length} 单</div>;
+                if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: C.ink, ...bd }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
+                if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: c.hl ? C.brand : C.ink, ...bd }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
+                return <div key={c.k} style={{ padding: "9px 8px", ...bd }} />;
+              })}
             </div>
             {view.map((r, i) => (
               <div key={r.id} style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: i ? `1px solid ${C.line}` : "none", fontSize: 11, background: i % 2 ? C.bg : "transparent", color: C.ink }}>
@@ -4509,17 +4521,6 @@ function OrderRecords() {
                 ))}
               </div>
             ))}
-            {/* 合计行 */}
-            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 11, fontWeight: 700 }}>
-              {OC.map(c => {
-                if (c.k === "idx") return <div key={c.k} style={{ padding: "9px 8px", color: C.faint }} />;
-                if (c.k === "order_date") return <div key={c.k} style={{ padding: "9px 8px", color: C.brand }}>合计</div>;
-                if (c.k === "order_no") return <div key={c.k} style={{ padding: "9px 8px", color: C.faint }}>{view.length} 单</div>;
-                if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: C.ink }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
-                if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: c.hl ? C.brand : C.ink }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
-                return <div key={c.k} style={{ padding: "9px 8px" }} />;
-              })}
-            </div>
           </div>
         </div>
       )}
