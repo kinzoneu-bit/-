@@ -4546,8 +4546,8 @@ function OrderRecords() {
       if (data && data.user) setOcRole(getUserRole(data.user.email || ""));
     });
   }, []);
-  // 可改退款是否可售的：管理员 + 成都·供应链(雪梅)
-  const canAuditRefund = ocRole === "admin" || ocRole === "cd_supplier";
+  // 可改退款是否可售的：管理员 + 成都·推广(诗琪) — KK 2026-11-25 定（运营侧判断货能不能再卖）
+  const canAuditRefund = ocRole === "admin" || ocRole === "cd_promotion";
   const loadRows = () => {
     supabase.from("order_records").select("*")
       .order("order_date", { ascending: false }).limit(3000)
@@ -4870,7 +4870,7 @@ function OrderRecords() {
                       if (error) fail++; else ok++;
                     }
                     setRefSaving(false); setShowRefAudit(false); loadRows();
-                    if (fail) alert(`已保存 ${ok} 条，失败 ${fail} 条`);
+                    if (fail) alert(`已保存 ${ok} 条，失败 ${fail} 条` + (ok === 0 ? "\n\n保存失败通常是账号无此权限，请联系 KK 确认账号角色。" : ""));
                   }} style={{ padding: "6px 16px", background: refSaving ? C.panel2 : C.brand, border: `1px solid ${refSaving ? C.line : C.brand}`, borderRadius: 6, color: refSaving ? C.faint : "#0b1412", fontSize: 12, fontWeight: 700, cursor: refSaving ? "wait" : "pointer", fontFamily: "inherit" }}>
                     {refSaving ? "保存中…" : "确认提交"}
                   </button>
