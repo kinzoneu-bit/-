@@ -3194,6 +3194,25 @@ function InventoryStats() {
     setRows(rs => rs.map(r => (r.id === id ? { ...r, [field]: num } : r)));
     if (field === "fbc_fee_std") setFbcTip("已保存 · 订单记录里的预估 FBC 会在下次同步时按新标准重算");
   };
+  // 打开标准费维护窗：先查该平台各 SKU 的已售件数（order_records.plat_sku），有订单的排前面并高亮
+  const openFbcBatch = async () => {
+    let sold = {};
+    try {
+      const { data } = await supabase.from("order_records")
+        .select("plat_sku,qty,refund").eq("platform", platView).limit(5000);
+      (data || []).forEach(r => {
+        if (String(r.refund || "") === "是" || !r.plat_sku) return;
+        sold[r.plat_sku] = (sold[r.plat_sku] || 0) + Number(r.qty || 1);
+      });
+    } catch (e) { /* 无订单权限或表为空 → 全部按 0 处理 */ }
+    const list = baseRows.map(r => ({
+      sku: r.sku, name: r.product_name, stock: stockOf(r),
+      val: r.fbc_fee_std != null ? String(r.fbc_fee_std) : "",
+      sold: sold[r.sku] || 0,
+    }));
+    list.sort((a, b) => (b.sold - a.sold) || String(a.sku).localeCompare(String(b.sku)));
+    setFbcBatch(list);
+  };
   // 批量维护标准 FBC 费：一次填完整平台的 SKU，避免一格一格点
   const saveFbcBatch = async () => {
     if (!fbcBatch) return;
@@ -3388,11 +3407,8 @@ function InventoryStats() {
           )}
 
           {!isAmazon && canEditPlat && (
-            <button onClick={() => setFbcBatch(baseRows.map(r => ({
-                sku: r.sku, name: r.product_name, stock: stockOf(r),
-                val: r.fbc_fee_std != null ? String(r.fbc_fee_std) : "",
-              })))}
-              title="为每个 SKU 填标准 FBC 配送费(欧元/件) — 订单记录会按此自动带入预估，一月底再用实际扣款覆盖"
+            <button onClick={openFbcBatch}
+              title="为每个 SKU 填标准 FBC 配送费(欧元/件) — 订单记录会按此自动带入预估，月底再用实际扣款覆盖"
               style={{ marginLeft: "auto", padding: "6px 14px", background: C.panel2, color: C.brand, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600, fontFamily: "inherit" }}>
               € FBC标准费
             </button>
@@ -3547,7 +3563,8 @@ function InventoryStats() {
               <div style={{ fontSize: 11, color: C.sub }}>欧元 / 件 · {PLATFORM_LABEL[platView]} · 共 {fbcBatch.length} 个 SKU</div>
             </div>
             <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.7, marginBottom: 12 }}>
-              填每个 SKU 在平台仓发货的<b>标准运费</b>。订单记录按 SKU 自动带这个数算毛利（标记为预估）；一月底运营回传平台实际扣款后，再用实际值覆盖。
+              填每个 SKU 在平台仓发货的<b>标准运费</b>。有订单的排在前面并标绿（已售列），先填这些即可让订单毛利立刻有数；
+              订单记录按 SKU 自动带这个数算毛利（标记为预估），月底运营回传平台实际扣款后，再用实际值覆盖。
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -3566,17 +3583,19 @@ function InventoryStats() {
             </div>
 
             <div style={{ flex: 1, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 8 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "150px 1fr 70px 100px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "150px 1fr 64px 64px 100px", background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0 }}>
                 <div style={{ padding: "8px" }}>SKU</div>
                 <div style={{ padding: "8px" }}>款式</div>
-                <div style={{ padding: "8px", textAlign: "right" }}>库存</div>
+                <div style={{ padding: "8px", textAlign: "right" }}>在库</div>
+                <div style={{ padding: "8px", textAlign: "right" }}>已售件</div>
                 <div style={{ padding: "8px" }}>标准费 €</div>
               </div>
               {fbcBatch.map((it, i) => (
-                <div key={it.sku} style={{ display: "grid", gridTemplateColumns: "150px 1fr 70px 100px", fontSize: 11, borderTop: i ? `1px solid ${C.line}` : "none", background: i % 2 ? C.bg : "transparent" }}>
-                  <div style={{ padding: "6px 8px", color: C.ink, fontFamily: "monospace" }}>{it.sku}</div>
+                <div key={it.sku} style={{ display: "grid", gridTemplateColumns: "150px 1fr 64px 64px 100px", fontSize: 11, borderTop: i ? `1px solid ${C.line}` : "none", background: it.sold > 0 ? "rgba(77,182,164,.07)" : (i % 2 ? C.bg : "transparent") }}>
+                  <div style={{ padding: "6px 8px", color: it.sold > 0 ? C.brand : C.ink, fontFamily: "monospace", fontWeight: it.sold > 0 ? 600 : 400 }}>{it.sku}</div>
                   <div style={{ padding: "6px 8px", color: C.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.name}>{it.name || "—"}</div>
                   <div style={{ padding: "6px 8px", textAlign: "right", color: C.ink }}>{it.stock}</div>
+                  <div style={{ padding: "6px 8px", textAlign: "right", color: it.sold > 0 ? C.brand : C.faint, fontWeight: it.sold > 0 ? 600 : 400 }}>{it.sold || "—"}</div>
                   <div style={{ padding: "4px 8px" }}>
                     <input type="number" step="0.01" value={it.val}
                       onChange={e => { const val = e.target.value; setFbcBatch(list => list.map(x => x.sku === it.sku ? { ...x, val } : x)); }}
@@ -3589,6 +3608,11 @@ function InventoryStats() {
             <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
               <div style={{ fontSize: 11, color: C.faint, alignSelf: "center" }}>
                 已填 {fbcBatch.filter(x => String(x.val).trim() !== "").length} / {fbcBatch.length}
+                {fbcBatch.some(x => x.sold > 0) && (
+                  <span style={{ color: C.brand, marginLeft: 8 }}>
+                    · 有订单的已填 {fbcBatch.filter(x => x.sold > 0 && String(x.val).trim() !== "").length} / {fbcBatch.filter(x => x.sold > 0).length}
+                  </span>
+                )}
               </div>
               <button onClick={() => setFbcBatch(null)}
                 style={{ marginLeft: "auto", padding: "7px 18px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
