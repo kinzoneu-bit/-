@@ -3048,9 +3048,9 @@ function InventoryStats() {
   }, []);
   // 可编辑: admin + 成都推广 + 成都供应链(陈雪梅) + 成都采购(黄丹) — 2026-09-18 KK 定
   const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier" || invRole === "cd_procurement" || invRole === "finance";
-  // 款式 / SKU(ASIN) 的更改权只给 雪梅(cd_supplier) + 诗琪(cd_promotion) + admin — KK 2026-11-25 定
+  // 款式 / SKU / 盈亏价 的更改权只给 雪梅(cd_supplier) + 诗琪(cd_promotion) + admin — KK 2026-11-25 定
+  // ⚠️ 授权范围只到「平台仓同步库存」(Cdiscount/ManoMano), 亚马逊发货批次生成的记录不在此列
   const canEditNameSku = ["admin", "cd_supplier", "cd_promotion"].includes(invRole);
-  const NAME_SKU_KEYS = ["product_name", "asin", "sku"];
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
   const myStores = (invRole && ROLE_STORES[invRole]) || null;
   // 收窄角色(黄丹)只给亚马逊, Cdiscount/ManoMano 一律不给看 — KK 2026-11-25 定
@@ -3098,6 +3098,9 @@ function InventoryStats() {
   const isAmazon = platView === "amazon";
   const skuOf = (r) => isAmazon ? r.asin : (r.sku || r.asin);
   const skuHead = isAmazon ? "ASIN" : "SKU";
+  // 平台库存(Cdiscount/ManoMano)专属授权: 只有雪梅/诗琪/admin 能改 款式 / SKU / 盈亏价
+  const canEditPlat = !isAmazon && canEditNameSku;
+  const PLAT_EDIT_KEYS = ["product_name", "asin", "sku", "landed_cost"];
   const asinOpts = useMemo(() => {
     const s = [...new Set(baseRows.map(r => isAmazon ? r.asin : (r.sku || r.asin)).filter(v => v !== null && v !== undefined && v !== ""))];
     return s.sort((a, b) => String(a).localeCompare(String(b)));
@@ -3162,7 +3165,7 @@ function InventoryStats() {
     const clean = {};
     Object.entries(invForm).forEach(([k, v]) => {
       if (!allowed.has(k)) return;                                  // 只写当前弹窗里出现的字段
-      if (!canEditNameSku && NAME_SKU_KEYS.includes(k)) return;      // 无权限: 款式/SKU 不落库
+      if (!isAmazon && !canEditNameSku && PLAT_EDIT_KEYS.includes(k)) return;  // 平台库存: 款式/SKU/盈亏价 无权限不落库
       const s = (v || "").trim();
       if (s === "") { clean[k] = null; return; }
       if (["listed_qty", "stock_qty"].includes(k)) { clean[k] = parseInt(s, 10); return; }
@@ -3279,7 +3282,7 @@ function InventoryStats() {
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
             {isAmazon
               ? "发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 原始批次整批合并一格, 仓库/货发日期逐行) · 可按 仓库/发货批次/款式/ASIN 筛选"
-              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 点「盈亏价」格子直接填货值(回车保存), 填了自动算库存金额 · 改款式/SKU 点格子或行末「✎ 改」`}
+              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 款式/SKU/盈亏价 由雪梅·诗琪维护: 点格子直接改(盈亏价回车保存) · 其他字段点行末「✎ 改」`}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -3400,10 +3403,10 @@ function InventoryStats() {
                       const ageN = isAge ? Number(v) : null;
                       const isCost = c.k === "landed_cost";
                       const editingCost = isCost && !!edCost && edCost.id === r.id;
-                      // 平台库存(非亚马逊): 款式 / SKU 格子可直接点开改 (权限同 canEditNameSku) — KK 2026-11-25
-                      const clickEdit = !isAmazon && canEditNameSku && (c.k === "product_name" || c.k === "asin");
-                      // 盈亏价: 点格子直接填 (权限同编辑弹窗 canEditInv) — KK 2026-11-25
-                      const clickCost = isCost && canEditInv && !editingCost;
+                      // 平台库存(非亚马逊)专属: 款式 / SKU 格子可直接点开改 — 仅雪梅/诗琪/admin
+                      const clickEdit = canEditPlat && (c.k === "product_name" || c.k === "asin");
+                      // 盈亏价: 点格子直接填 — 同样只在平台库存里开放给 雪梅/诗琪/admin
+                      const clickCost = isCost && canEditPlat && !editingCost;
                       const canClick = clickEdit || clickCost;
                       const tip = clickEdit ? "点击修改款式 / SKU"
                         : clickCost ? "点击直接改盈亏价 (回车保存 / Esc 取消)" : undefined;
@@ -3477,7 +3480,7 @@ function InventoryStats() {
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>编辑库存记录</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {INV_FIELDS.map(f => {
-                const locked = !canEditNameSku && NAME_SKU_KEYS.includes(f.k);
+                const locked = !isAmazon && !canEditNameSku && PLAT_EDIT_KEYS.includes(f.k);
                 return (
                 <div key={f.k}>
                   <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>
