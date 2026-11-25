@@ -4531,6 +4531,7 @@ function OrderRecords() {
   const [loaded, setLoaded] = useState(false);
   const [fPlat, setFPlat] = useState("");      // 平台筛选: "" = 全部
   const [fStore, setFStore] = useState("");    // 店铺筛选: "" = 全部店铺
+  const [fMonth, setFMonth] = useState("");    // 月份筛选: "" = 全部月份 (KK 2026-11-25: 全量订单跨两年, 要能按周期看)
   const [custCard, setCustCard] = useState(null);   // 客户详情浮层
   useEffect(() => {
     supabase.from("order_records").select("*")
@@ -4554,8 +4555,12 @@ function OrderRecords() {
     const p = r.platform || "amazon";              // 老数据没有 platform, 一律视为亚马逊
     if (fPlat && p !== fPlat) return false;
     if (fStore && (r.store || "") !== fStore) return false;
+    if (fMonth && String(r.order_date || "").slice(0, 7) !== fMonth) return false;
     return true;
   });
+  // 可选月份（新的在前）；一个订单可能多行，订单数按 order_no 去重
+  const monthOpts = Array.from(new Set(rows.map(r => String(r.order_date || "").slice(0, 7)).filter(Boolean))).sort().reverse();
+  const nOrders = new Set(view.map(r => r.order_no || r.ext_ref)).size;
   const OC = [
     { k: "idx", l: "序号", w: 60 },
     { k: "order_date", l: "日期", w: 100 },
@@ -4653,7 +4658,13 @@ function OrderRecords() {
             <option value="">{fPlat ? "全部店铺" : "先选平台"}</option>
             {storeOpts.map(s => <option key={s} value={s}>{storeLabel(s)}</option>)}
           </select>
-          <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>共 {view.length} 单</span>
+          <span style={{ fontSize: 12, color: C.sub }}>月份:</span>
+          <select value={fMonth} onChange={e => setFMonth(e.target.value)}
+            style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${fMonth ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: fMonth ? 700 : 400 }}>
+            <option value="">全部月份</option>
+            {monthOpts.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>共 {nOrders} 单</span>
           <button onClick={exportCust} disabled={!view.length}
             title="导出当前筛选下的客户姓名/地址/电话/邮箱"
             style={{ padding: "5px 11px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6, color: view.length ? C.ink : C.faint, fontSize: 12, cursor: view.length ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
@@ -4688,7 +4699,7 @@ function OrderRecords() {
                 const bd = { borderRight: `1px solid ${C.line}` };
                 if (c.k === "idx") return <div key={c.k} style={{ padding: "9px 8px", color: C.faint, ...bd }} />;
                 if (c.k === "order_date") return <div key={c.k} style={{ padding: "9px 8px", color: C.brand, ...bd }}>统计</div>;
-                if (c.k === "order_no") return <div key={c.k} style={{ padding: "9px 8px", color: C.sub, ...bd }}>{view.length} 单</div>;
+                if (c.k === "order_no") return <div key={c.k} style={{ padding: "9px 8px", color: C.sub, ...bd }}>{nOrders} 单</div>;
                 if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: C.ink, ...bd }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
                 if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: c.hl ? C.brand : C.ink, ...bd }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
                 return <div key={c.k} style={{ padding: "9px 8px", ...bd }} />;
