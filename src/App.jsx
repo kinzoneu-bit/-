@@ -4453,9 +4453,6 @@ function OrderRecords() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>订单记录</div>
-          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            逐单明细 · 订单级可归因口径：售价(含税) → 扣 VAT(平台代缴) = 去税收入 → 扣佣金/处理费/FBC运费/环保金 = 到手(€) → ×汇率 7.2 → 减到仓价(成本价¥) = 毛利¥ · 可按平台与店铺筛选 · 全员可见
-          </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {/* 平台 / 店铺 筛选 — KK 2026-11-25 */}
