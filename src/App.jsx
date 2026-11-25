@@ -3223,6 +3223,18 @@ function InventoryStats() {
     { k: "asin",           l: skuHead, disp: r => isAmazon ? r.asin : (r.sku || r.asin) },
     { k: "listed_qty",     l: "上架数量", bold: true },
     { k: "stock_qty",      l: "库存数量", bold: true },
+    // 非亚马逊平台：FBC 仓库 7 状态明细（可用/占用/锁定/争议/退货/在途/移除），只显示非零项
+    ...(isAmazon ? [] : [{
+      k: "fbc_detail", l: "FBC明细",
+      calc: r => {
+        const parts = [
+          ["可用", r.qty_available], ["占用", r.qty_allocated], ["锁定", r.qty_blocked],
+          ["争议", r.qty_litigation], ["退货", r.qty_return],
+          ["在途", r.qty_logistic_operations], ["移除", r.qty_removal],
+        ].filter(([, v]) => Number(v) > 0).map(([l, v]) => l + v);
+        return parts.length ? parts.join(" · ") : null;
+      },
+    }]),
     { k: "age_days",       l: "库龄(天)", calc: r => ageDays(r) },
     { k: "landed_cost",    l: "到仓价", fmt: "money" },
     { k: "purchase_date",  l: "采购时间" },
@@ -3253,7 +3265,10 @@ function InventoryStats() {
   const INV_BATCH_KEYS = ["ship_batch"];
   const INV_BATCH_COLS = COLS.filter(c => INV_BATCH_KEYS.includes(c.k));
   const INV_ROW_COLS = COLS.filter(c => !INV_BATCH_KEYS.includes(c.k));
-  const W_INV = [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
+  // 列宽：非亚马逊多一列「FBC明细」
+  const W_INV = isAmazon
+    ? [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70]
+    : [100, 100, 100, 130, 130, 90, 90, 180, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
   const GRID_INV = (canEditInv ? W_INV : W_INV.slice(0, W_INV.length - 1)).map(w => `${w}px`).join(" ");
   const colIdxInv = (k) => COLS.findIndex(c => c.k === k) + 1;
   const invBatches = useMemo(() => {
