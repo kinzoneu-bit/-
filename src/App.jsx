@@ -631,6 +631,8 @@ export default function App() {
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品统计"]] : []),
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 + 成都·推广(诗琪) — 2026-10-20 KK 定
           ...(["admin", "cd_supplier", "cd_procurement", "finance", "cd_promotion"].includes(curRole) ? [["opsfee", "运维费用"]] : []),
+          // 成本台账: 所有成本项归集与缺失情况一目了然 — KK 2026-11-25 定
+          ...(["admin", "fr", "cd_procurement", "finance", "cd_supplier"].includes(curRole) ? [["costbook", "成本台账"]] : []),
           // 店铺其他费用: 全部成员 — 2026-09-17 KK 定
           ["storeother", "其他费用"],
           // 店铺月度核算: 仅管理层 (admin + 法国成员 fr + 成都采购 黄丹 + 财务专员) — KK 2026-09-16/18 定
@@ -669,6 +671,7 @@ export default function App() {
         {tab === "score" && <LinkScore />}
         {tab === "ordersummary" && <OrderSummary />}
         {tab === "opsfee" && <OpsFee />}
+        {tab === "costbook" && <CostBook />}
         {tab === "storeother" && <StoreOtherExpense />}
         {tab === "storemonthly" && <StoreMonthly />}
         {tab === "finance" && <Finance />}
@@ -4533,14 +4536,27 @@ function OrderRecords() {
   const [fPlat, setFPlat] = useState("");      // 平台筛选: "" = 全部
   const [fStore, setFStore] = useState("");    // 店铺筛选: "" = 全部店铺
   const [fMonth, setFMonth] = useState("");    // 月份筛选: "" = 全部月份 (KK 2026-11-25: 全量订单跨两年, 要能按周期看)
+  // 退款可售核实：给运营开的人工调整权限 (KK 2026-11-25)
+  const [ocRole, setOcRole] = useState(null);
+  const [showRefAudit, setShowRefAudit] = useState(false);
+  const [refDraft, setRefDraft] = useState({});   // {rowId: true(可售)/false(不可售)}
+  const [refSaving, setRefSaving] = useState(false);
   useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) setOcRole(getUserRole(data.user.email || ""));
+    });
+  }, []);
+  // 可改退款是否可售的：管理员 + 成都·供应链(雪梅)
+  const canAuditRefund = ocRole === "admin" || ocRole === "cd_supplier";
+  const loadRows = () => {
     supabase.from("order_records").select("*")
       .order("order_date", { ascending: false }).limit(3000)
       .then(({ data, error }) => {
         if (error) { setErr(error.message); setRows([]); } else { setRows(data || []); setErr(""); }
         setLoaded(true);
       });
-  }, []);
+  };
+  useEffect(() => { loadRows(); }, []);
   // 平台 → 该平台下的店铺 (KK 2026-11-25: 三个平台, 店铺名按系统现有口径生成)
   // ManoMano 是飞鸟这个主体开的店 → 店铺名就叫「飞鸟」, 与亚马逊的飞鸟是两个平台的两家店
   const PLAT_STORES = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
@@ -4630,7 +4646,9 @@ function OrderRecords() {
   const refundTitle = (r) => {
     if (!isRefund(r)) return "";
     const rs = REFUND_REASON[r.refund_reason] || r.refund_reason || "退款";
-    const ship = r.refund_shipped ? "货已出库，按未回仓计损" : "未出库，无货损";
+    const ship = r.refund_saleable === true ? "已核实可售，货值损失已冲回"
+      : (r.refund_saleable === false ? "已核实不可售，全额计损"
+        : (r.refund_shipped ? "货已出库，按未回仓计损" : "未出库，无货损"));
     const loss = Number(r.refund_loss || 0) !== 0 ? "｜净损失 " + money(Math.abs(Number(r.refund_loss))) : "";
     return `${rs} · ${ship}${loss}`;
   };
@@ -4690,6 +4708,21 @@ function OrderRecords() {
             style={{ padding: "5px 11px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6, color: view.length ? C.ink : C.faint, fontSize: 12, cursor: view.length ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
             导出客户
           </button>
+          {canAuditRefund && (() => {
+            const rf = view.filter(isRefund);
+            const pend = rf.filter(r => r.refund_saleable === null || r.refund_saleable === undefined).length;
+            return (
+              <button onClick={() => {
+                const d = {};
+                rf.forEach(r => { d[r.id] = r.refund_saleable === true ? true : (r.refund_saleable === false ? false : null); });
+                setRefDraft(d); setShowRefAudit(true);
+              }} disabled={!rf.length}
+                title="运营核实退货是否可售：可售的货值损失冲回，不可售的全额计损"
+                style={{ padding: "5px 11px", background: pend ? "rgba(226,86,76,.16)" : C.panel2, border: `1px solid ${pend ? C.ref : C.line}`, borderRadius: 6, color: rf.length ? (pend ? C.ref : C.ink) : C.faint, fontSize: 12, cursor: rf.length ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
+                退款核实 {pend ? `(${pend} 待核)` : `(${rf.length})`}
+              </button>
+            );
+          })()}
           <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
             毛利润合计 ¥{sum("gross_profit").toFixed(2)}
           </span>
@@ -4759,6 +4792,94 @@ function OrderRecords() {
           </div>
         </div>
       )}
+
+      {/* 退款可售核实浮层 (KK 2026-11-25)：可售 → 货值损失冲回；不可售 → 全额计损 */}
+      {showRefAudit && (() => {
+        const list = view.filter(isRefund);
+        const RATE = 7.2;
+        const calcLoss = (r, saleable) => {
+          const cost = saleable ? 0 : (r.refund_shipped ? Number(r.landed_cost || 0) : 0);
+          const fee = (Number(r.service_fee || 0) + Number(r.fbc_fee || 0)) * RATE;
+          return -Number((cost + fee).toFixed(2));
+        };
+        const stateOf = (r) => (refDraft[r.id] === true ? true : (refDraft[r.id] === false ? false : null));
+        const pend = list.filter(r => stateOf(r) === null).length;
+        const total = list.reduce((a, r) => a + calcLoss(r, stateOf(r) === true), 0);
+        const Btn = ({ on, children, onClick }) => (
+          <button onClick={onClick} style={{
+            padding: "3px 9px", fontSize: 11, borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
+            background: on ? "rgba(226,86,76,.20)" : C.panel2,
+            border: `1px solid ${on ? C.ref : C.line}`,
+            color: on ? C.ref : C.sub, fontWeight: on ? 700 : 400,
+          }}>{children}</button>
+        );
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
+            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, width: "min(1080px,95vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,.6)" }}>
+              <div style={{ padding: "15px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>退款可售核实</div>
+                <span style={{ fontSize: 11, color: C.faint }}>可售 = 货能再卖，到仓价从损失里冲回；不可售 = 全额计损</span>
+                <span style={{ marginLeft: "auto", fontSize: 12, color: pend ? C.ref : C.brand, fontWeight: 700 }}>
+                  {list.length} 单 · 待核 {pend} · 净损失合计 {money(total)}
+                </span>
+              </div>
+              <div style={{ overflow: "auto", flex: 1 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "86px 150px 100px 76px 118px 62px 86px 92px 158px 92px", background: "#1f3a68", color: "#fff", fontSize: 11, fontWeight: 600, position: "sticky", top: 0, zIndex: 1 }}>
+                  {["日期", "订单号", "SKU", "退款€", "退款原因", "已出库", "到仓价¥", "费用¥", "货是否可售", "净损失¥"].map(h => (
+                    <div key={h} style={{ padding: "8px 8px", borderRight: "1px solid rgba(255,255,255,.12)" }}>{h}</div>
+                  ))}
+                </div>
+                {list.map((r, i) => {
+                  const st = stateOf(r);
+                  const fee = (Number(r.service_fee || 0) + Number(r.fbc_fee || 0)) * RATE;
+                  const loss = calcLoss(r, st === true);
+                  return (
+                    <div key={r.id} style={{ display: "grid", gridTemplateColumns: "86px 150px 100px 76px 118px 62px 86px 92px 158px 92px", fontSize: 11, borderBottom: `1px solid ${C.line}`, background: st === null ? "rgba(226,86,76,.07)" : (i % 2 ? C.bg : "transparent") }}>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, color: C.sub }}>{(r.order_date || "").slice(5)}</div>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis" }} title={r.order_no}>{r.order_no}</div>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, color: C.sub }}>{r.plat_sku || r.sku || "—"}</div>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, textAlign: "right" }}>{r.refund_amt ? eur(r.refund_amt) : "—"}</div>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, color: C.sub }}>{REFUND_REASON[r.refund_reason] || r.refund_reason || "—"}</div>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, color: r.refund_shipped ? C.ref : C.faint }}>{r.refund_shipped ? "是" : "否"}</div>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, textAlign: "right", color: C.sub }}>{r.landed_cost ? money(r.landed_cost) : "—"}</div>
+                      <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, textAlign: "right", color: C.sub }}>{fee ? money(fee) : "—"}</div>
+                      <div style={{ padding: "6px 8px", borderRight: `1px solid ${C.line}`, display: "flex", gap: 4 }}>
+                        <Btn on={st === true} onClick={() => setRefDraft(d => ({ ...d, [r.id]: true }))}>可售</Btn>
+                        <Btn on={st === false} onClick={() => setRefDraft(d => ({ ...d, [r.id]: false }))}>不可售</Btn>
+                        <Btn on={st === null} onClick={() => setRefDraft(d => { const x = { ...d }; delete x[r.id]; return x; })}>待核</Btn>
+                      </div>
+                      <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 700, color: C.ref }}>{money(loss)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 11, color: C.faint }}>
+                  改动直接写库并重算该单的净损失与毛利；未核实的仍按「全额计损」保守口径
+                </span>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                  <button onClick={() => setShowRefAudit(false)} style={{ padding: "6px 14px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
+                  <button disabled={refSaving} onClick={async () => {
+                    setRefSaving(true);
+                    const todo = list.filter(r => (stateOf(r) ?? null) !== (r.refund_saleable ?? null));
+                    let ok = 0, fail = 0;
+                    for (const r of todo) {
+                      const v = stateOf(r);
+                      const { error } = await supabase.from("order_records")
+                        .update({ refund_saleable: v, refund_loss: calcLoss(r, v === true) }).eq("id", r.id);
+                      if (error) fail++; else ok++;
+                    }
+                    setRefSaving(false); setShowRefAudit(false); loadRows();
+                    if (fail) alert(`已保存 ${ok} 条，失败 ${fail} 条`);
+                  }} style={{ padding: "6px 16px", background: refSaving ? C.panel2 : C.brand, border: `1px solid ${refSaving ? C.line : C.brand}`, borderRadius: 6, color: refSaving ? C.faint : "#0b1412", fontSize: 12, fontWeight: 700, cursor: refSaving ? "wait" : "pointer", fontFamily: "inherit" }}>
+                    {refSaving ? "保存中…" : "确认提交"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {loaded && view.length === 0 && !err && (
         <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.faint, fontSize: 13, lineHeight: 1.9 }}>
@@ -6815,6 +6936,164 @@ function RateField({ month, canEdit, pwd, onRate }) {
 // ---------------- 店铺运维费用 ----------------
 // 维度: 月份 × 店铺 × 站点 × 费用类别 → 金额
 // 店铺筛选: 不选=全部店铺汇总(只读) / 选具体店铺=该店铺数据(可编辑)
+// ─────────────── 成本台账 (KK 2026-11-25) ───────────────
+// 原则：所有成本项必须在这里有位置 —— 能归单的归订单级，归不了单的归店铺级，
+// 连归级都做不到的单列「未归级」，绝不并入其他项。缺失的必须显性标出来，因为它直接影响毛利判断。
+function CostBook() {
+  const PLATS = [["cdiscount", "Cdiscount · 梦想"], ["amazon", "亚马逊六店"], ["manomano", "ManoMano · 飞鸟"]];
+  const cur = new Date();
+  const [plat, setPlat] = useState("cdiscount");
+  const [month, setMonth] = useState(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`);
+  const [items, setItems] = useState([]);
+  const [ord, setOrd] = useState({ n: 0 });
+  const [storeCost, setStoreCost] = useState({});
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    setLoaded(false);
+    const m0 = month + "-01";
+    const m1 = month + "-31";
+    Promise.all([
+      supabase.from("cost_items").select("*").eq("platform", plat).order("sort_no"),
+      supabase.from("order_records").select("qty,revenue_ttc,vat_amount,commission_amt,service_fee,fbc_fee,eco_tax,refund_loss,net_revenue,gross_profit").eq("platform", plat).gte("order_date", m0).lte("order_date", m1),
+      supabase.from("opsfee_monthly").select("category,amount").eq("platform", plat).eq("month", m0),
+    ]).then(([ci, orr, opf]) => {
+      if (ci.error) setErr("读取 cost_items 失败(请先跑 sql/cost_items.sql): " + ci.error.message);
+      else setErr("");
+      setItems(ci.data || []);
+      const rows = orr.data || [];
+      const s = (k) => rows.reduce((a, r) => a + Number(r[k] || 0), 0);
+      setOrd(rows.length ? {
+        n: rows.length, qty: s("qty"), ttc: s("revenue_ttc"), vat: s("vat_amount"),
+        comm: s("commission_amt"), svc: s("service_fee"), fbc: s("fbc_fee"), eco: s("eco_tax"),
+        loss: s("refund_loss"), net: s("net_revenue"), gp: s("gross_profit"),
+      } : { n: 0 });
+      const m = {};
+      (opf.data || []).forEach(r => { m[r.category] = (m[r.category] || 0) + Number(r.amount || 0); });
+      setStoreCost(m);
+      setLoaded(true);
+    }).catch(e => { setErr(String(e)); setLoaded(false); });
+  }, [plat, month]);
+
+  // 订单级金额：直接取订单记录当月汇总（EUR）
+  const ORDER_AMT = {
+    revenue_ttc: ord.ttc, vat: ord.vat, commission: ord.comm, service_fee: ord.svc,
+    fbc_fee: ord.fbc, eco_tax: ord.eco, refund_loss: ord.loss,
+  };
+  // 店铺级金额：取运维费用当月已录入（¥）；key 对齐 OPS 费用分类名
+  const STORE_AMT = {
+    storage: storeCost["仓储"], storage_long: storeCost["长期仓储"], inbound: storeCost["入库费用"],
+    destruction: storeCost["弃置费用"], removal: storeCost["弃置费用"],
+    subscription: storeCost["平台服务费"] ?? storeCost["服务订阅"] ?? storeCost["店铺月租"],
+    ads: storeCost["广告"],
+  };
+  const ST = {
+    ok: { t: "已归集", c: C.brand }, partial: { t: "部分", c: C.watch },
+    missing: { t: "缺失", c: C.drop },
+  };
+  const visible = items.filter(i => i.direction === "cost");
+  const missing = visible.filter(i => i.status === "missing");
+  const partial = visible.filter(i => i.status === "partial");
+  const LEVELS = [["order", "订单级（可归到单）"], ["store", "店铺级（月度归集，无法落到单）"], ["unmapped", "未归级（发现即单列）"]];
+  const fmt = (v, unit) => (v === null || v === undefined || v === "") ? "—"
+    : (unit === "eur" ? "€" + Number(v).toFixed(2) : "¥" + Number(v).toFixed(2));
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>成本台账</div>
+        <span style={{ fontSize: 11, color: C.faint }}>每一项成本都有归属位置，缺失的显性标出</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <select value={plat} onChange={e => setPlat(e.target.value)}
+            style={{ background: C.panel, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 8px", fontSize: 12 }}>
+            {PLATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <input type="month" value={month} onChange={e => setMonth(e.target.value)}
+            style={{ background: C.panel, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 8px", fontSize: 12 }} />
+        </div>
+      </div>
+
+      {err && <div style={{ background: "rgba(192,91,82,.14)", border: `1px solid ${C.drop}`, color: C.ink, borderRadius: 8, padding: "10px 14px", fontSize: 12, marginBottom: 12 }}>{err}</div>}
+
+      {/* 缺失警示条 —— 直接影响毛利判断 */}
+      {loaded && (missing.length > 0 || partial.length > 0) && (
+        <div style={{ background: "rgba(226,86,76,.12)", border: `1px solid ${C.ref}`, borderRadius: 8, padding: "11px 14px", marginBottom: 14, fontSize: 12, lineHeight: 1.8 }}>
+          <span style={{ color: C.ref, fontWeight: 700 }}>⚠ 本期毛利不含 {missing.length} 项成本</span>
+          <span style={{ color: C.sub }}>：{missing.map(i => i.name).join(" · ")}</span>
+          {partial.length > 0 && (
+            <div style={{ color: C.sub, marginTop: 2 }}>
+              另有 {partial.length} 项只拿到部分：{partial.map(i => `${i.name}（${i.note || "部分"}）`).join(" · ")}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "210px 180px 62px 96px 1fr 130px", background: "#1f3a68", color: "#fff", fontSize: 11, fontWeight: 600 }}>
+          {["成本项", "平台账单科目", "状态", "本期金额", "如何获取", "影响决策"].map(h => (
+            <div key={h} style={{ padding: "9px 10px", borderRight: "1px solid rgba(255,255,255,.12)" }}>{h}</div>
+          ))}
+        </div>
+        {LEVELS.map(([lv, label]) => {
+          const rows = visible.filter(i => i.level === lv);
+          if (!rows.length) return null;
+          return (
+            <div key={lv}>
+              <div style={{ background: C.panel2, padding: "7px 10px", fontSize: 11, fontWeight: 700, color: lv === "unmapped" ? C.ref : C.brand, borderTop: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}` }}>
+                {label} · {rows.length} 项
+              </div>
+              {rows.map((it, i) => {
+                const st = ST[it.status] || ST.missing;
+                const amt = lv === "order" ? ORDER_AMT[it.code] : (lv === "store" ? STORE_AMT[it.code] : null);
+                const unit = lv === "order" ? "eur" : "cny";
+                const noData = amt === null || amt === undefined;
+                return (
+                  <div key={it.code} style={{ display: "grid", gridTemplateColumns: "210px 180px 62px 96px 1fr 130px", fontSize: 11, borderBottom: `1px solid ${C.line}`, background: i % 2 ? C.bg : "transparent" }}>
+                    <div style={{ padding: "8px 10px", borderRight: `1px solid ${C.line}`, color: C.ink, fontWeight: it.status === "missing" ? 600 : 400 }}>{it.name}</div>
+                    <div style={{ padding: "8px 10px", borderRight: `1px solid ${C.line}`, color: C.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.name_plat || ""}>{it.name_plat || "—"}</div>
+                    <div style={{ padding: "8px 10px", borderRight: `1px solid ${C.line}`, color: st.c, fontWeight: 600 }}>{st.t}</div>
+                    <div style={{ padding: "8px 10px", borderRight: `1px solid ${C.line}`, textAlign: "right", fontWeight: 600, color: noData ? C.faint : (it.direction === "income" ? C.ink : C.ink) }}>
+                      {noData ? "待取数" : fmt(amt, unit)}
+                    </div>
+                    <div style={{ padding: "8px 10px", borderRight: `1px solid ${C.line}`, color: C.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.how_to_get || ""}>{it.how_to_get || "—"}</div>
+                    <div style={{ padding: "8px 10px", color: C.faint }}>{it.affected || "—"}</div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 月度小结：订单级算出来的实数 */}
+      {loaded && ord.n > 0 && (
+        <div style={{ marginTop: 14, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 16px" }}>
+          <div style={{ fontSize: 12, color: C.sub, marginBottom: 8 }}>
+            {month} 订单级实数（{ord.n} 行 · {ord.qty} 件｜单位 EUR）
+          </div>
+          <div style={{ display: "flex", gap: 22, flexWrap: "wrap", fontSize: 12 }}>
+            {[["售价含税", ord.ttc], ["VAT", ord.vat], ["佣金", ord.comm], ["处理费", ord.svc],
+              ["FBC配送", ord.fbc], ["环保金", ord.eco], ["退款损失(¥)", ord.loss, "cny"], ["到手", ord.net]].map(([l, v, u]) => (
+              <div key={l}>
+                <div style={{ color: C.faint, fontSize: 10, marginBottom: 2 }}>{l}</div>
+                <div style={{ fontWeight: 600, color: u === "cny" ? C.ref : C.ink }}>{fmt(v, u || "eur")}</div>
+              </div>
+            ))}
+            <div>
+              <div style={{ color: C.faint, fontSize: 10, marginBottom: 2 }}>毛利合计</div>
+              <div style={{ fontWeight: 700, color: C.brand }}>{fmt(ord.gp, "cny")}</div>
+            </div>
+          </div>
+        </div>
+      )}
+      {loaded && ord.n === 0 && (
+        <div style={{ marginTop: 14, fontSize: 12, color: C.faint }}>该月没有订单记录</div>
+      )}
+    </div>
+  );
+}
+
 function OpsFee() {
   // 平台维度 (KK 2026-11-25): 亚马逊 = 六店多站点; Cdiscount = 梦想店, 费用口径=回款单服务费;
   // ManoMano = 飞鸟主体开的店(与亚马逊飞鸟是两个平台的两家店)
