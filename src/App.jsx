@@ -4592,9 +4592,9 @@ function OrderRecords() {
     { k: "product", l: "产品", w: "minmax(96px, 1.3fr)" },
     { k: "sku", l: "sku", w: "minmax(82px, .9fr)" },
     { k: "qty", l: "数量", w: 36 },
-    { k: "revenue_ttc", l: "售价", w: 62, t: "eur" },   // 含税，见列头悬停
+    { k: "revenue_ttc", l: "售价", w: 62, t: "eur", tip: "售价(含税) — 客户实际支付含 VAT" },
     { k: "vat_amount", l: "VAT", w: 48, t: "eur" },
-    { k: "revenue_ht", l: "去税收入", w: 66, t: "eur" },
+    { k: "revenue_ht", l: "去税收入", w: 66, t: "eur", tip: "去税收入 — 扣除 VAT 后的净销售额" },
     { k: "commission_amt", l: "佣金", w: 56, t: "eur" },
     { k: "service_fee", l: "处理费", w: 52, t: "eur" },
     { k: "fbc_fee", l: "FBC运费", w: 60, t: "eur" },  // 带「≈」预估标记要留宽
@@ -4768,7 +4768,7 @@ function OrderRecords() {
           <div style={{ minWidth: OC_W + 282 }}>
             <div style={{ position: "sticky", top: 0, zIndex: 3 }}>
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600 }}>
-              {OC.map(c => <div key={c.k} title={c.l} style={{ padding: "7px 5px", borderRight: `1px solid #2a4a78`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.l}</div>)}
+              {OC.map(c => <div key={c.k} title={c.tip || c.l} style={{ padding: "7px 5px", borderRight: `1px solid #2a4a78`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.l}</div>)}
             </div>
             {/* 统计行 —— 贴在表头下方，跟随平台/店铺筛选实时汇总 (KK 2026-11-25) */}
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: C.panel2, fontSize: 11, fontWeight: 700, borderBottom: `2px solid ${C.line}` }}>
