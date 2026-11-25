@@ -4536,6 +4536,8 @@ function OrderRecords() {
   const [fPlat, setFPlat] = useState("");      // 平台筛选: "" = 全部
   const [fStore, setFStore] = useState("");    // 店铺筛选: "" = 全部店铺
   const [fMonth, setFMonth] = useState("");    // 月份筛选: "" = 全部月份 (KK 2026-11-25: 全量订单跨两年, 要能按周期看)
+  const [fFrom, setFFrom] = useState("");      // 起始日期 YYYY-MM-DD — KK 2026-11-25 加时间筛选框
+  const [fTo, setFTo] = useState("");          // 截止日期
   // 退款可售核实：给运营开的人工调整权限 (KK 2026-11-25)
   const [ocRole, setOcRole] = useState(null);
   const [showRefAudit, setShowRefAudit] = useState(false);
@@ -4571,37 +4573,43 @@ function OrderRecords() {
     const p = r.platform || "amazon";              // 老数据没有 platform, 一律视为亚马逊
     if (fPlat && p !== fPlat) return false;
     if (fStore && (r.store || "") !== fStore) return false;
-    if (fMonth && String(r.order_date || "").slice(0, 7) !== fMonth) return false;
+    const day = String(r.order_date || "").slice(0, 10);   // YYYY-MM-DD
+    if (fMonth && day.slice(0, 7) !== fMonth) return false;
+    if (fFrom && day < fFrom) return false;
+    if (fTo && day > fTo) return false;
     return true;
   });
   // 可选月份（新的在前）；一个订单可能多行，订单数按 order_no 去重
   const monthOpts = Array.from(new Set(rows.map(r => String(r.order_date || "").slice(0, 7)).filter(Boolean))).sort().reverse();
   const nOrders = new Set(view.map(r => r.order_no || r.ext_ref)).size;
+  // 列宽总预算 ≤1360px — KK 2026-11-25：要在一屏内看完，不用左右拖
+  // 文字型三列（订单号/产品/sku）用 minmax + fr，宽屏自动吃掉余量，窄屏也不会撑破
   const OC = [
-    { k: "idx", l: "序号", w: 60 },
-    { k: "order_date", l: "日期", w: 100 },
-    { k: "order_no", l: "订单号", w: 175 },
-    { k: "region", l: "地区", w: 70 },
-    { k: "product", l: "产品", w: 150 },
-    { k: "sku", l: "sku", w: 115 },
-    { k: "qty", l: "数量", w: 60 },
-    { k: "revenue_ttc", l: "售价(含税)", w: 96, t: "eur" },
-    { k: "vat_amount", l: "VAT", w: 80, t: "eur" },
-    { k: "revenue_ht", l: "去税收入", w: 96, t: "eur" },
-    { k: "commission_amt", l: "佣金", w: 80, t: "eur" },
-    { k: "service_fee", l: "处理费", w: 78, t: "eur" },
-    { k: "fbc_fee", l: "FBC运费", w: 82, t: "eur" },
-    { k: "eco_tax", l: "环保金", w: 78, t: "eur" },
-    { k: "net_revenue", l: "到手", w: 84, t: "eur" },
-    { k: "converted", l: "到手¥", w: 92, t: "money" },
-    { k: "landed_cost", l: "到仓价¥", w: 92, t: "money" },
-    { k: "gross_profit", l: "毛利¥", w: 92, t: "money", hl: true },
-    { k: "gross_margin", l: "毛利率", w: 78, t: "pct" },
-    { k: "refund", l: "退款", w: 84 },
-    { k: "email_sent", l: "邮件", w: 62 },
-    { k: "review_asked", l: "索评", w: 62 },
+    { k: "idx", l: "序号", w: 36 },
+    { k: "order_date", l: "日期", w: 74 },
+    { k: "order_no", l: "订单号", w: "minmax(104px, .8fr)" },
+    { k: "region", l: "地区", w: 42 },
+    { k: "product", l: "产品", w: "minmax(96px, 1.3fr)" },
+    { k: "sku", l: "sku", w: "minmax(82px, .9fr)" },
+    { k: "qty", l: "数量", w: 36 },
+    { k: "revenue_ttc", l: "售价", w: 62, t: "eur" },   // 含税，见列头悬停
+    { k: "vat_amount", l: "VAT", w: 48, t: "eur" },
+    { k: "revenue_ht", l: "去税收入", w: 66, t: "eur" },
+    { k: "commission_amt", l: "佣金", w: 56, t: "eur" },
+    { k: "service_fee", l: "处理费", w: 52, t: "eur" },
+    { k: "fbc_fee", l: "FBC运费", w: 60, t: "eur" },  // 带「≈」预估标记要留宽
+    { k: "eco_tax", l: "环保金", w: 46, t: "eur" },
+    { k: "net_revenue", l: "到手", w: 66, t: "eur" },
+    { k: "converted", l: "到手¥", w: 70, t: "money" },
+    { k: "landed_cost", l: "到仓价¥", w: 70, t: "money" },
+    { k: "gross_profit", l: "毛利¥", w: 70, t: "money", hl: true },
+    { k: "gross_margin", l: "毛利率", w: 52, t: "pct" },
+    { k: "refund", l: "退款", w: 52 },
+    { k: "email_sent", l: "邮件", w: 38 },
+    { k: "review_asked", l: "索评", w: 38 },
   ];
-  const OC_GRID = OC.map(c => `${c.w}px`).join(" ");
+  const OC_W = OC.reduce((a, c) => a + (typeof c.w === "number" ? c.w : 0), 0);
+  const OC_GRID = OC.map(c => (typeof c.w === "number" ? `${c.w}px` : c.w)).join(" ");
   // 合计行要参与求和的列（单价 price 是单价，不求和）
   const OC_SUM = ["qty", "revenue_ttc", "vat_amount", "revenue_ht", "commission_amt", "service_fee", "fbc_fee", "eco_tax", "net_revenue", "converted", "landed_cost", "gross_profit"];
   const money = (v) => {
@@ -4702,6 +4710,21 @@ function OrderRecords() {
             <option value="">全部月份</option>
             {monthOpts.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
+          {/* 时间筛选框（起止日期）— KK 2026-11-25：要能选任意区间，不只按月 */}
+          <span style={{ fontSize: 12, color: C.sub }}>日期:</span>
+          {(() => {
+            const on = fFrom || fTo;
+            const ds = { padding: "4px 7px", background: C.bg, border: `1px solid ${on ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 11, fontWeight: on ? 700 : 400, colorScheme: "dark", fontFamily: "inherit" };
+            return (
+              <>
+                <input type="date" value={fFrom} max={fTo || undefined} onChange={e => setFFrom(e.target.value)} title="起始日期" style={ds} />
+                <span style={{ fontSize: 11, color: C.faint }}>~</span>
+                <input type="date" value={fTo} min={fFrom || undefined} onChange={e => setFTo(e.target.value)} title="截止日期" style={ds} />
+                {on && <button onClick={() => { setFFrom(""); setFTo(""); }} title="清除日期区间"
+                  style={{ padding: "4px 9px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>清除</button>}
+              </>
+            );
+          })()}
           <span style={{ fontSize: 11, color: C.faint, marginLeft: 6 }}>共 {nOrders} 单</span>
           <button onClick={exportCust} disabled={!view.length}
             title="导出当前筛选下的客户姓名/地址/电话/邮箱"
@@ -4742,26 +4765,28 @@ function OrderRecords() {
 
       {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 2104 }}>
-            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 3 }}>
-              {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
+          <div style={{ minWidth: OC_W + 282 }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 3 }}>
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600 }}>
+              {OC.map(c => <div key={c.k} title={c.l} style={{ padding: "7px 5px", borderRight: `1px solid #2a4a78`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.l}</div>)}
             </div>
             {/* 统计行 —— 贴在表头下方，跟随平台/店铺筛选实时汇总 (KK 2026-11-25) */}
-            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: C.panel2, fontSize: 11, fontWeight: 700, borderBottom: `2px solid ${C.line}`, position: "sticky", top: 33, zIndex: 2 }}>
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: C.panel2, fontSize: 11, fontWeight: 700, borderBottom: `2px solid ${C.line}` }}>
               {OC.map(c => {
                 const bd = { borderRight: `1px solid ${C.line}` };
-                if (c.k === "idx") return <div key={c.k} style={{ padding: "9px 8px", color: C.faint, ...bd }} />;
-                if (c.k === "order_date") return <div key={c.k} style={{ padding: "9px 8px", color: C.brand, ...bd }}>统计</div>;
-                if (c.k === "order_no") return <div key={c.k} style={{ padding: "9px 8px", color: C.sub, ...bd }}>{nOrders} 单</div>;
-                if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: C.ink, ...bd }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
+                if (c.k === "idx") return <div key={c.k} style={{ padding: "7px 5px", color: C.faint, ...bd }} />;
+                if (c.k === "order_date") return <div key={c.k} style={{ padding: "7px 5px", color: C.brand, ...bd }}>统计</div>;
+                if (c.k === "order_no") return <div key={c.k} style={{ padding: "7px 5px", color: C.sub, ...bd }}>{nOrders} 单</div>;
+                if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "7px 5px", textAlign: "right", color: C.ink, ...bd }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
                 if (c.k === "refund") {
                   const refRows = view.filter(isRefund);
                   const refSum = refRows.reduce((a, r) => a + Number(r.refund_amt || 0), 0);
-                  return <div key={c.k} title={refRows.length ? `${refRows.length} 行退款` : ""} style={{ padding: "9px 8px", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? eur(refSum) : "—"}</div>;
+                  return <div key={c.k} title={refRows.length ? `${refRows.length} 行退款` : ""} style={{ padding: "7px 5px", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? eur(refSum) : "—"}</div>;
                 }
-                if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: c.hl ? C.brand : C.ink, ...bd }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
-                return <div key={c.k} style={{ padding: "9px 8px", ...bd }} />;
+                if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "7px 5px", textAlign: "right", color: c.hl ? C.brand : C.ink, ...bd }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
+                return <div key={c.k} style={{ padding: "7px 5px", ...bd }} />;
               })}
+            </div>
             </div>
             {view.map((r, i) => {
               const rRef = isRefund(r);
@@ -4777,7 +4802,7 @@ function OrderRecords() {
                 {OC.map(c => (
                   <div key={c.k} title={c.k === "refund" ? refundTitle(r) : (cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i)))}
                     style={{
-                      padding: "8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      padding: "6px 5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       borderRight: `1px solid ${C.line}`,
                       textAlign: ["idx", "order_date", "order_no", "region", "product", "sku", "email_sent", "review_asked", "refund"].includes(c.k) ? "left" : "right",
                       fontWeight: rRef && (c.k === "refund" || c.hl) ? 700 : (c.hl ? 600 : 400),
