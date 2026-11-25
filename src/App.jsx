@@ -3036,7 +3036,7 @@ function InventoryStats() {
   const [invRole, setInvRole] = useState(null);
   const [edInv, setEdInv] = useState(null);       // { id } 编辑库存行
   const [invForm, setInvForm] = useState({});
-  const [edCost, setEdCost] = useState(null);     // { id, val } 表格内直改盈亏价
+  const [edCost, setEdCost] = useState(null);     // { id, val } 表格内直改到仓价
   const costEscRef = useRef(false);               // Esc 取消标记(避免 blur 又存一次)
   const [filterStore, setFilterStore] = useState("");
   const [filterPlatform, setFilterPlatform] = useState("amazon");   // 默认亚马逊, 保持现有使用习惯不变
@@ -3048,7 +3048,7 @@ function InventoryStats() {
   }, []);
   // 可编辑: admin + 成都推广 + 成都供应链(陈雪梅) + 成都采购(黄丹) — 2026-09-18 KK 定
   const canEditInv = invRole === "admin" || invRole === "cd_promotion" || invRole === "cd_supplier" || invRole === "cd_procurement" || invRole === "finance";
-  // 款式 / SKU / 盈亏价 的更改权只给 雪梅(cd_supplier) + 诗琪(cd_promotion) + admin — KK 2026-11-25 定
+  // 款式 / SKU / 到仓价 的更改权只给 雪梅(cd_supplier) + 诗琪(cd_promotion) + admin — KK 2026-11-25 定
   // ⚠️ 授权范围只到「平台仓同步库存」(Cdiscount/ManoMano), 亚马逊发货批次生成的记录不在此列
   const canEditNameSku = ["admin", "cd_supplier", "cd_promotion"].includes(invRole);
   // 数据按角色收窄: 黄丹(采购)只看三家 — 2026-09-18 KK 定
@@ -3098,7 +3098,7 @@ function InventoryStats() {
   const isAmazon = platView === "amazon";
   const skuOf = (r) => isAmazon ? r.asin : (r.sku || r.asin);
   const skuHead = isAmazon ? "ASIN" : "SKU";
-  // 平台库存(Cdiscount/ManoMano)专属授权: 只有雪梅/诗琪/admin 能改 款式 / SKU / 盈亏价
+  // 平台库存(Cdiscount/ManoMano)专属授权: 只有雪梅/诗琪/admin 能改 款式 / SKU / 到仓价
   const canEditPlat = !isAmazon && canEditNameSku;
   const PLAT_EDIT_KEYS = ["product_name", "asin", "sku", "landed_cost"];
   const asinOpts = useMemo(() => {
@@ -3134,7 +3134,7 @@ function InventoryStats() {
       const s = (v === null || v === undefined) ? "" : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const head = ["店铺", "仓库", "发货批次", "款式", skuHead, "货发日期", "上架日期", "库龄(天)", "在仓天数", "上架天数", "上架数量", "当前库存", "盈亏价", "库存金额", "售完时间"];
+    const head = ["店铺", "仓库", "发货批次", "款式", skuHead, "货发日期", "上架日期", "库龄(天)", "在仓天数", "上架天数", "上架数量", "当前库存", "到仓价", "库存金额", "售完时间"];
     const body = view.map(r => [
       r.store, r.ship_warehouse, r.ship_batch, r.product_name, skuOf(r), r.ship_date, r.listed_date,
       ageDays(r), daysBetween(r.ship_date, new Date().toISOString().slice(0, 10)), daysBetween(r.listed_date, new Date().toISOString().slice(0, 10)),
@@ -3165,7 +3165,7 @@ function InventoryStats() {
     const clean = {};
     Object.entries(invForm).forEach(([k, v]) => {
       if (!allowed.has(k)) return;                                  // 只写当前弹窗里出现的字段
-      if (!isAmazon && !canEditNameSku && PLAT_EDIT_KEYS.includes(k)) return;  // 平台库存: 款式/SKU/盈亏价 无权限不落库
+      if (!isAmazon && !canEditNameSku && PLAT_EDIT_KEYS.includes(k)) return;  // 平台库存: 款式/SKU/到仓价 无权限不落库
       const s = (v || "").trim();
       if (s === "") { clean[k] = null; return; }
       if (["listed_qty", "stock_qty"].includes(k)) { clean[k] = parseInt(s, 10); return; }
@@ -3176,10 +3176,10 @@ function InventoryStats() {
     if (error) { alert("保存失败: " + error.message); return; }
     setEdInv(null); load();
   };
-  // 盈亏价: 表格里点格子直接改 (回车/失焦保存, Esc 取消) — KK 2026-11-25
+  // 到仓价: 表格里点格子直接改 (回车/失焦保存, Esc 取消) — KK 2026-11-25
   const saveCostCell = async (id, raw) => {
     const s = String(raw ?? "").trim();
-    if (s !== "" && !isFinite(Number(s))) { alert("盈亏价格式不对, 请填数字"); return; }
+    if (s !== "" && !isFinite(Number(s))) { alert("到仓价格式不对, 请填数字"); return; }
     const num = s === "" ? null : Number(s);
     const old = rows.find(r => r.id === id);
     const oldNum = old && old.landed_cost != null ? Number(old.landed_cost) : null;
@@ -3211,7 +3211,7 @@ function InventoryStats() {
     { k: "ship_date", l: "货发日期", t: "date" }, { k: "ship_warehouse", l: "仓库" },
     { k: "ship_batch", l: "原始批次" }, { k: "product_name", l: "款式" },
     { k: isAmazon ? "asin" : "sku", l: skuHead }, { k: "listed_qty", l: "上架数量", t: "num" },
-    { k: "stock_qty", l: "库存数量", t: "num" }, { k: "landed_cost", l: "盈亏价", t: "num" },
+    { k: "stock_qty", l: "库存数量", t: "num" }, { k: "landed_cost", l: "到仓价", t: "num" },
     { k: "purchase_date", l: "采购时间", t: "date" }, { k: "listed_date", l: "上架时间", t: "date" },
     { k: "sold_date", l: "售完时间", t: "date" },
   ];
@@ -3224,7 +3224,7 @@ function InventoryStats() {
     { k: "listed_qty",     l: "上架数量", bold: true },
     { k: "stock_qty",      l: "库存数量", bold: true },
     { k: "age_days",       l: "库龄(天)", calc: r => ageDays(r) },
-    { k: "landed_cost",    l: "盈亏价", fmt: "money" },
+    { k: "landed_cost",    l: "到仓价", fmt: "money" },
     { k: "purchase_date",  l: "采购时间" },
     { k: "ship_date_disp", l: "发货时间", disp: r => r.ship_date },
     { k: "prep_days",      l: "准备周期", calc: r => daysBetween(r.purchase_date, r.ship_date) },
@@ -3282,7 +3282,7 @@ function InventoryStats() {
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
             {isAmazon
               ? "发货记录标记「已上架」自动生成 · 按批次分块(每批一块底色+描边, 原始批次整批合并一格, 仓库/货发日期逐行) · 可按 仓库/发货批次/款式/ASIN 筛选"
-              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 款式/SKU/盈亏价 由雪梅·诗琪维护: 点格子直接改(盈亏价回车保存) · 其他字段点行末「✎ 改」`}
+              : `${PLATFORM_LABEL[platView]} 店铺库存(平台仓同步) · 款式/SKU/到仓价 由雪梅·诗琪维护: 点格子直接改(到仓价回车保存) · 其他字段点行末「✎ 改」`}
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -3405,11 +3405,11 @@ function InventoryStats() {
                       const editingCost = isCost && !!edCost && edCost.id === r.id;
                       // 平台库存(非亚马逊)专属: 款式 / SKU 格子可直接点开改 — 仅雪梅/诗琪/admin
                       const clickEdit = canEditPlat && (c.k === "product_name" || c.k === "asin");
-                      // 盈亏价: 点格子直接填 — 同样只在平台库存里开放给 雪梅/诗琪/admin
+                      // 到仓价: 点格子直接填 — 同样只在平台库存里开放给 雪梅/诗琪/admin
                       const clickCost = isCost && canEditPlat && !editingCost;
                       const canClick = clickEdit || clickCost;
                       const tip = clickEdit ? "点击修改款式 / SKU"
-                        : clickCost ? "点击直接改盈亏价 (回车保存 / Esc 取消)" : undefined;
+                        : clickCost ? "到仓价 = 成本价(人民币)，点格子直接改 (回车保存 / Esc 取消)" : undefined;
                       return (
                         <div key={r.id + c.k}
                           onClick={clickEdit ? () => openEditInv(r)
@@ -3495,7 +3495,7 @@ function InventoryStats() {
               })}
             </div>
             <div style={{ fontSize: 11, color: C.faint, marginTop: 10 }}>
-              盈亏价 / 采购时间 / 售完时间 / 库存数量 可手填（表格里点盈亏价格子也能直接改）；以后接订单后售完时间按批次自动更新
+              到仓价 / 采购时间 / 售完时间 / 库存数量 可手填（表格里点到仓价格子也能直接改）；以后接订单后售完时间按批次自动更新
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
               <button onClick={() => setEdInv(null)}
@@ -4418,6 +4418,8 @@ function OrderRecords() {
     { k: "vat_amount", l: "VAT", w: 80, t: "eur" },
     { k: "revenue_ht", l: "去税收入", w: 96, t: "eur" },
     { k: "commission_amt", l: "佣金", w: 80, t: "eur" },
+    { k: "service_fee", l: "处理费", w: 78, t: "eur" },
+    { k: "fbc_fee", l: "FBC运费", w: 82, t: "eur" },
     { k: "eco_tax", l: "环保金", w: 78, t: "eur" },
     { k: "net_revenue", l: "到手", w: 84, t: "eur" },
     { k: "converted", l: "到手¥", w: 92, t: "money" },
@@ -4429,6 +4431,8 @@ function OrderRecords() {
     { k: "review_asked", l: "索评", w: 62 },
   ];
   const OC_GRID = OC.map(c => `${c.w}px`).join(" ");
+  // 合计行要参与求和的列（单价 price 是单价，不求和）
+  const OC_SUM = ["qty", "revenue_ttc", "vat_amount", "revenue_ht", "commission_amt", "service_fee", "fbc_fee", "eco_tax", "net_revenue", "converted", "landed_cost", "gross_profit"];
   const money = (v) => (v === null || v === undefined || v === "") ? "—" : "¥" + Number(v).toFixed(2);
   const eur = (v) => (v === null || v === undefined || v === "") ? "—" : "€" + Number(v).toFixed(2);
   const cellOf = (c, r, i) => {
@@ -4450,7 +4454,7 @@ function OrderRecords() {
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>订单记录</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            逐单明细 · 订单级可归因口径：售价(含税) → 扣 VAT(平台代缴) = 去税收入 → 扣佣金/环保金 = 到手(€) → 折人民币 → 减到仓价 = 毛利¥ · 可按平台与店铺筛选 · 全员可见
+            逐单明细 · 订单级可归因口径：售价(含税) → 扣 VAT(平台代缴) = 去税收入 → 扣佣金/处理费/FBC运费/环保金 = 到手(€) → ×汇率 7.2 → 减到仓价(成本价¥) = 毛利¥ · 可按平台与店铺筛选 · 全员可见
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
@@ -4488,7 +4492,7 @@ function OrderRecords() {
 
       {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 2020 }}>
+          <div style={{ minWidth: 2185 }}>
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2 }}>
               {OC.map(c => <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>{c.l}</div>)}
             </div>
@@ -4510,15 +4514,14 @@ function OrderRecords() {
             ))}
             {/* 合计行 */}
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 11, fontWeight: 700 }}>
-              <div style={{ padding: "9px 8px", color: C.faint }} />
-              <div style={{ padding: "9px 8px", color: C.brand }}>合计</div>
-              <div style={{ padding: "9px 8px", color: C.faint }}>{view.length} 单</div>
-              {["region", "customer", "product", "sku"].map(k => <div key={k} style={{ padding: "9px 8px" }} />)}
-              {["landed_cost", "price", "net_revenue", "converted", "gross_profit"].map(k => (
-                <div key={k} style={{ padding: "9px 8px", textAlign: "right", color: k === "gross_profit" ? C.brand : C.ink }}>{money(sum(k))}</div>
-              ))}
-              <div style={{ padding: "9px 8px", textAlign: "right", color: C.ink }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>
-              <div style={{ padding: "9px 8px" }} /><div style={{ padding: "9px 8px" }} /><div style={{ padding: "9px 8px" }} />
+              {OC.map(c => {
+                if (c.k === "idx") return <div key={c.k} style={{ padding: "9px 8px", color: C.faint }} />;
+                if (c.k === "order_date") return <div key={c.k} style={{ padding: "9px 8px", color: C.brand }}>合计</div>;
+                if (c.k === "order_no") return <div key={c.k} style={{ padding: "9px 8px", color: C.faint }}>{view.length} 单</div>;
+                if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: C.ink }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
+                if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "9px 8px", textAlign: "right", color: c.hl ? C.brand : C.ink }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
+                return <div key={c.k} style={{ padding: "9px 8px" }} />;
+              })}
             </div>
           </div>
         </div>
