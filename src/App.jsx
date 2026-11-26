@@ -6163,7 +6163,7 @@ function Purchase() {
 
           {!loading && roleReady && (
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-              <div style={{ minWidth: 1470 }}>
+              <div style={{ minWidth: 1420 }}>
                 <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
                   <div style={{ ...th, textAlign: "center" }} />
                   <div style={th}>采购单号</div>
@@ -7371,6 +7371,9 @@ function OpsFee() {
   const CATS = plat === "amazon" ? OPS_CATS
     : plat === "cdiscount" ? OPS_CATS_CD
       : ["平台服务费", "广告", "仓储", "长期仓储", "服务订阅", "店铺月租", "入库费用", "弃置费用", "生产者延伸费", "优惠券"];
+  // 类目列宽只对 CD 加宽（法语科目名较长）；亚马逊 / ManoMano 保持原 250px，不动它们
+  const CATW = plat === "cdiscount" ? 300 : 250;
+  const CAT_MINW = plat === "cdiscount" ? 1470 : 1420;
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);   // 前3年 ~ 后2年
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
@@ -7555,8 +7558,8 @@ function OpsFee() {
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
       {loaded && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 1470 }}>
-            <div style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
+          <div style={{ minWidth: CAT_MINW }}>
+            <div style={{ display: "grid", gridTemplateColumns: `${CATW}px repeat(${SITES.length}, 110px) 130px 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
               <div style={{ padding: "10px 12px", borderRight: `1px solid #2a4a78` }}>
                 {month.slice(0, 7)} · {filterStore || "全部店铺"}
               </div>
@@ -7569,7 +7572,7 @@ function OpsFee() {
                 const v = monthlyVal(cat);
                 const k = `${MONTHLY_SITE}|${cat}`;
                 return (
-                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "rgba(127,119,221,.10)" }}>
+                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `${CATW}px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "rgba(127,119,221,.10)" }}>
                     <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink }}>
                       {cat}
                       <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
@@ -7595,7 +7598,7 @@ function OpsFee() {
                   </div>
                 );
               })() : (
-              <div key={cat} style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
+              <div key={cat} style={{ display: "grid", gridTemplateColumns: `${CATW}px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
                 <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>
                   {cat}
                   {plat === "cdiscount" && OPS_CD_HINT[cat] && (
@@ -7634,7 +7637,7 @@ function OpsFee() {
               </div>
               )
             ))}
-            <div style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `${CATW}px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
               <div style={{ padding: "10px 12px", fontWeight: 700, color: C.brand }}>站点合计</div>
               {SITES.map(site => (
                 <div key={site} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: C.brand }}>
@@ -7648,7 +7651,7 @@ function OpsFee() {
                 ¥{rmbTotal.toFixed(2)}
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, background: C.panel, fontSize: 11 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `${CATW}px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, background: C.panel, fontSize: 11 }}>
               <div style={{ padding: "8px 12px", color: C.faint }}>说明</div>
               <div style={{ gridColumn: `span ${SITES.length + 1}`, padding: "8px 12px", color: C.faint }}>
                 站点金额均为欧元(€) · 本月汇率 €→¥ = {rate} · 月度核算费用 ¥ = (欧元合计 {eurTotal.toFixed(2)} × {rate}) + 网络IP等月固定 ¥{monthlyRmb.toFixed(2)}
@@ -7830,8 +7833,11 @@ function StoreMonthly() {
   // 「各项成本」= 运维费用: 欧元合计 × 汇率 + 月固定¥ (该店铺当月完全没数据则记 0)
   const opsCost = (store) => {
     if (!opsRows.some(r => r.store === store)) return 0;
-    // 只统计运维费用页面定义的标准类别 (OPS_CATS) —— 历史遗留的变体类别名不计入, 防虚增 (KK 2026-09-19)
-    const eur = opsRows.filter(r => r.store === store && OPS_CATS.includes(r.category) && !Object.prototype.hasOwnProperty.call(OPS_MONTHLY_CATS, r.category))
+    // 只统计运维费用页面定义的标准类别 —— 历史遗留的变体类别名不计入, 防虚增 (KK 2026-09-19)
+    // CD 自 2026-11-26 起按 CD 账单科目记账（平台月租/仓储费/入库接收费…），需按行所属平台取对应类目表；
+    // 亚马逊 / ManoMano 仍走 OPS_CATS，口径不变
+    const catOK = (r) => (r.platform === "cdiscount" ? OPS_CATS_CD : OPS_CATS).includes(r.category);
+    const eur = opsRows.filter(r => r.store === store && catOK(r) && !Object.prototype.hasOwnProperty.call(OPS_MONTHLY_CATS, r.category))
       .reduce((s, x) => s + Number(x.amount || 0), 0);
     const fixed = Object.entries(OPS_MONTHLY_CATS).reduce((s, [cat, def]) => {
       const rs = opsRows.filter(r => r.store === store && r.category === cat && r.site === OPS_MONTHLY_SITE);
