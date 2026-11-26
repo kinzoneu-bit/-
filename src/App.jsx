@@ -4519,19 +4519,77 @@ function AfterStock() {
 
 // ---------------- 单品月度订单统计 (空骨架, 待 KK 填充) ----------------
 function OrderSummary() {
-  // 三个筛选框：平台 / 账号 / 起始日期 — KK 2026-11-26
-  // 平台与账号口径沿用「订单记录」页，不另起一套
+  // 三个筛选框 + 日期周期 — KK 2026-11-26
   const [plat, setPlat] = useState("");
   const [account, setAccount] = useState("");
-  // 日期是「周期」：起始 + 截止，不只选一天 — KK 2026-11-26
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [rows, setRows] = useState([]);
+  const [cnMap, setCnMap] = useState({});
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      supabase.from("order_records").select("order_date,store,platform,plat_sku,sku,product,qty,refund,refund_amt,revenue_ttc,converted,net_revenue,gross_profit").limit(5000),
+      supabase.from("inventory").select("sku,product_name,platform").limit(5000),
+    ]).then(([or, iv]) => {
+      if (!alive) return;
+      if (or.error) setErr(or.error.message);
+      const m = {};
+      (iv.data || []).forEach(r => { if (r.sku && r.product_name) m[r.sku] = r.product_name; });
+      setCnMap(m); setRows(or.data || []); setLoaded(true);
+    });
+    return () => { alive = false; };
+  }, []);
+
   const accounts = PLAT_ACCOUNTS[plat] || [];
   const selStyle = (on, w) => ({ width: w, padding: "5px 9px", background: C.bg, border: `1px solid ${on ? C.brand : C.line}`,
     borderRadius: 6, color: on ? C.ink : C.sub, fontSize: 12, fontWeight: on ? 700 : 400,
     fontFamily: "inherit", colorScheme: "dark", outline: "none" });
+  const isRef = (r) => String(r.refund || "") === "是" || Number(r.refund_amt || 0) !== 0;
   const period = fromDate || toDate ? `${fromDate || "不限"} ~ ${toDate || "不限"}` : "全部日期";
   const scope = `${PLATFORM_LABEL[plat] || "全部平台"} / ${account || "全部账号"} / ${period}`;
+
+  // 按平台 / 账号 / 日期周期过滤；老数据无 platform 视为亚马逊
+  const view = rows.filter(r => {
+    if (plat && (r.platform || "amazon") !== plat) return false;
+    if (account && (r.store || "") !== account) return false;
+    const day = String(r.order_date || "").slice(0, 10);
+    if (fromDate && day < fromDate) return false;
+    if (toDate && day > toDate) return false;
+    return true;
+  });
+  // 汇率按整体反推，与订单记录页一致
+  const convSum = view.reduce((a, r) => a + Number(r.converted || 0), 0);
+  const netSum = view.reduce((a, r) => a + Number(r.net_revenue || 0), 0);
+  const fx = netSum > 0 ? convSum / netSum : 7.2;
+
+  // 按平台 SKU 汇总（与库存页中文名一一对应）；退款行不进销量与营业额，但退款损失进毛利
+  const bySku = {};
+  view.forEach(r => {
+    const key = r.plat_sku || r.sku || "(无SKU)";
+    const e = bySku[key] || (bySku[key] = { key, name: cnMap[key] || r.product || key, sales: 0, returns: 0, revenue: 0, gp: 0 });
+    if (!e.name || e.name === key) e.name = cnMap[key] || r.product || key;
+    const q = Number(r.qty || 0);
+    const gp = Number(r.gross_profit || 0);
+    if (isRef(r)) { e.returns += q; e.gp += gp; }
+    else { e.sales += q; e.revenue += Number(r.revenue_ttc || 0) * fx; e.gp += gp; }
+  });
+  const list = Object.values(bySku).sort((a, b) => b.sales - a.sales || b.revenue - a.revenue);
+  const total = list.reduce((t, x) => ({ sales: t.sales + x.sales, returns: t.returns + x.returns,
+    revenue: t.revenue + x.revenue, gp: t.gp + x.gp }), { sales: 0, returns: 0, revenue: 0, gp: 0 });
+  const margin = (gp, rev) => rev > 0 ? gp / rev : null;
+  const yuan = (v) => (v < 0 ? "-¥" : "¥") + Math.abs(v).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pct = (v) => v === null ? "—" : (v * 100).toFixed(2) + "%";
+
+  const GRID = "minmax(150px,1.5fr) 120px 78px 78px 126px 126px 84px";
+  const th = { padding: "9px 8px", color: "#fff", fontWeight: 600, fontSize: 11, borderRight: "1px solid #2a4a78", whiteSpace: "nowrap" };
+  const td = (i, align) => ({ padding: "8px 8px", fontSize: 11, lineHeight: 1.6, fontVariantNumeric: "tabular-nums",
+    textAlign: align || "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+    background: i % 2 ? C.bg : "transparent", borderRight: `1px solid ${C.line}` });
+  const COLS = [["产品", "left"], ["SKU", "left"], ["销售量", "right"], ["退货数", "right"], ["营业额¥", "right"], ["毛利¥", "right"], ["毛利率", "right"]];
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
@@ -4547,7 +4605,6 @@ function OrderSummary() {
           <option value="">{plat ? "账号" : "先选平台"}</option>
           {accounts.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
-        {/* 日期周期：起始 ~ 截止（KK 2026-11-26：不能只选单日） */}
         <span style={{ fontSize: 12, color: C.sub }}>日期:</span>
         <input type="date" value={fromDate} max={toDate || undefined} onChange={e => setFromDate(e.target.value)}
           title="起始日期" aria-label="起始日期" style={selStyle(!!fromDate, 140)} />
@@ -4555,12 +4612,47 @@ function OrderSummary() {
         <input type="date" value={toDate} min={fromDate || undefined} onChange={e => setToDate(e.target.value)}
           title="截止日期" aria-label="截止日期" style={selStyle(!!toDate, 140)} />
         <div style={{ marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
+          <span style={{ fontSize: 12, color: C.brand, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>订单记录汇总</span>
         </div>
       </div>
-      <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        单品月度订单统计 · 当前范围：{scope} · 待 KK 确认口径 (单品×月订单量 / 同比环比 / 品牌维度) 与数据源 (SP-API)
-      </div>
+      {err && <div style={{ color: C.ref, fontSize: 12, marginBottom: 10 }}>读取订单失败：{err}</div>}
+      {!loaded ? (
+        <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>正在读取订单记录…</div>
+      ) : list.length === 0 ? (
+        <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
+          {rows.length === 0 ? "订单记录暂无数据" : `当前筛选（${scope}）下没有订单`}
+        </div>
+      ) : (
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, overflow: "auto" }}>
+          <div style={{ minWidth: 862 }}>
+            <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
+              {COLS.map(([l]) => <div key={l} style={th}>{l}</div>)}
+            </div>
+            {/* 合计行：毛利率 = 毛利合计÷营业额合计，一次相除，不逐行平均 — KK 2026-11-26 定 */}
+            <div style={{ display: "grid", gridTemplateColumns: GRID, background: C.panel2, fontSize: 11, fontWeight: 700,
+              borderBottom: `2px solid ${C.line}` }}>
+              <div style={{ padding: "10px 8px", color: C.brand }}>合计 {list.length} 个单品</div>
+              <div style={{ padding: "10px 8px", color: C.faint }}>{scope}</div>
+              <div style={{ padding: "10px 8px", textAlign: "right", color: C.ink }}>{total.sales}</div>
+              <div style={{ padding: "10px 8px", textAlign: "right", color: C.ink }}>{total.returns}</div>
+              <div style={{ padding: "10px 8px", textAlign: "right", color: C.ink, fontVariantNumeric: "tabular-nums" }}>{yuan(total.revenue)}</div>
+              <div style={{ padding: "10px 8px", textAlign: "right", color: C.brand, fontVariantNumeric: "tabular-nums" }}>{yuan(total.gp)}</div>
+              <div style={{ padding: "10px 8px", textAlign: "right", color: C.brand, fontVariantNumeric: "tabular-nums" }} title="毛利合计 ÷ 营业额合计">{pct(margin(total.gp, total.revenue))}</div>
+            </div>
+            {list.map((x, i) => (
+              <div key={x.key} style={{ display: "grid", gridTemplateColumns: GRID, borderBottom: `1px solid ${C.line}` }} title={`${x.name}（${scope}）`}>
+                <div style={td(i)}>{x.name}</div>
+                <div style={{ ...td(i), color: C.sub }}>{x.key}</div>
+                <div style={td(i, "right")}>{x.sales}</div>
+                <div style={td(i, "right")}>{x.returns}</div>
+                <div style={td(i, "right")}>{yuan(x.revenue)}</div>
+                <div style={{ ...td(i, "right"), color: x.gp < 0 ? C.ref : C.ink }}>{yuan(x.gp)}</div>
+                <div style={{ ...td(i, "right"), color: margin(x.gp, x.revenue) !== null && margin(x.gp, x.revenue) < 0 ? C.ref : C.ink }}>{pct(margin(x.gp, x.revenue))}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
