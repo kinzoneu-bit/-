@@ -7211,11 +7211,56 @@ function StockRecon() {
   const [showOk, setShowOk] = useState(false);
   const [err, setErr] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [cum, setCum] = useState(null);   // 期初批核实（累计口径）
+  const [cumOpen, setCumOpen] = useState(true);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data && data.user) setRole(getUserRole(data.user.email || ""));
     });
+  }, []);
+
+  // ── 期初批核实（累计口径）KK 2026-11-26 定 ──
+  // CD 系统上线时，现有库存是多批货一次性拉进来的，拆不出每批卖了多少 → 整体视为「期初一批」，
+  // 期初量 = 首个库存快照日的在库件数，成本 = 当时库存页到仓价。
+  // 每天核实：期初 − 累计出单 = 应有剩余；与实际库存不符就是 CD 仓内损耗（丢件 / 未记录出库）。
+  // 补货到仓那天起，这一天会体现为「有入库」，届时再按批次拆分。
+  useEffect(() => {
+    (async () => {
+      const f = await supabase.from("inventory_daily").select("snap_date")
+        .eq("platform", "cdiscount").order("snap_date", { ascending: true }).limit(1);
+      const l = await supabase.from("inventory_daily").select("snap_date")
+        .eq("platform", "cdiscount").order("snap_date", { ascending: false }).limit(1);
+      const b0 = f.data && f.data[0] && f.data[0].snap_date;
+      const b1 = l.data && l.data[0] && l.data[0].snap_date;
+      if (!b0 || !b1) { setCum({ empty: true }); return; }
+      if (b0 === b1) { setCum({ baseDate: b0, lastDate: b1, single: true, rows: [] }); return; }
+      // 累计出单/入库取对账表 stock_recon（每天同步时从接口实时抓，比 order_records 及时：
+      // 当天订单要等次日同步才入订单表，用订单表会误报「少货」）
+      const [rb, ra, rr] = await Promise.all([
+        supabase.from("inventory_daily").select("sku,product_name,stock_qty").eq("platform", "cdiscount").eq("snap_date", b0).limit(5000),
+        supabase.from("inventory_daily").select("sku,product_name,stock_qty").eq("platform", "cdiscount").eq("snap_date", b1).limit(5000),
+        supabase.from("stock_recon").select("sku,order_qty,inbound_qty,decrease_qty,recon_date")
+          .gt("recon_date", b0).lte("recon_date", b1).limit(5000),
+      ]);
+      const sold = {}, inb = {};
+      (rr.data || []).forEach(r => {
+        sold[r.sku] = (sold[r.sku] || 0) + Number(r.order_qty || 0);
+        inb[r.sku] = (inb[r.sku] || 0) + Number(r.inbound_qty || 0);
+      });
+      const base = {}, actual = {}, name = {};
+      (rb.data || []).forEach(r => { base[r.sku] = Number(r.stock_qty || 0); name[r.sku] = r.product_name; });
+      (ra.data || []).forEach(r => { actual[r.sku] = Number(r.stock_qty || 0); if (!name[r.sku]) name[r.sku] = r.product_name; });
+      const skus = Array.from(new Set([...Object.keys(base), ...Object.keys(actual)]));
+      const rows2 = skus.map(sku => {
+        const b = base[sku] ?? 0, a = actual[sku] ?? 0, sd = sold[sku] || 0, ib = inb[sku] || 0;
+        const should = b - sd + ib;               // 期初 − 累计出单 + 累计入库 = 应有
+        const diff = should - a;                  // >0 少货（仓内损耗）  <0 多货（未记录入库）
+        return { sku, name: name[sku], base: b, sold: sd, inb: ib, should, actual: a, diff,
+          status: diff === 0 ? "ok" : (diff > 0 ? "loss" : "inbound") };
+      }).sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff));
+      setCum({ baseDate: b0, lastDate: b1, rows: rows2 });
+    })().catch(e => setCum({ error: String(e) }));
   }, []);
 
   useEffect(() => {
@@ -7341,6 +7386,89 @@ function StockRecon() {
             )}
           </div>
         </>
+      )}
+
+      {/* ── 期初批核实（累计口径）：期初 − 累计出单 = 应有，对不上就是仓内损耗 ── */}
+      {cum && !cum.error && !cum.empty && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+            <div onClick={() => setCumOpen(v => !v)} style={{ fontSize: 13, fontWeight: 700, cursor: "pointer", color: C.ink }}>
+              {cumOpen ? "▾" : "▸"} 期初批核实 · 累计
+            </div>
+            <span style={{ fontSize: 11, color: C.faint }}>
+              {cum.baseDate} → {cum.lastDate}　（系统上线时库存整体视为期初一批，之后每天核一次）
+            </span>
+            {(() => {
+              const lb = (cum.rows || []).filter(r => r.status === "loss");
+              return lb.length
+                ? <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: C.ref, background: "rgba(226,86,76,.12)", border: `1px solid ${C.ref}` }}>仓内损耗 {lb.length} 项</span>
+                : <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: C.brand, background: "rgba(77,182,164,.12)", border: `1px solid ${C.brand}` }}>累计账实相符</span>;
+            })()}
+          </div>
+
+          {cum.single && (
+            <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 10, padding: 16, color: C.sub, fontSize: 12, lineHeight: 1.8 }}>
+              目前只有一天快照（{cum.baseDate}），明天起这里会出现累计核实结果。
+            </div>
+          )}
+
+          {cumOpen && !cum.single && (() => {
+            const rs = cum.rows || [];
+            const sum = (k) => rs.reduce((a, r) => a + Number(r[k] || 0), 0);
+            const badRows = rs.filter(r => r.status !== "ok");
+            const okRows = rs.filter(r => r.status === "ok");
+            const CG = "112px minmax(150px,2fr) 56px 70px 56px 56px 56px 96px";
+            const st = (r) => r.status === "loss" ? ["少货·仓损", C.ref] : (r.status === "inbound" ? ["多货·未记入库", C.watch] : ["一致", C.faint]);
+            return (
+              <>
+                <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                  {card("期初件数", sum("base"), C.ink, `${cum.baseDate} 快照可用库存合计`)}
+                  {card("累计出单", sum("sold"), C.ink, `${cum.baseDate} 之后到 ${cum.lastDate} 的 FBC 出单件数`)}
+                  {card("累计入库", sum("inb"), C.watch, "期间补货到仓 / 退货回仓的件数")}
+                  {card("应有剩余", sum("should"), C.ink, "期初 − 累计出单 + 累计入库")}
+                  {card("实际库存", sum("actual"), C.ink, `${cum.lastDate} 快照可用库存合计`)}
+                  {card("差异", sum("diff"), sum("diff") === 0 ? C.brand : C.ref, "应有 − 实际；0 即账实相符，正数=少货")}
+                  {card("SKU 数", rs.length, C.sub, "在期初或今天出现的 SKU")}
+                </div>
+                <div style={{ fontSize: 11, color: C.faint, marginBottom: 8, lineHeight: 1.7 }}>
+                  规则：<span style={{ color: C.ink }}>期初 − 累计出单 + 累计入库 = 应有剩余</span>。
+                  <span style={{ color: C.ref }}> 应有 &gt; 实际</span> → 少货（丢件 / 盘亏 / 未记录出库），需雪梅核对；
+                  <span style={{ color: C.watch }}> 应有 &lt; 实际</span> → 多货（有入库没记进对账表）。
+                  补货到仓后，这里按批次拆开逐批核。
+                </div>
+                <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: CG, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600 }}>
+                    {["SKU", "品名", "期初", "累计出单", "应有", "实际", "差异", "状态"].map((h, i) => (
+                      <div key={h} style={{ padding: "7px 6px", borderRight: i < 7 ? "1px solid #2a4a78" : "none", whiteSpace: "nowrap" }}>{h}</div>
+                    ))}
+                  </div>
+                  {[...badRows, ...(cumOpen ? okRows : [])].map((r, i) => {
+                    const [txt, col] = st(r);
+                    return (
+                      <div key={r.sku} style={{ display: "grid", gridTemplateColumns: CG, fontSize: 11, borderTop: `1px solid ${C.line}`,
+                        background: r.status === "loss" ? C.refBg : (i % 2 ? C.bg : "transparent"),
+                        boxShadow: r.status === "loss" ? `inset 3px 0 0 ${C.ref}` : "none" }}>
+                        <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, fontFamily: "monospace", fontSize: 10 }}>{r.sku}</div>
+                        <div title={r.name || ""} style={{ padding: "6px", borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || "—"}</div>
+                        <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right", color: C.sub }}>{r.base}</div>
+                        <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right" }}>{r.sold || "—"}</div>
+                        <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right" }}>{r.should}</div>
+                        <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right" }}>{r.actual}</div>
+                        <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right", fontWeight: 700, color: r.diff ? col : C.faint }}>{r.diff > 0 ? "+" + r.diff : r.diff}</div>
+                        <div style={{ padding: "6px", color: col, whiteSpace: "nowrap" }}>{txt}</div>
+                      </div>
+                    );
+                  })}
+                  {badRows.length === 0 && (
+                    <div style={{ padding: "8px 10px", borderTop: `1px solid ${C.line}`, background: C.panel2, fontSize: 11, color: C.brand }}>
+                      全部 {rs.length} 个 SKU 累计账实相符。
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </div>
       )}
 
       {loaded && days.length === 0 && !err && (
