@@ -4609,9 +4609,10 @@ function OrderRecords() {
     { k: "gross_profit", l: "毛利¥", w: 70, t: "money", hl: true },
     { k: "gross_margin", l: "毛利率", w: 52, t: "pct" },
     { k: "refund", l: "退款", w: 52 },
-    // Cdiscount 无索评体系 → 邮件/索评两列不显示；仅当视图里出现非 Cdiscount 订单(亚马逊 Excel 导入)时才带出 (KK 2026-11-26)
+    { k: "email_sent", l: "邮件", w: 38 },
+    // Cdiscount 无索评体系 → 「索评」列不显示；仅当视图里出现非 Cdiscount 订单(亚马逊 Excel 导入)时才带出 (KK 2026-11-26)
     ...(view.some(r => (r.platform || "amazon") !== "cdiscount")
-      ? [{ k: "email_sent", l: "邮件", w: 38 }, { k: "review_asked", l: "索评", w: 38 }]
+      ? [{ k: "review_asked", l: "索评", w: 38 }]
       : []),
   ];
   const OC_W = OC.reduce((a, c) => a + (typeof c.w === "number" ? c.w : 0), 0);
