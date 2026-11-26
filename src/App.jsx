@@ -4605,32 +4605,34 @@ function OrderRecords() {
   // 可选月份（新的在前）；一个订单可能多行，订单数按 order_no 去重
   const monthOpts = Array.from(new Set(rows.map(r => String(r.order_date || "").slice(0, 7)).filter(Boolean))).sort().reverse();
   const nOrders = new Set(view.map(r => r.order_no || r.ext_ref)).size;
-  // 列宽总预算 ≤1360px — KK 2026-11-25：要在一屏内看完，不用左右拖
+  const nSkus = new Set(view.map(r => r.plat_sku || r.sku).filter(Boolean)).size;
+  // 列宽总预算约 1420px — 财务口径的合计值最长 11 个字符(¥134,454.79)，按合计值定宽才不会挤成一团
   // 文字型三列（订单号/产品/sku）用 minmax + fr，宽屏自动吃掉余量，窄屏也不会撑破
   const OC = [
-    { k: "idx", l: "序号", w: 36 },
-    { k: "order_date", l: "日期", w: 74 },
+    // 列宽按「统计行合计值」定：合计最大 ¥134,454.79 / €31,974.62，窄了就会数字互相压到一起 (KK 2026-11-26)
+    { k: "idx", l: "序号", w: 38 },
+    { k: "order_date", l: "日期", w: 76 },
     { k: "order_no", l: "订单号", w: "minmax(104px, .8fr)" },
     { k: "region", l: "地区", w: 42 },
-    { k: "product", l: "产品", w: "minmax(96px, 1.3fr)" },
+    { k: "product", l: "产品", w: "minmax(96px, 1.4fr)" },
     // CD 订单只显示中文产品名，不显示 SKU（平台SKU 与内部编码都不露出）— KK 2026-11-26
     ...(view.some(r => (r.platform || "amazon") !== "cdiscount")
       ? [{ k: "sku", l: "sku", w: "minmax(82px, .9fr)" }]
       : []),
-    { k: "qty", l: "数量", w: 36 },
-    { k: "revenue_ttc", l: "售价", w: 62, t: "eur", tip: "售价(含税) — 客户实际支付含 VAT" },
-    { k: "vat_amount", l: "VAT", w: 48, t: "eur" },
-    { k: "revenue_ht", l: "去税收入", w: 66, t: "eur", tip: "去税收入 — 扣除 VAT 后的净销售额" },
-    { k: "commission_amt", l: "佣金", w: 56, t: "eur" },
-    { k: "service_fee", l: "处理费", w: 52, t: "eur" },
-    { k: "fbc_fee", l: "FBC运费", w: 60, t: "eur" },  // 带「≈」预估标记要留宽
-    { k: "eco_tax", l: "环保金", w: 46, t: "eur" },
-    { k: "net_revenue", l: "到手", w: 66, t: "eur" },
-    { k: "converted", l: "到手¥", w: 70, t: "money" },
-    { k: "landed_cost", l: "到仓价¥", w: 70, t: "money" },
-    { k: "gross_profit", l: "毛利¥", w: 70, t: "money", hl: true },
-    { k: "gross_margin", l: "毛利率", w: 52, t: "pct" },
-    { k: "refund", l: "退款", w: 52 },
+    { k: "qty", l: "数量", w: 42 },
+    { k: "revenue_ttc", l: "售价", w: 74, t: "eur", tip: "售价(含税) — 客户实际支付含 VAT" },
+    { k: "vat_amount", l: "VAT", w: 64, t: "eur" },
+    { k: "revenue_ht", l: "去税收入", w: 74, t: "eur", tip: "去税收入 — 扣除 VAT 后的净销售额" },
+    { k: "commission_amt", l: "佣金", w: 64, t: "eur" },
+    { k: "service_fee", l: "处理费", w: 62, t: "eur" },
+    { k: "fbc_fee", l: "FBC运费", w: 70, t: "eur" },  // 带「≈」预估标记要留宽
+    { k: "eco_tax", l: "环保金", w: 54, t: "eur" },
+    { k: "net_revenue", l: "到手", w: 74, t: "eur" },
+    { k: "converted", l: "到手¥", w: 80, t: "money" },
+    { k: "landed_cost", l: "到仓价¥", w: 80, t: "money" },
+    { k: "gross_profit", l: "毛利¥", w: 80, t: "money", hl: true },
+    { k: "gross_margin", l: "毛利率", w: 56, t: "pct" },
+    { k: "refund", l: "退款", w: 72 },
     { k: "email_sent", l: "邮件", w: 38 },
     // Cdiscount 无索评体系 → 「索评」列不显示；仅当视图里出现非 Cdiscount 订单(亚马逊 Excel 导入)时才带出 (KK 2026-11-26)
     ...(view.some(r => (r.platform || "amazon") !== "cdiscount")
@@ -4813,16 +4815,17 @@ function OrderRecords() {
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
           <div style={{ minWidth: OC_W + 282 }}>
             <div style={{ position: "sticky", top: 0, zIndex: 3 }}>
-            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600 }}>
-              {OC.map(c => <div key={c.k} title={c.tip || c.l} style={{ padding: "7px 5px", borderRight: `1px solid #2a4a78`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.l}</div>)}
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, letterSpacing: 0.2 }}>
+              {OC.map(c => <div key={c.k} title={c.tip || c.l} style={{ padding: "9px 6px", lineHeight: 1.45, borderRight: `1px solid #2a4a78`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.l}</div>)}
             </div>
             {/* 统计行 —— 贴在表头下方，跟随平台/店铺筛选实时汇总 (KK 2026-11-25) */}
-            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: C.panel2, fontSize: 11, fontWeight: 700, borderBottom: `2px solid ${C.line}` }}>
+            <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: C.panel2, fontSize: 11, fontWeight: 700, lineHeight: 1.6, fontVariantNumeric: "tabular-nums", borderBottom: `2px solid ${C.line}` }}>
               {OC.map(c => {
-                const bd = { borderRight: `1px solid ${C.line}` };
-                if (c.k === "idx") return <div key={c.k} style={{ padding: "7px 5px", color: C.faint, ...bd }} />;
-                if (c.k === "order_date") return <div key={c.k} style={{ padding: "7px 5px", color: C.brand, ...bd }}>统计</div>;
-                if (c.k === "order_no") return <div key={c.k} style={{ padding: "7px 5px", color: C.sub, ...bd }}>{nOrders} 单</div>;
+                const bd = { borderRight: `1px solid ${C.line}`, padding: "10px 6px", lineHeight: 1.6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+                if (c.k === "idx") return <div key={c.k} style={{ color: C.faint, ...bd }} />;
+                if (c.k === "order_date") return <div key={c.k} style={{ color: C.brand, ...bd }}>统计</div>;
+                if (c.k === "order_no") return <div key={c.k} style={{ color: C.sub, ...bd }}>{nOrders} 单</div>;
+                if (c.k === "product") return <div key={c.k} style={{ color: C.faint, fontWeight: 400, ...bd }}>{nSkus} 个 SKU</div>;
                 if (c.k === "gross_margin") return <div key={c.k} title="毛利率 = 毛利总额 ÷ 营业额总额" style={{ padding: "7px 5px", textAlign: "right", color: C.ink, ...bd }}>{gmPct === null ? "—" : (gmPct * 100).toFixed(2) + "%"}</div>;
                 if (c.k === "refund") {
                   const refRows = view.filter(isRefund);
@@ -4849,6 +4852,8 @@ function OrderRecords() {
                 display: "grid", gridTemplateColumns: OC_GRID,
                 borderTop: `1px solid ${rRef ? tone.line : C.line}`,
                 fontSize: 11,
+                lineHeight: 1.6,
+                fontVariantNumeric: "tabular-nums",
                 background: rRef ? tone.bg : (i % 2 ? C.bg : "transparent"),
                 boxShadow: rRef ? `inset 3px 0 0 ${tone.bar}` : "none",
                 color: C.ink,
@@ -4856,7 +4861,7 @@ function OrderRecords() {
                 {OC.map(c => (
                   <div key={c.k} title={c.k === "refund" ? refundTitle(r) : (cellOf(c, r, i) === "—" ? "" : String(cellOf(c, r, i)))}
                     style={{
-                      padding: "6px 5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      padding: "8px 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       borderRight: `1px solid ${C.line}`,
                       textAlign: ["idx", "order_date", "order_no", "region", "product", "sku", "email_sent", "review_asked", "refund"].includes(c.k) ? "left" : "right",
                       fontWeight: rRef && (c.k === "refund" || c.hl) ? 700 : (c.hl ? 600 : 400),
