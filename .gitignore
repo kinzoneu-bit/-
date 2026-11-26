@@ -31,3 +31,4 @@ surgery.py
 !.env.example
 .vercel
 .env*
+.tmpcmp/
