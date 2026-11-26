@@ -3106,6 +3106,8 @@ function InventoryStats() {
   const styleOpts = useMemo(() => optsOf("product_name"), [baseRows]);
   // 亚马逊看 asin, 其他平台看卖家 SKU
   const isAmazon = platView === "amazon";
+  // FBC 只有 Cdiscount 走平台仓，亚马逊/ManoMano 没有这套体系 — KK 2026-11-26
+  const isCD = platView === "cdiscount";
   const skuOf = (r) => isAmazon ? r.asin : (r.sku || r.asin);
   const skuHead = isAmazon ? "ASIN" : "SKU";
   // 平台库存(Cdiscount/ManoMano)专属授权: 只有雪梅/诗琪/admin 能改 款式 / SKU / 到仓价
@@ -3277,8 +3279,8 @@ function InventoryStats() {
     { k: "asin",           l: skuHead, disp: r => isAmazon ? r.asin : (r.sku || r.asin) },
     { k: "listed_qty",     l: "上架数量", bold: true },
     { k: "stock_qty",      l: "库存数量", bold: true },
-    // 非亚马逊平台：FBC 仓库 7 状态明细（可用/占用/锁定/争议/退货/在途/移除），只显示非零项
-    ...(isAmazon ? [] : [{
+    // 仅 Cdiscount：FBC 仓库 7 状态明细（可用/占用/锁定/争议/退货/在途/移除），只显示非零项
+    ...(isCD ? [{
       k: "fbc_detail", l: "FBC明细",
       calc: r => {
         const parts = [
@@ -3288,11 +3290,11 @@ function InventoryStats() {
         ].filter(([, v]) => Number(v) > 0).map(([l, v]) => l + v);
         return parts.length ? parts.join(" · ") : null;
       },
-    }]),
+    }] : []),
     { k: "age_days",       l: "库龄(天)", calc: r => ageDays(r) },
     { k: "landed_cost",    l: "到仓价", fmt: "money" },
-    // 非亚马逊平台：标准 FBC 配送费(EUR/件)，运营手填 → 订单按 SKU 自动带入 (KK 2026-11-25)
-    ...(isAmazon ? [] : [{ k: "fbc_fee_std", l: "FBC标准费", fmt: "eur" }]),
+    // 仅 Cdiscount：标准 FBC 配送费(EUR/件)，运营手填 → 订单按 SKU 自动带入 (KK 2026-11-25)
+    ...(isCD ? [{ k: "fbc_fee_std", l: "FBC标准费", fmt: "eur" }] : []),
     { k: "purchase_date",  l: "采购时间" },
     { k: "ship_date_disp", l: "发货时间", disp: r => r.ship_date },
     { k: "prep_days",      l: "准备周期", calc: r => daysBetween(r.purchase_date, r.ship_date) },
@@ -3322,10 +3324,10 @@ function InventoryStats() {
   const INV_BATCH_KEYS = ["ship_batch"];
   const INV_BATCH_COLS = COLS.filter(c => INV_BATCH_KEYS.includes(c.k));
   const INV_ROW_COLS = COLS.filter(c => !INV_BATCH_KEYS.includes(c.k));
-  // 列宽：非亚马逊多一列「FBC明细」
-  const W_INV = isAmazon
-    ? [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70]
-    : [100, 100, 100, 130, 130, 90, 90, 180, 95, 100, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
+  // 列宽：仅 Cdiscount 多「FBC明细」+「FBC标准费」两列（亚马逊/ManoMano 同构）
+  const W_INV = isCD
+    ? [100, 100, 100, 130, 130, 90, 90, 180, 95, 100, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70]
+    : [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
   const GRID_INV = (canEditInv ? W_INV : W_INV.slice(0, W_INV.length - 1)).map(w => `${w}px`).join(" ");
   const colIdxInv = (k) => COLS.findIndex(c => c.k === k) + 1;
   const invBatches = useMemo(() => {
@@ -3414,7 +3416,7 @@ function InventoryStats() {
             <span onClick={resetInvFilter} style={{ fontSize: 12, color: C.brand, cursor: "pointer", fontWeight: 600 }}>重置</span>
           )}
 
-          {!isAmazon && canEditPlat && (
+          {isCD && canEditPlat && (
             <button onClick={openFbcBatch}
               title="为每个 SKU 填标准 FBC 配送费(欧元/件) — 订单记录会按此自动带入预估，月底再用实际扣款覆盖"
               style={{ marginLeft: "auto", padding: "6px 14px", background: C.panel2, color: C.brand, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600, fontFamily: "inherit" }}>
@@ -3422,7 +3424,7 @@ function InventoryStats() {
             </button>
           )}
           <button onClick={exportInvCsv} title="把当前筛选结果导出成 Excel 可打开的 CSV"
-            style={{ marginLeft: (!isAmazon && canEditPlat) ? 0 : "auto", padding: "6px 14px", background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+            style={{ marginLeft: (isCD && canEditPlat) ? 0 : "auto", padding: "6px 14px", background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
             ↓ 导出明细 ({view.length})
           </button>
           <span style={{ fontSize: 11, color: C.faint }}>
