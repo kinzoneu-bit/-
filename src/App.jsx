@@ -138,6 +138,8 @@ const PLATFORMS = [
   { key: "manomano",  label: "ManoMano" },
 ];
 const PLATFORM_LABEL = Object.fromEntries(PLATFORMS.map(p => [p.key, p.label]));
+// 平台 → 账号(店铺) 口径：与订单记录页完全一致 — KK 2026-11-26
+const PLAT_ACCOUNTS = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
 const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];                                // 三家共享 (人工/场地)
 const ALL_STORES = OPS_FIXED_STORES;
 // 角色 → 可见店铺范围 (不在此表内的角色 = 全部 6 家)
@@ -4517,18 +4519,39 @@ function AfterStock() {
 
 // ---------------- 单品月度订单统计 (空骨架, 待 KK 填充) ----------------
 function OrderSummary() {
+  // 三个筛选框：平台 / 账号 / 起始日期 — KK 2026-11-26
+  // 平台与账号口径沿用「订单记录」页，不另起一套
+  const [plat, setPlat] = useState("");
+  const [account, setAccount] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const accounts = PLAT_ACCOUNTS[plat] || [];
+  const selStyle = (on, w) => ({ width: w, padding: "5px 9px", background: C.bg, border: `1px solid ${on ? C.brand : C.line}`,
+    borderRadius: 6, color: on ? C.ink : C.sub, fontSize: 12, fontWeight: on ? 700 : 400,
+    fontFamily: "inherit", colorScheme: "dark", outline: "none" });
+  const scope = `${PLATFORM_LABEL[plat] || "全部平台"} / ${account || "全部账号"} / ${fromDate ? fromDate + " 起" : "全部日期"}`;
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700 }}>单品月度订单统计</div>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>单品月度订单统计</div>
+        <select value={plat} onChange={e => { setPlat(e.target.value); setAccount(""); }}
+          title="选择平台" style={selStyle(!!plat, 112)}>
+          <option value="">平台</option>
+          {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+        </select>
+        <select value={account} onChange={e => setAccount(e.target.value)} disabled={!plat}
+          title={plat ? "选择账号" : "请先选平台"}
+          style={{ ...selStyle(!!account, 112), opacity: plat ? 1 : .55, cursor: plat ? "pointer" : "not-allowed" }}>
+          <option value="">{plat ? "账号" : "先选平台"}</option>
+          {accounts.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+          title="起始日期" aria-label="起始日期" style={selStyle(!!fromDate, 138)} />
         <div style={{ marginLeft: "auto" }}>
           <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
         </div>
       </div>
       <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: 60, textAlign: "center", color: C.faint, fontSize: 13 }}>
-        单品月度订单统计 · 待 KK 确认口径 (单品×月订单量 / 同比环比 / 品牌维度) 与数据源 (SP-API)
+        单品月度订单统计 · 当前范围：{scope} · 待 KK 确认口径 (单品×月订单量 / 同比环比 / 品牌维度) 与数据源 (SP-API)
       </div>
     </div>
   );
@@ -4582,7 +4605,7 @@ function OrderRecords() {
   }, []);
   // 平台 → 该平台下的店铺 (KK 2026-11-25: 三个平台, 店铺名按系统现有口径生成)
   // ManoMano 是飞鸟这个主体开的店 → 店铺名就叫「飞鸟」, 与亚马逊的飞鸟是两个平台的两家店
-  const PLAT_STORES = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
+  const PLAT_STORES = PLAT_ACCOUNTS;   // 全局唯一口径 — KK 2026-11-26
   // KK 2026-11-25: 必须先选平台才出店铺, 不再混成一个总表
   const storeOpts = PLAT_STORES[fPlat] || [];
   // 同名店铺跨平台(如飞鸟同时有亚马逊店和 ManoMano 店) → 下拉里带平台名区分, 值仍是店铺名
