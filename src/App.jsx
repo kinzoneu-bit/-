@@ -4688,15 +4688,13 @@ function OrderRecords() {
     return (v === null || v === undefined || v === "") ? "—" : v;
   };
   const sum = (k) => view.reduce((s, r) => s + Number(r[k] || 0), 0);
-  // 毛利率必须用【加权】= 总毛利 ÷ 总收入。
-  // 之前用逐行平均，小额单与高毛利单同权重，且退款行(null)被跳过 → 显示值虚高约 10 个点 (KK 2026-11-26)
+  // 毛利率 = 毛利总额 ÷ 营业额总额，一次相除。不做逐行平均、不做分层加权（KK 2026-11-26 定）
   const gpSum = sum("gross_profit");
-  const convSum = sum("converted");          // 到手合计（退款行 0）
+  const convSum = sum("converted");
   const netSum = sum("net_revenue");
-  const fxAvg = netSum > 0 ? convSum / netSum : 7.2;
-  const ttcCny = sum("revenue_ttc") * fxAvg;
-  const avgMargin = convSum > 0 ? gpSum / convSum : null;               // 毛利率（占到手）
-  const salesMargin = ttcCny > 0 ? gpSum / ttcCny : null;               // 毛利率（占含税销售额）
+  const fxAvg = netSum > 0 ? convSum / netSum : 7.2;   // 各行汇率可能不同，用整体反推
+  const ttcCny = sum("revenue_ttc") * fxAvg;           // 营业额（含税，折人民币）
+  const gmPct = ttcCny > 0 ? gpSum / ttcCny : null;
   // 到仓价合计 = 单价 × 数量，只算没退款的行（退款行的货值已体现在退款损失里，重复加会虚增成本）
   const costSum = view.reduce((s, r) => (isRefund(r) ? s : s + Number(r.landed_cost || 0) * Number(r.qty || 1)), 0);
   return (
@@ -4762,16 +4760,14 @@ function OrderRecords() {
               </button>
             );
           })()}
-          <span style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
-            毛利润合计 ¥{gpSum.toFixed(2)}
+          <span title="客户实际支付总额（含 VAT），按各单汇率折人民币" style={{ fontSize: 12, color: C.ink, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
+            营业额 ¥{money(ttcCny)}
           </span>
-          <span title="总毛利 ÷ 总到手（平台扣完佣金/处理费/FBC 后到手的钱）" style={{ fontSize: 12, color: C.ink, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
-            毛利率 {avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}
-            <span style={{ color: C.faint, fontWeight: 400 }}> /到手</span>
+          <span title="营业额 − 平台各费 − 到仓价 − 退款损失" style={{ fontSize: 12, color: C.brand, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
+            毛利 ¥{money(gpSum)}
           </span>
-          <span title="总毛利 ÷ 含税销售额 —— 跟同行口径对比看这个" style={{ fontSize: 12, color: C.ink, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
-            销售毛利率 {salesMargin === null ? "—" : (salesMargin * 100).toFixed(2) + "%"}
-            <span style={{ color: C.faint, fontWeight: 400 }}> /含税</span>
+          <span title="毛利率 = 毛利总额 ÷ 营业额总额" style={{ fontSize: 12, color: C.ink, fontWeight: 700, padding: "3px 12px", borderRadius: 6, background: C.panel2, border: `1px solid ${C.line}` }}>
+            毛利率 {gmPct === null ? "—" : (gmPct * 100).toFixed(2) + "%"}
           </span>
         </div>
       </div>
@@ -4798,11 +4794,14 @@ function OrderRecords() {
                 if (c.k === "idx") return <div key={c.k} style={{ padding: "7px 5px", color: C.faint, ...bd }} />;
                 if (c.k === "order_date") return <div key={c.k} style={{ padding: "7px 5px", color: C.brand, ...bd }}>统计</div>;
                 if (c.k === "order_no") return <div key={c.k} style={{ padding: "7px 5px", color: C.sub, ...bd }}>{nOrders} 单</div>;
-                if (c.k === "gross_margin") return <div key={c.k} style={{ padding: "7px 5px", textAlign: "right", color: C.ink, ...bd }}>{avgMargin === null ? "—" : (avgMargin * 100).toFixed(2) + "%"}</div>;
+                if (c.k === "gross_margin") return <div key={c.k} title="毛利率 = 毛利总额 ÷ 营业额总额" style={{ padding: "7px 5px", textAlign: "right", color: C.ink, ...bd }}>{gmPct === null ? "—" : (gmPct * 100).toFixed(2) + "%"}</div>;
                 if (c.k === "refund") {
                   const refRows = view.filter(isRefund);
-                  const refSum = refRows.reduce((a, r) => a + Number(r.refund_amt || 0), 0);
-                  return <div key={c.k} title={refRows.length ? `${refRows.length} 行退款` : ""} style={{ padding: "7px 5px", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? eur(refSum) : "—"}</div>;
+                  const refAmt = refRows.reduce((a, r) => a + Number(r.refund_amt || 0), 0);
+                  const refLoss = refRows.reduce((a, r) => a + Number(r.refund_loss || 0), 0);
+                  // 显示净损失（人民币）——这样「到手¥ − 到仓价¥ − 退款损失 = 毛利¥」能直接对上
+                  return <div key={c.k} title={`${refRows.length} 单退款 · 客户退款合计 ${eur(refAmt)} · 净损失 ${money(refLoss)}`}
+                    style={{ padding: "7px 5px", textAlign: "right", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? money(refLoss) : "—"}</div>;
                 }
                 // 到仓价列存的是单价，合计必须 × 数量，且不含退款行（退款货值走退款损失）
                 if (c.k === "landed_cost") return <div key={c.k} title="已售商品成本 = 到仓价单价 × 数量（不含退款行，退款货值另计）" style={{ padding: "7px 5px", textAlign: "right", color: C.ink, ...bd }}>{money(costSum)}</div>;
