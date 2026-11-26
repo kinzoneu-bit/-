@@ -4523,12 +4523,15 @@ function OrderSummary() {
   // 平台与账号口径沿用「订单记录」页，不另起一套
   const [plat, setPlat] = useState("");
   const [account, setAccount] = useState("");
+  // 日期是「周期」：起始 + 截止，不只选一天 — KK 2026-11-26
   const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const accounts = PLAT_ACCOUNTS[plat] || [];
   const selStyle = (on, w) => ({ width: w, padding: "5px 9px", background: C.bg, border: `1px solid ${on ? C.brand : C.line}`,
     borderRadius: 6, color: on ? C.ink : C.sub, fontSize: 12, fontWeight: on ? 700 : 400,
     fontFamily: "inherit", colorScheme: "dark", outline: "none" });
-  const scope = `${PLATFORM_LABEL[plat] || "全部平台"} / ${account || "全部账号"} / ${fromDate ? fromDate + " 起" : "全部日期"}`;
+  const period = fromDate || toDate ? `${fromDate || "不限"} ~ ${toDate || "不限"}` : "全部日期";
+  const scope = `${PLATFORM_LABEL[plat] || "全部平台"} / ${account || "全部账号"} / ${period}`;
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
@@ -4544,8 +4547,13 @@ function OrderSummary() {
           <option value="">{plat ? "账号" : "先选平台"}</option>
           {accounts.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
-        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-          title="起始日期" aria-label="起始日期" style={selStyle(!!fromDate, 138)} />
+        {/* 日期周期：起始 ~ 截止（KK 2026-11-26：不能只选单日） */}
+        <span style={{ fontSize: 12, color: C.sub }}>日期:</span>
+        <input type="date" value={fromDate} max={toDate || undefined} onChange={e => setFromDate(e.target.value)}
+          title="起始日期" aria-label="起始日期" style={selStyle(!!fromDate, 140)} />
+        <span style={{ fontSize: 11, color: C.faint }}>~</span>
+        <input type="date" value={toDate} min={fromDate || undefined} onChange={e => setToDate(e.target.value)}
+          title="截止日期" aria-label="截止日期" style={selStyle(!!toDate, 140)} />
         <div style={{ marginLeft: "auto" }}>
           <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
         </div>
