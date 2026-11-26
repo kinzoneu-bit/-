@@ -4653,6 +4653,11 @@ function OrderRecords() {
   };
   // 有退款的行：整行红底 + 左侧红条凸显（KK 2026-11-25）
   const isRefund = (r) => String(r.refund || "") === "是" || Number(r.refund_amt || 0) !== 0;
+  // 拒收单独细分出来（KK 2026-11-26）：拒收 = 只损运费，用琥珀色与「卖家退款全损」的红区分
+  const isRefused = (r) => isRefund(r) && r.refund_reason === "shipping-refused";
+  const refTone = (r) => isRefused(r)
+    ? { bg: "rgba(217,164,65,0.10)", bar: C.watch, line: "rgba(217,164,65,0.35)" }
+    : { bg: C.refBg, bar: C.ref, line: "rgba(226,86,76,0.35)" };
   // 退款原因（平台 cancellationDetails.reason）与货是否已出库
   const REFUND_REASON = {
     "refund-from-seller": "卖家主动退款",
@@ -4663,11 +4668,11 @@ function OrderRecords() {
   const refundTitle = (r) => {
     if (!isRefund(r)) return "";
     const rs = REFUND_REASON[r.refund_reason] || r.refund_reason || "退款";
-    const ship = r.refund_saleable === true ? "已核实可售，货值损失已冲回"
-      : (r.refund_saleable === false ? "已核实不可售，全额计损"
-        : (r.refund_shipped ? "货已出库，按未回仓计损" : "未出库，无货损"));
+    const rule = isRefused(r) ? "拒收口径：只损运费（处理费+FBC配送费），货值不计损"
+      : (r.refund_saleable === true ? "已核实可售，货值损失已冲回"
+        : "卖家退款口径：暂计全损（到仓价×件数 + 处理费 + FBC配送费）");
     const loss = Number(r.refund_loss || 0) !== 0 ? "｜净损失 " + money(Math.abs(Number(r.refund_loss))) : "";
-    return `${rs} · ${ship}${loss}`;
+    return `${rs} · ${rule}${loss}`;
   };
   const cellOf = (c, r, i) => {
     if (c.k === "idx") return i + 1;
@@ -4799,8 +4804,10 @@ function OrderRecords() {
                   const refRows = view.filter(isRefund);
                   const refAmt = refRows.reduce((a, r) => a + Number(r.refund_amt || 0), 0);
                   const refLoss = refRows.reduce((a, r) => a + Number(r.refund_loss || 0), 0);
+                  const nRefuse = refRows.filter(isRefused).length;
+                  const nSeller = refRows.length - nRefuse;
                   // 显示净损失（人民币）——这样「到手¥ − 到仓价¥ − 退款损失 = 毛利¥」能直接对上
-                  return <div key={c.k} title={`${refRows.length} 单退款 · 客户退款合计 ${eur(refAmt)} · 净损失 ${money(refLoss)}`}
+                  return <div key={c.k} title={`${refRows.length} 单退款（卖家退款 ${nSeller} 全损 / 拒收 ${nRefuse} 只损运费）· 客户退款合计 ${eur(refAmt)} · 净损失 ${money(refLoss)}`}
                     style={{ padding: "7px 5px", textAlign: "right", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? money(refLoss) : "—"}</div>;
                 }
                 // 到仓价列存的是单价，合计必须 × 数量，且不含退款行（退款货值走退款损失）
@@ -4812,13 +4819,14 @@ function OrderRecords() {
             </div>
             {view.map((r, i) => {
               const rRef = isRefund(r);
+              const tone = rRef ? refTone(r) : null;
               return (
               <div key={r.id} style={{
                 display: "grid", gridTemplateColumns: OC_GRID,
-                borderTop: `1px solid ${rRef ? "rgba(226,86,76,0.35)" : C.line}`,
+                borderTop: `1px solid ${rRef ? tone.line : C.line}`,
                 fontSize: 11,
-                background: rRef ? C.refBg : (i % 2 ? C.bg : "transparent"),
-                boxShadow: rRef ? `inset 3px 0 0 ${C.ref}` : "none",
+                background: rRef ? tone.bg : (i % 2 ? C.bg : "transparent"),
+                boxShadow: rRef ? `inset 3px 0 0 ${tone.bar}` : "none",
                 color: C.ink,
               }}>
                 {OC.map(c => (
@@ -4845,8 +4853,11 @@ function OrderRecords() {
         const list = view.filter(isRefund);
         const RATE = 7.2;
         const calcLoss = (r, saleable) => {
-          const cost = saleable ? 0 : (r.refund_shipped ? Number(r.landed_cost || 0) : 0);
           const fee = (Number(r.service_fee || 0) + Number(r.fbc_fee || 0)) * RATE;
+          // 拒收：只损运费，货值不计损（KK 2026-11-26）
+          if (r.refund_reason === "shipping-refused") return -Number(fee.toFixed(2));
+          // 卖家退款：默认全损 = 到仓价 × 件数 + 费用；只有标了「可售」才把货值冲回
+          const cost = saleable ? 0 : Number(r.landed_cost || 0) * Number(r.qty || 1);
           return -Number((cost + fee).toFixed(2));
         };
         const stateOf = (r) => (refDraft[r.id] === true ? true : (refDraft[r.id] === false ? false : null));
@@ -4864,8 +4875,10 @@ function OrderRecords() {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120 }}>
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, width: "min(1080px,95vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,.6)" }}>
               <div style={{ padding: "15px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>退款可售核实</div>
-                <span style={{ fontSize: 11, color: C.faint }}>可售 = 货能再卖，到仓价从损失里冲回；不可售 = 全额计损</span>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>退款核实</div>
+                <span style={{ fontSize: 11, color: C.faint }}>
+                  卖家退款默认<b style={{ color: C.ref }}>全损</b>（货值×件数＋费用），标「可售」才冲回货值；<b style={{ color: C.watch }}>拒收只损运费</b>，与可售无关
+                </span>
                 <span style={{ marginLeft: "auto", fontSize: 12, color: pend ? C.ref : C.brand, fontWeight: 700 }}>
                   {list.length} 单 · 待核 {pend} · 净损失合计 {money(total)}
                 </span>
@@ -4891,9 +4904,13 @@ function OrderRecords() {
                       <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, textAlign: "right", color: C.sub }}>{r.landed_cost ? money(r.landed_cost) : "—"}</div>
                       <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, textAlign: "right", color: C.sub }}>{fee ? money(fee) : "—"}</div>
                       <div style={{ padding: "6px 8px", borderRight: `1px solid ${C.line}`, display: "flex", gap: 4 }}>
-                        <Btn on={st === true} onClick={() => setRefDraft(d => ({ ...d, [r.id]: true }))}>可售</Btn>
-                        <Btn on={st === false} onClick={() => setRefDraft(d => ({ ...d, [r.id]: false }))}>不可售</Btn>
-                        <Btn on={st === null} onClick={() => setRefDraft(d => { const x = { ...d }; delete x[r.id]; return x; })}>待核</Btn>
+                        {r.refund_reason === "shipping-refused"
+                          ? <span style={{ fontSize: 11, color: C.watch }}>拒收 · 只损运费</span>
+                          : <>
+                              <Btn on={st === true} onClick={() => setRefDraft(d => ({ ...d, [r.id]: true }))}>可售</Btn>
+                              <Btn on={st === false} onClick={() => setRefDraft(d => ({ ...d, [r.id]: false }))}>不可售</Btn>
+                              <Btn on={st === null} onClick={() => setRefDraft(d => { const x = { ...d }; delete x[r.id]; return x; })}>待核</Btn>
+                            </>}
                       </div>
                       <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 700, color: C.ref }}>{money(loss)}</div>
                     </div>
