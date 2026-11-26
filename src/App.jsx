@@ -3103,11 +3103,11 @@ function InventoryStats() {
     return sortDesc ? s.sort((a, b) => String(b).localeCompare(String(a))) : s.sort((a, b) => String(a).localeCompare(String(b)));
   };
   const whOpts = useMemo(() => optsOf("ship_warehouse"), [baseRows]);
-  // CD/ManoMano 按「中文名」筛(warehouse 侧 name_cn 优先)，亚马逊仍按原始款式名 — KK 2026-11-26
+  // CD/ManoMano 的 product_name 就是我们的中文命名（KD 2026-11-26 定），亚马逊仍是原始款式名
   const styleOpts = useMemo(() => {
-    const s = [...new Set(baseRows.map(r => platView === "amazon" ? r.product_name : (r.name_cn || r.product_name)).filter(v => v !== null && v !== undefined && v !== ""))];
+    const s = [...new Set(baseRows.map(r => r.product_name).filter(v => v !== null && v !== undefined && v !== ""))];
     return s.sort((a, b) => String(a).localeCompare(String(b)));
-  }, [baseRows, platView]);
+  }, [baseRows]);
   // 亚马逊看 asin, 其他平台看卖家 SKU
   const isAmazon = platView === "amazon";
   // FBC 只有 Cdiscount 走平台仓，亚马逊/ManoMano 没有这套体系 — KK 2026-11-26
@@ -3116,7 +3116,7 @@ function InventoryStats() {
   const skuHead = isAmazon ? "ASIN" : "SKU";
   // 平台库存(Cdiscount/ManoMano)专属授权: 只有雪梅/诗琪/admin 能改 款式 / SKU / 到仓价
   const canEditPlat = !isAmazon && canEditNameSku;
-  const PLAT_EDIT_KEYS = ["product_name", "name_cn", "asin", "sku", "landed_cost"];
+  const PLAT_EDIT_KEYS = ["product_name", "asin", "sku", "landed_cost"];
   const asinOpts = useMemo(() => {
     const s = [...new Set(baseRows.map(r => isAmazon ? r.asin : (r.sku || r.asin)).filter(v => v !== null && v !== undefined && v !== ""))];
     return s.sort((a, b) => String(a).localeCompare(String(b)));
@@ -3131,7 +3131,7 @@ function InventoryStats() {
   }, [baseRows]);
   const hit = (sel, v) => sel.length === 0 || sel.includes(v);
   const view = useMemo(() => baseRows.filter(r => {
-    if (!(hit(fWh, r.ship_warehouse) && hit(fBatch, r.ship_batch) && hit(fStyle, platView === "amazon" ? r.product_name : (r.name_cn || r.product_name)) && hit(fAsin, isAmazon ? r.asin : (r.sku || r.asin)))) return false;
+    if (!(hit(fWh, r.ship_warehouse) && hit(fBatch, r.ship_batch) && hit(fStyle, r.product_name) && hit(fAsin, isAmazon ? r.asin : (r.sku || r.asin)))) return false;
     if (fAge > 0) {                                   // 滞销: 还有库存 且 库龄 > N 天
       if (!(Number(r.stock_qty ?? r.listed_qty ?? 0) > 0)) return false;
       const a = ageDays(r);
@@ -3152,7 +3152,7 @@ function InventoryStats() {
     };
     const head = ["店铺", "仓库", "发货批次", "款式", skuHead, "货发日期", "上架日期", "库龄(天)", "在仓天数", "上架天数", "上架数量", "当前库存", "到仓价", "库存金额", "售完时间"];
     const body = view.map(r => [
-      r.store, r.ship_warehouse, r.ship_batch, (isAmazon ? r.product_name : (r.name_cn || r.product_name)), skuOf(r), r.ship_date, r.listed_date,
+      r.store, r.ship_warehouse, r.ship_batch, r.product_name, skuOf(r), r.ship_date, r.listed_date,
       ageDays(r), daysBetween(r.ship_date, new Date().toISOString().slice(0, 10)), daysBetween(r.listed_date, new Date().toISOString().slice(0, 10)),
       r.listed_qty, stockOf(r), r.landed_cost,
       (stockOf(r) && r.landed_cost) ? (stockOf(r) * Number(r.landed_cost)).toFixed(2) : "",
@@ -3167,7 +3167,7 @@ function InventoryStats() {
   const openEditInv = (r) => {
     const f = {
       store: r.store || "", ship_date: r.ship_date || "", ship_warehouse: r.ship_warehouse || "",
-      ship_batch: r.ship_batch || "", product_name: r.product_name || "", name_cn: r.name_cn || "", asin: r.asin || "", sku: r.sku || "",
+      ship_batch: r.ship_batch || "", product_name: r.product_name || "", asin: r.asin || "", sku: r.sku || "",
       listed_qty: r.listed_qty != null ? String(r.listed_qty) : "",
       stock_qty: r.stock_qty != null ? String(r.stock_qty) : "",
       landed_cost: r.landed_cost != null ? String(r.landed_cost) : "",
@@ -3220,7 +3220,7 @@ function InventoryStats() {
       });
     } catch (e) { /* 无订单权限或表为空 → 全部按 0 处理 */ }
     const list = baseRows.map(r => ({
-      sku: r.sku, name: isAmazon ? r.product_name : (r.name_cn || r.product_name), stock: stockOf(r),
+      sku: r.sku, name: r.product_name, stock: stockOf(r),
       val: r.fbc_fee_std != null ? String(r.fbc_fee_std) : "",
       sold: sold[r.sku] || 0,
     }));
@@ -3270,8 +3270,8 @@ function InventoryStats() {
   const INV_FIELDS = [
     { k: "ship_date", l: "货发日期", t: "date" }, { k: "ship_warehouse", l: "仓库" },
     { k: "ship_batch", l: "原始批次" },
-    // 平台库存改「中文名」，亚马逊仍是原始款式名 — KK 2026-11-26
-    { k: isAmazon ? "product_name" : "name_cn", l: isAmazon ? "款式" : "中文名" },
+    // 平台库存的 product_name 即我们的中文命名，亚马逊仍是原始款式名 — KK 2026-11-26
+    { k: "product_name", l: isAmazon ? "款式" : "中文名" },
     { k: isAmazon ? "asin" : "sku", l: skuHead }, { k: "listed_qty", l: "上架数量", t: "num" },
     { k: "stock_qty", l: "库存数量", t: "num" }, { k: "landed_cost", l: "到仓价", t: "num" },
     { k: "purchase_date", l: "采购时间", t: "date" }, { k: "listed_date", l: "上架时间", t: "date" },
@@ -3281,7 +3281,7 @@ function InventoryStats() {
     { k: "ship_date",      l: "货发日期" },
     { k: "ship_warehouse", l: "仓库" },
     { k: "ship_batch",     l: "原始批次" },
-    { k: "product_name",   l: "款式", disp: r => isAmazon ? r.product_name : (r.name_cn || r.product_name) },
+    { k: "product_name",   l: "款式" },
     { k: "asin",           l: skuHead, disp: r => isAmazon ? r.asin : (r.sku || r.asin) },
     { k: "listed_qty",     l: "上架数量", bold: true },
     { k: "stock_qty",      l: "库存数量", bold: true },
@@ -4571,14 +4571,14 @@ function OrderRecords() {
       });
   };
   useEffect(() => { loadRows(); }, []);
-  // CD 产品中文名映射：平台SKU → 我们自己的中文命名（主数据存在 inventory.name_cn，库存页维护）
+  // CD 产品中文名映射：平台SKU → 我们自己的中文命名（主数据存在 inventory.product_name，库存页维护）
   // 订单只负责显示中文名，平台SKU / 内部编码都不显示 — KK 2026-11-26
   const [cnMap, setCnMap] = useState({});
   useEffect(() => {
-    supabase.from("inventory").select("sku,name_cn").eq("platform", "cdiscount").limit(5000)
+    supabase.from("inventory").select("sku,product_name").eq("platform", "cdiscount").limit(5000)
       .then(({ data }) => {
         const m = {};
-        (data || []).forEach(r => { if (r.name_cn) m[r.sku] = r.name_cn; });
+        (data || []).forEach(r => { if (r.product_name) m[r.sku] = r.product_name; });
         setCnMap(m);
       });
   }, []);
@@ -4696,7 +4696,7 @@ function OrderRecords() {
   };
   const cellOf = (c, r, i) => {
     if (c.k === "idx") return i + 1;
-    // 产品列：CD 用平台SKU 回查 inventory.name_cn（我们的中文命名）；查不到才回落前台标题
+    // 产品列：CD 用平台SKU 回查 inventory.product_name（我们的中文命名）；查不到才回落前台标题
     if (c.k === "product" && (r.platform || "amazon") === "cdiscount") {
       return cnMap[r.plat_sku] || r.product || "—";
     }
