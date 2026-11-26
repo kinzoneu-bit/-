@@ -4612,27 +4612,32 @@ function OrderRecords() {
     // 列宽按「统计行合计值」定：合计最大 ¥134,454.79 / €31,974.62，窄了就会数字互相压到一起 (KK 2026-11-26)
     { k: "idx", l: "序号", w: 38 },
     { k: "order_date", l: "日期", w: 76 },
-    { k: "order_no", l: "订单号", w: "minmax(104px, .8fr)" },
+    { k: "order_no", l: "订单号", w: "minmax(110px, .8fr)" },
     { k: "region", l: "地区", w: 42 },
-    { k: "product", l: "产品", w: "minmax(96px, 1.4fr)" },
+    { k: "product", l: "产品", w: "minmax(114px, 1.4fr)" },
     // CD 订单只显示中文产品名，不显示 SKU（平台SKU 与内部编码都不露出）— KK 2026-11-26
     ...(view.some(r => (r.platform || "amazon") !== "cdiscount")
       ? [{ k: "sku", l: "sku", w: "minmax(82px, .9fr)" }]
       : []),
-    { k: "qty", l: "数量", w: 42 },
-    { k: "revenue_ttc", l: "售价", w: 74, t: "eur", tip: "售价(含税) — 客户实际支付含 VAT" },
-    { k: "vat_amount", l: "VAT", w: 64, t: "eur" },
-    { k: "revenue_ht", l: "去税收入", w: 74, t: "eur", tip: "去税收入 — 扣除 VAT 后的净销售额" },
-    { k: "commission_amt", l: "佣金", w: 64, t: "eur" },
-    { k: "service_fee", l: "处理费", w: 62, t: "eur" },
-    { k: "fbc_fee", l: "FBC运费", w: 70, t: "eur" },  // 带「≈」预估标记要留宽
-    { k: "eco_tax", l: "环保金", w: 54, t: "eur" },
-    { k: "net_revenue", l: "到手", w: 74, t: "eur" },
-    { k: "converted", l: "到手¥", w: 80, t: "money" },
+    // 宽度按「统计行最坏值」定死，不是按单笔值 —— 单笔只有 €12.34，合计是 €31974.62 (KK 2026-11-26)
+    // 预留到 6 位数（€999999.99 / ¥999999.99）都不截断，写死避免每次都靠肉眼发现
+    { k: "qty", l: "数量", w: 46 },
+    { k: "revenue_ttc", l: "售价", w: 78, t: "eur", tip: "售价(含税) — 客户实际支付含 VAT" },
+    { k: "vat_amount", l: "VAT", w: 72, t: "eur" },
+    { k: "revenue_ht", l: "去税收入", w: 78, t: "eur", tip: "去税收入 — 扣除 VAT 后的净销售额" },
+    { k: "commission_amt", l: "佣金", w: 72, t: "eur" },
+    { k: "service_fee", l: "处理费", w: 64, t: "eur" },
+    // FBC 运费仅 Cdiscount 有（亚马逊/ManoMano 无此项）— KK 2026-11-26
+    ...(view.some(r => (r.platform || "amazon") === "cdiscount")
+      ? [{ k: "fbc_fee", l: "FBC运费", w: 72, t: "eur" }]   // 带「≈」预估标记要留宽
+      : []),
+    { k: "eco_tax", l: "环保金", w: 56, t: "eur" },
+    { k: "net_revenue", l: "到手", w: 78, t: "eur" },
+    { k: "converted", l: "到手¥", w: 84, t: "money" },
     { k: "landed_cost", l: "到仓价¥", w: 80, t: "money" },
     { k: "gross_profit", l: "毛利¥", w: 80, t: "money", hl: true },
-    { k: "gross_margin", l: "毛利率", w: 56, t: "pct" },
-    { k: "refund", l: "退款", w: 72 },
+    { k: "gross_margin", l: "毛利率", w: 58, t: "pct" },
+    { k: "refund", l: "退款", w: 80 },
     { k: "email_sent", l: "邮件", w: 38 },
     // Cdiscount 无索评体系 → 「索评」列不显示；仅当视图里出现非 Cdiscount 订单(亚马逊 Excel 导入)时才带出 (KK 2026-11-26)
     ...(view.some(r => (r.platform || "amazon") !== "cdiscount")
@@ -4722,12 +4727,15 @@ function OrderRecords() {
     return (v === null || v === undefined || v === "") ? "—" : v;
   };
   const sum = (k) => view.reduce((s, r) => s + Number(r[k] || 0), 0);
+  // 正常销售口径：退款单的售价/各项费用已在下单时结算又被冲回，混进合计会让「售价−费用=到手」对不上 (KK 2026-11-26)
+  const sumOK = (k) => view.reduce((s, r) => (isRefund(r) ? s : s + Number(r[k] || 0)), 0);
   // 毛利率 = 毛利总额 ÷ 营业额总额，一次相除。不做逐行平均、不做分层加权（KK 2026-11-26 定）
   const gpSum = sum("gross_profit");
   const convSum = sum("converted");
   const netSum = sum("net_revenue");
   const fxAvg = netSum > 0 ? convSum / netSum : 7.2;   // 各行汇率可能不同，用整体反推
-  const ttcCny = sum("revenue_ttc") * fxAvg;           // 营业额（含税，折人民币）
+  // 营业额只算正常销售单：退款单售价已全额退回，放进分母会把毛利率压低 (KK 2026-11-26)
+  const ttcCny = sumOK("revenue_ttc") * fxAvg;
   const gmPct = ttcCny > 0 ? gpSum / ttcCny : null;
   // 到仓价合计 = 单价 × 数量，只算没退款的行（退款行的货值已体现在退款损失里，重复加会虚增成本）
   const costSum = view.reduce((s, r) => (isRefund(r) ? s : s + Number(r.landed_cost || 0) * Number(r.qty || 1)), 0);
@@ -4816,7 +4824,7 @@ function OrderRecords() {
 
       {loaded && view.length > 0 && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: OC_W + 282 }}>
+          <div style={{ minWidth: OC_W + 306 }}>
             <div style={{ position: "sticky", top: 0, zIndex: 3 }}>
             <div style={{ display: "grid", gridTemplateColumns: OC_GRID, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600, letterSpacing: 0.2 }}>
               {OC.map(c => <div key={c.k} title={c.tip || c.l} style={{ padding: "9px 6px", lineHeight: 1.45, borderRight: `1px solid #2a4a78`, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.l}</div>)}
@@ -4829,7 +4837,12 @@ function OrderRecords() {
                 if (c.k === "order_date") return <div key={c.k} style={{ color: C.brand, ...bd }}>统计</div>;
                 if (c.k === "order_no") return <div key={c.k} style={{ color: C.sub, ...bd }}>{nOrders} 单</div>;
                 if (c.k === "product") return <div key={c.k} style={{ color: C.faint, fontWeight: 400, ...bd }}>{nSkus} 个 SKU</div>;
-                if (c.k === "gross_margin") return <div key={c.k} title="毛利率 = 毛利总额 ÷ 营业额总额" style={{ padding: "7px 5px", textAlign: "right", color: C.ink, ...bd }}>{gmPct === null ? "—" : (gmPct * 100).toFixed(2) + "%"}</div>;
+                // 数量是件数，不是钱 —— 走 OC_SUM 会被 money() 包成 ¥656.00 撑爆列宽 (KK 2026-11-26 修)
+                if (c.k === "qty") {
+                  const qs = Math.round(sumOK("qty"));
+                  return <div key={c.k} title={`已售 ${qs} 件（不含退款/取消的件数）`} style={{ textAlign: "right", color: C.ink, ...bd }}>{qs}</div>;
+                }
+                if (c.k === "gross_margin") return <div key={c.k} title="毛利率 = 毛利总额 ÷ 营业额总额" style={{ textAlign: "right", color: C.ink, ...bd }}>{gmPct === null ? "—" : (gmPct * 100).toFixed(2) + "%"}</div>;
                 if (c.k === "refund") {
                   const refRows = view.filter(isRefund);
                   const refAmt = refRows.reduce((a, r) => a + Number(r.refund_amt || 0), 0);
@@ -4838,12 +4851,16 @@ function OrderRecords() {
                   const nSeller = refRows.length - nRefuse;
                   // 显示净损失（人民币）——这样「到手¥ − 到仓价¥ − 退款损失 = 毛利¥」能直接对上
                   return <div key={c.k} title={`${refRows.length} 单退款（卖家退款 ${nSeller} 全损 / 拒收 ${nRefuse} 只损运费）· 客户退款合计 ${eur(refAmt)} · 净损失 ${money(refLoss)}`}
-                    style={{ padding: "7px 5px", textAlign: "right", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? money(refLoss) : "—"}</div>;
+                    style={{ textAlign: "right", color: refRows.length ? C.ref : C.faint, ...bd }}>{refRows.length ? money(refLoss) : "—"}</div>;
                 }
                 // 到仓价列存的是单价，合计必须 × 数量，且不含退款行（退款货值走退款损失）
-                if (c.k === "landed_cost") return <div key={c.k} title="已售商品成本 = 到仓价单价 × 数量（不含退款行，退款货值另计）" style={{ padding: "7px 5px", textAlign: "right", color: C.ink, ...bd }}>{money(costSum)}</div>;
-                if (OC_SUM.includes(c.k)) return <div key={c.k} style={{ padding: "7px 5px", textAlign: "right", color: c.hl ? C.brand : C.ink, ...bd }}>{c.t === "eur" ? eur(sum(c.k)) : money(sum(c.k))}</div>;
-                return <div key={c.k} style={{ padding: "7px 5px", ...bd }} />;
+                if (c.k === "landed_cost") return <div key={c.k} title="已售商品成本 = 到仓价单价 × 数量（不含退款行，退款货值另计）" style={{ textAlign: "right", color: C.ink, ...bd }}>{money(costSum)}</div>;
+                if (OC_SUM.includes(c.k)) {
+                  // 毛利要含退款损失（退款行的 gross_profit 就是净损失）；其余列都是正常销售口径
+                  const v = c.k === "gross_profit" ? sum(c.k) : sumOK(c.k);
+                  return <div key={c.k} style={{ textAlign: "right", color: c.hl ? C.brand : C.ink, ...bd }}>{c.t === "eur" ? eur(v) : money(v)}</div>;
+                }
+                return <div key={c.k} style={bd} />;
               })}
             </div>
             </div>
@@ -4866,7 +4883,8 @@ function OrderRecords() {
                     style={{
                       padding: "8px 6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       borderRight: `1px solid ${C.line}`,
-                      textAlign: ["idx", "order_date", "order_no", "region", "product", "sku", "email_sent", "review_asked", "refund"].includes(c.k) ? "left" : "right",
+                      // 退款列已是金额(€)，右对齐才和统计行一致 —— 原来左对齐会与合计行错位 (KK 2026-11-26)
+                      textAlign: ["idx", "order_date", "order_no", "region", "product", "sku", "email_sent", "review_asked"].includes(c.k) ? "left" : "right",
                       fontWeight: rRef && (c.k === "refund" || c.hl) ? 700 : (c.hl ? 600 : 400),
                       color: c.hl ? (rRef ? C.ref : C.brand) : (c.k === "idx" ? C.faint : (c.k === "refund" ? (rRef ? C.ref : C.faint) : C.ink)),
                     }}>
