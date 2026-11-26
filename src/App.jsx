@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./lib/supabase";
 
 // =============================================================
-// 亚马逊精品系统 · KinZon FR / DE / UK 亚马逊选品管理
+// 西欧运营体系 · KinZon 选品管理（KK 2026-11-26 改名）
 // 假数据取自法国站现有产品, 并给部分产品加了 DE/UK 评估行以演示跨站
 // =============================================================
 
@@ -468,7 +468,7 @@ function Login() {
   return (
     <div style={{ background: C.bg, color: C.ink, minHeight: "100vh", fontFamily: "'Inter',system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ width: 360, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: 32 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>亚马逊精品系统</div>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>西欧运营体系</div>
         <div style={{ fontSize: 12, color: C.sub, marginBottom: 28 }}>KinZon SAS · 登录</div>
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 12, color: C.sub, marginBottom: 5 }}>邮箱</div>
@@ -606,8 +606,7 @@ export default function App() {
 
       {/* header */}
       <div style={{ borderBottom: `1px solid ${C.line}`, padding: "18px 28px", display: "flex", alignItems: "center", gap: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: ".01em" }}>亚马逊精品系统</div>
-        <div style={{ fontSize: 12, color: C.sub }}>KinZon · FR / DE / UK</div>
+        <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: ".01em" }}>西欧运营体系</div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 11, color: C.faint }}>{session.user.email}</span>
           <button onClick={() => supabase.auth.signOut()}
@@ -4523,9 +4522,6 @@ function OrderSummary() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>单品月度订单统计</div>
-          <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>
-            单品 × 月维度的订单量统计 · 仅管理员可见 · 待 KK 确认口径与数据源
-          </div>
         </div>
         <div style={{ marginLeft: "auto" }}>
           <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未接入</span>
