@@ -6146,7 +6146,7 @@ function Purchase() {
 
           {!loading && roleReady && (
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-              <div style={{ minWidth: 1420 }}>
+              <div style={{ minWidth: 1470 }}>
                 <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
                   <div style={{ ...th, textAlign: "center" }} />
                   <div style={th}>采购单号</div>
@@ -6887,6 +6887,39 @@ const OPS_SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
 const OPS_MONTHLY_SITE = "月固定";
 const OPS_MONTHLY_CATS = { "网络IP费用": 88 };
 const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "服务订阅", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
+// Cdiscount 店铺级费用名目 —— 按 CD 后台(Facture / 回款单)实际收费科目，不套亚马逊 (KK 2026-11-26)
+// ① 平台服务费 = 回款单 servicesAmount 打包总额（API 只给这一个数，未拆明细时记这里）
+// ② 其余按 CD 结算单科目拆分；拆开后「平台服务费」那行留 0，不能与明细项同时填（会重复计）
+// ③ 佣金 / 处理费 / FBC 配送费 / 环保金 属订单级，已进订单记录毛利，不在此页
+const OPS_CATS_CD = [
+  "平台服务费",       // Services —— 回款单打包数（含月租+服务，明细未拆时记这里）
+  "平台月租",         // Abonnement €39.99/月
+  "增值订阅",         // Options payantes / Premium
+  "仓储费",           // Frais de stockage（按 m³·天）
+  "长期仓储费",       // Frais de stockage longue durée（超库龄）
+  "入库接收费",       // Frais de réception（含未预报入库附加费）
+  "退货处置费",       // Traitement des retours
+  "销毁费",           // Mise au rebut
+  "撤仓运费",         // Enlèvement / Rapatriement
+  "广告费",           // Publicité / CARS（按点击）
+  "平台罚款",         // Pénalités（迟发/缺货/纠纷）
+  "汇兑手续费",       // Frais de change
+];
+// 类目 → 账单科目原名（页面上做副标题，方便跟结算单逐行核对）
+const OPS_CD_HINT = {
+  "平台服务费": "Services · 回款单打包",
+  "平台月租": "Abonnement €39.99",
+  "增值订阅": "Options payantes",
+  "仓储费": "Frais de stockage",
+  "长期仓储费": "Stockage longue durée",
+  "入库接收费": "Frais de réception",
+  "退货处置费": "Traitement retours",
+  "销毁费": "Mise au rebut",
+  "撤仓运费": "Enlèvement",
+  "广告费": "Publicité / CARS",
+  "平台罚款": "Pénalités",
+  "汇兑手续费": "Frais de change",
+};
 // 店铺口径常量 (OPS_FIXED_STORES / SHARE_GROUP / ALL_STORES / ROLE_STORES) 已提到文件顶部统一定义
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
 // 三家共享场地费的「默认值」= ¥3800/月。
@@ -7028,12 +7061,21 @@ function CostBook() {
     revenue_ttc: ord.ttc, vat: ord.vat, commission: ord.comm, service_fee: ord.svc,
     fbc_fee: ord.fbc, eco_tax: ord.eco, refund_loss: ord.loss,
   };
-  // 店铺级金额：取运维费用当月已录入（¥）；key 对齐 OPS 费用分类名
+  // 店铺级金额：取运维费用当月已录入（¥）；key 对齐 cost_items.code
+  // Cdiscount 名目（2026-11-26 改）：平台服务费/平台月租/增值订阅/仓储费/长期仓储费/入库接收费/退货处置费/销毁费/撤仓运费/广告费/平台罚款/汇兑手续费
+  // 旧名（仓储/入库费用/弃置费用/广告/服务订阅/店铺月租）保留兼容，防历史行取不到
+  const pick = (...names) => { for (const n of names) if (storeCost[n] !== undefined) return storeCost[n]; return undefined; };
   const STORE_AMT = {
-    storage: storeCost["仓储"], storage_long: storeCost["长期仓储"], inbound: storeCost["入库费用"],
-    destruction: storeCost["弃置费用"], removal: storeCost["弃置费用"],
-    subscription: storeCost["平台服务费"] ?? storeCost["服务订阅"] ?? storeCost["店铺月租"],
-    ads: storeCost["广告"],
+    storage: pick("仓储费", "仓储"),
+    storage_long: pick("长期仓储费", "长期仓储"),
+    inbound: pick("入库接收费", "入库费用"),
+    return_handling: pick("退货处置费", "亚马逊物流客户退货费(非服装和非鞋类)"),
+    destruction: pick("销毁费", "弃置费用"),
+    removal: pick("撤仓运费"),
+    subscription: pick("平台服务费", "平台月租", "服务订阅", "店铺月租"),
+    ads: pick("广告费", "广告"),
+    penalty: pick("平台罚款"),
+    fx: pick("汇兑手续费"),
   };
   const ST = {
     ok: { t: "已归集", c: C.brand }, partial: { t: "部分", c: C.watch },
@@ -7307,8 +7349,11 @@ function OpsFee() {
   const SITES = PLAT_SITES[plat] || OPS_SITES;
   const MONTHLY_SITE = OPS_MONTHLY_SITE;
   const MONTHLY_CATS = OPS_MONTHLY_CATS;
+  // Cdiscount 费用名目按 CD 实际账单科目列（不套亚马逊）— KK 2026-11-26
+  // 来源：回款单 API(servicesAmount / securityDepositAmount) + CD 结算单(Facture)实际扣费科目
   const CATS = plat === "amazon" ? OPS_CATS
-    : ["平台服务费", "广告", "仓储", "长期仓储", "服务订阅", "店铺月租", "入库费用", "弃置费用", "生产者延伸费", "优惠券"];
+    : plat === "cdiscount" ? OPS_CATS_CD
+      : ["平台服务费", "广告", "仓储", "长期仓储", "服务订阅", "店铺月租", "入库费用", "弃置费用", "生产者延伸费", "优惠券"];
   const cur = new Date();
   const YEARS = Array.from({ length: 6 }, (_, i) => cur.getFullYear() - 3 + i);   // 前3年 ~ 后2年
   const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
@@ -7493,8 +7538,8 @@ function OpsFee() {
       {!loaded && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
       {loaded && (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: 1420 }}>
-            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
+          <div style={{ minWidth: 1470 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, background: "#1f3a68", fontSize: 12, color: "#fff", fontWeight: 600 }}>
               <div style={{ padding: "10px 12px", borderRight: `1px solid #2a4a78` }}>
                 {month.slice(0, 7)} · {filterStore || "全部店铺"}
               </div>
@@ -7507,7 +7552,7 @@ function OpsFee() {
                 const v = monthlyVal(cat);
                 const k = `${MONTHLY_SITE}|${cat}`;
                 return (
-                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "rgba(127,119,221,.10)" }}>
+                  <div key={cat} style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "rgba(127,119,221,.10)" }}>
                     <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink }}>
                       {cat}
                       <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
@@ -7533,8 +7578,13 @@ function OpsFee() {
                   </div>
                 );
               })() : (
-              <div key={cat} style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
-                <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>{cat}</div>
+              <div key={cat} style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12 }}>
+                <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>
+                  {cat}
+                  {plat === "cdiscount" && OPS_CD_HINT[cat] && (
+                    <span title={`账单科目：${OPS_CD_HINT[cat]}`} style={{ marginLeft: 6, fontSize: 10, color: C.faint, fontWeight: 400 }}>{OPS_CD_HINT[cat]}</span>
+                  )}
+                </div>
                 {SITES.map(site => {
                   const v = getVal(site, cat);
                   const k = `${site}|${cat}`;
@@ -7567,7 +7617,7 @@ function OpsFee() {
               </div>
               )
             ))}
-            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12 }}>
               <div style={{ padding: "10px 12px", fontWeight: 700, color: C.brand }}>站点合计</div>
               {SITES.map(site => (
                 <div key={site} style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: C.brand }}>
@@ -7581,7 +7631,7 @@ function OpsFee() {
                 ¥{rmbTotal.toFixed(2)}
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: `250px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, background: C.panel, fontSize: 11 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `300px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, background: C.panel, fontSize: 11 }}>
               <div style={{ padding: "8px 12px", color: C.faint }}>说明</div>
               <div style={{ gridColumn: `span ${SITES.length + 1}`, padding: "8px 12px", color: C.faint }}>
                 站点金额均为欧元(€) · 本月汇率 €→¥ = {rate} · 月度核算费用 ¥ = (欧元合计 {eurTotal.toFixed(2)} × {rate}) + 网络IP等月固定 ¥{monthlyRmb.toFixed(2)}
