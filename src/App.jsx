@@ -7415,6 +7415,23 @@ function StockRecon() {
   const [loaded, setLoaded] = useState(false);
   const [cum, setCum] = useState(null);   // 期初批核实（累计口径）
   const [cumOpen, setCumOpen] = useState(true);
+  const [retStat, setRetStat] = useState(null);   // 退货在仓（库存侧 qty_return）
+
+  // 退货在仓：客户已退回、待质检（不含已移出）。库存勾稽的第三个变量（KK 2026-11-26）
+  useEffect(() => {
+    (async () => {
+      const l = await supabase.from("inventory_daily").select("snap_date")
+        .eq("platform", "cdiscount").order("snap_date", { ascending: false }).limit(1);
+      const d0 = l.data && l.data[0] && l.data[0].snap_date;
+      if (!d0) { setRetStat({ date: null, qty: 0, rows: [] }); return; }
+      const { data } = await supabase.from("inventory_daily")
+        .select("sku,product_name,qty_return,stock_qty").eq("platform", "cdiscount").eq("snap_date", d0).limit(5000);
+      const list = (data || []).filter(r => Number(r.qty_return || 0) > 0)
+        .map(r => ({ sku: r.sku, name: r.product_name, qty: Number(r.qty_return || 0) }))
+        .sort((a, b) => b.qty - a.qty);
+      setRetStat({ date: d0, qty: list.reduce((s, r) => s + r.qty, 0), rows: list });
+    })().catch(() => setRetStat({ date: null, qty: 0, rows: [] }));
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -7547,12 +7564,20 @@ function StockRecon() {
             {card("入库/退货回仓", cur.inbound_sum || 0, C.watch, "库存净增的件数，抵消了减少")}
             {card("差异", cur.diff_sum, bad.length ? C.ref : C.brand, "减少 − 订单；为 0 即账实相符")}
             {cur.decrease_total !== null && cur.decrease_total !== undefined ? card("总在库减少", cur.decrease_total, C.sub, "含占用/锁/退货等状态，不含已移出；出库才减，滞后 1-3 天") : null}
+            {retStat && retStat.qty > 0 ? card("退货在仓", retStat.qty, C.watch, `${retStat.date} 客户已退回待质检（库存侧 qty_return），勾稽时作独立变量单列`) : null}
             {card("SKU 数", cur.sku_total, C.sub, "当天在库 SKU 总数")}
           </div>
+          {cur.detail && (
+            <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8,
+              padding: "9px 13px", marginBottom: 10, fontSize: 12, color: C.ink, lineHeight: 1.7 }}>
+              <span style={{ color: C.faint, marginRight: 8 }}>勾稽</span>{cur.detail}
+            </div>
+          )}
           <div style={{ fontSize: 11, color: C.faint, marginBottom: 10, lineHeight: 1.7 }}>
             判定规则：<span style={{ color: C.brand }}>可卖量减少 = 订单件数</span> → 一致 ｜
             <span style={{ color: C.watch }}> 少减</span> → 有入库补货或退货回仓（正常，已单列）｜
-            <span style={{ color: C.ref }}> 多减</span> → 丢件/盘亏/未记录出库，需人工核对
+            <span style={{ color: C.ref }}> 多减</span> → 丢件/盘亏/未记录出库，需人工核对<br />
+            实物勾稽（总在库口径）：已出库 ＋ 退款已发货 － 库存减少 － 退货回仓 ＝ 补货净入库；算出负数即缺口
           </div>
 
           <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
