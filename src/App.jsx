@@ -626,7 +626,10 @@ export default function App() {
           ...(session?.user?.email === KPI_OWNER_EMAIL ? [["kpi", "监控指标体系"]] : []),
           // 产品侧 Tab (类目/链接/监控): 财务专员不需要, 全部隐藏 — KK 2026-09-18
           ...(curRole === "finance" ? [] : [["shelf", "类目明细"], ["overview", "开发进度"], ["cross", "跨站点开发"], ["progress", "链接进度"], ["score", "链接评分"], ["track", "日级跟进"], ["asinlife", "ASIN"], ["adanalysis", "广告分析"]]),
-          ["purchase", "采购管理"], ["shipments", "发货记录"], ["inventory", "库存统计"], ["afterstock", "售后库存"], ["orderrecords", "订单记录"],
+          ["purchase", "采购管理"], ["shipments", "发货记录"], ["inventory", "库存统计"],
+          // 库存对账: 库存减少 vs 订单出单，运营/财务/供应链可见 — KK 2026-11-26 定
+          ...(["admin", "fr", "cd_supplier", "cd_procurement", "cd_promotion", "finance"].includes(curRole) ? [["stockrecon", "库存对账"]] : []),
+          ["afterstock", "售后库存"], ["orderrecords", "订单记录"],
           // 单品月度订单统计: 紧跟「订单记录」+ admin/黄丹/财务专员 — 2026-09-18 KK 定
           ...(["admin", "cd_procurement", "finance"].includes(curRole) ? [["ordersummary", "单品统计"]] : []),
           // 店铺运维费用: admin + 成都·供应链 + 成都·采购(黄丹) + 财务专员 + 成都·推广(诗琪) — 2026-10-20 KK 定
@@ -664,6 +667,7 @@ export default function App() {
         {tab === "purchase" && <Purchase />}
         {tab === "shipments" && <Shipments />}
         {tab === "inventory" && <InventoryStats />}
+        {tab === "stockrecon" && <StockRecon />}
         {tab === "afterstock" && <AfterStock />}
         {tab === "orderrecords" && <OrderRecords />}
         {tab === "asinlife" && <AsinLifecycle />}
@@ -7114,6 +7118,163 @@ function CostBook() {
       )}
       {loaded && ord.n === 0 && (
         <div style={{ marginTop: 14, fontSize: 12, color: C.faint }}>该月没有订单记录</div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════ 库存对账：每天库存减少 vs 当天订单出单（KK 2026-11-26） ═══════════════
+// 数据链：cd_sync 拉库存/订单 → push_cd_to_west 写 inventory → cd_recon 存快照+对账
+// 判定：可卖量减少 = 订单件数 → 一致；少减 = 有入库/退货回仓（不算异常）；多减 = 需人工核对
+function StockRecon() {
+  const [role, setRole] = useState(null);
+  const [days, setDays] = useState([]);
+  const [day, setDay] = useState("");
+  const [rows, setRows] = useState([]);
+  const [showOk, setShowOk] = useState(false);
+  const [err, setErr] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data && data.user) setRole(getUserRole(data.user.email || ""));
+    });
+  }, []);
+
+  useEffect(() => {
+    supabase.from("recon_daily").select("*").order("recon_date", { ascending: false }).limit(180)
+      .then(({ data, error }) => {
+        setLoaded(true);
+        if (error) { setErr(error.message); return; }
+        const list = data || [];
+        setDays(list);
+        setDay(d => d || (list.length ? list[0].recon_date : ""));
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!day) { setRows([]); return; }
+    supabase.from("stock_recon").select("*").eq("recon_date", day).limit(2000)
+      .then(({ data, error }) => {
+        if (error) { setErr(error.message); setRows([]); } else { setErr(""); setRows(data || []); }
+      });
+  }, [day]);
+
+  const cur = days.find(d => d.recon_date === day) || null;
+  const baseline = cur && cur.status === "baseline";
+  const bad = rows.filter(r => r.status === "short");
+  const inb = rows.filter(r => r.status === "inbound" || r.status === "new");
+  const gone = rows.filter(r => r.status === "gone");
+  const ok = rows.filter(r => r.status === "ok");
+  const show = [...bad, ...inb, ...gone, ...(showOk ? ok : [])];
+  const ST = {
+    short: ["需核对", C.ref], inbound: ["有入库", C.watch], new: ["新入库", C.watch],
+    ok: ["一致", C.faint], gone: ["已下架", C.sub],
+  };
+  const dnum = (v) => (v === null || v === undefined || v === "") ? "—" : v;
+  const sgn = (v) => (v === null || v === undefined) ? "—" : (Number(v) > 0 ? "+" + v : String(v));
+  const R_GRID = "118px minmax(150px, 2fr) 56px 56px 56px 56px 62px 56px 66px minmax(150px, 1.6fr)";
+  const card = (label, val, color, tip) => (
+    <div title={tip || ""} style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 14px", minWidth: 96 }}>
+      <div style={{ fontSize: 10, color: C.faint, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: color || C.ink }}>{val}</div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>库存对账</div>
+        <span style={{ fontSize: 12, color: C.sub }}>日期:</span>
+        <select value={day} onChange={e => setDay(e.target.value)}
+          style={{ padding: "5px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
+          {days.length === 0 && <option value="">暂无数据</option>}
+          {days.map(d => (
+            <option key={d.recon_date} value={d.recon_date}>
+              {d.recon_date}{d.status === "baseline" ? "（基线）" : (Number(d.diff_sku || 0) > 0 ? `（${d.diff_sku} 项待核）` : "（一致）")}
+            </option>
+          ))}
+        </select>
+        {cur && !baseline && (
+          <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 12px", borderRadius: 6,
+            color: bad.length ? C.ref : C.brand,
+            background: bad.length ? "rgba(226,86,76,.12)" : "rgba(77,182,164,.12)",
+            border: `1px solid ${bad.length ? C.ref : C.brand}` }}>
+            {bad.length ? `需核对 ${bad.length} 项` : "当天账实相符"}
+          </span>
+        )}
+        {cur && <span style={{ fontSize: 11, color: C.faint }}>快照 {String(cur.window_to || "").slice(0, 16).replace("T", " ")} UTC</span>}
+      </div>
+
+      {err && <div style={{ background: C.refBg, border: `1px solid ${C.ref}`, borderRadius: 8, padding: 10, color: C.ref, fontSize: 12, marginBottom: 12 }}>{err}</div>}
+
+      {cur && baseline && (
+        <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 10, padding: 20, color: C.sub, fontSize: 13, lineHeight: 1.9, marginBottom: 12 }}>
+          这一天是<b style={{ color: C.ink }}>库存基线</b>（第一次抓快照），没有前一天可比，所以不产出核对结果。<br />
+          从<b style={{ color: C.ink }}>次日</b>起，每天会自动比对「库存减少」与「当天订单件数」，结果出现在这里。
+        </div>
+      )}
+
+      {cur && !baseline && (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+            {card("可卖量减少", cur.decrease_sum, C.ink, "当天可用库存的净减少件数")}
+            {card("订单出单", cur.order_sum, C.ink, "核对窗口内 FBC 有效订单件数")}
+            {card("入库/退货回仓", cur.inbound_sum || 0, C.watch, "库存净增的件数，抵消了减少")}
+            {card("差异", cur.diff_sum, bad.length ? C.ref : C.brand, "减少 − 订单；为 0 即账实相符")}
+            {cur.decrease_total !== null && cur.decrease_total !== undefined ? card("总在库减少", cur.decrease_total, C.sub, "含占用/锁/退货等状态，不含已移出；出库才减，滞后 1-3 天") : null}
+            {card("SKU 数", cur.sku_total, C.sub, "当天在库 SKU 总数")}
+          </div>
+          <div style={{ fontSize: 11, color: C.faint, marginBottom: 10, lineHeight: 1.7 }}>
+            判定规则：<span style={{ color: C.brand }}>可卖量减少 = 订单件数</span> → 一致 ｜
+            <span style={{ color: C.watch }}> 少减</span> → 有入库补货或退货回仓（正常，已单列）｜
+            <span style={{ color: C.ref }}> 多减</span> → 丢件/盘亏/未记录出库，需人工核对
+          </div>
+
+          <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: R_GRID, background: "#1f3a68", fontSize: 10, color: "#fff", fontWeight: 600 }}>
+              {["SKU", "品名", "上次", "本次", "减少", "订单", "差异", "入库", "状态", "说明"].map((h, i) => (
+                <div key={h} style={{ padding: "7px 6px", borderRight: i < 9 ? "1px solid #2a4a78" : "none", whiteSpace: "nowrap" }}>{h}</div>
+              ))}
+            </div>
+            {show.map((r, i) => {
+              const [txt, col] = ST[r.status] || ["—", C.sub];
+              return (
+                <div key={r.sku} style={{ display: "grid", gridTemplateColumns: R_GRID, fontSize: 11,
+                  borderTop: `1px solid ${C.line}`, background: r.status === "short" ? C.refBg : (i % 2 ? C.bg : "transparent"),
+                  boxShadow: r.status === "short" ? `inset 3px 0 0 ${C.ref}` : "none" }}>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, fontFamily: "monospace", fontSize: 10 }}>{r.sku}</div>
+                  <div title={r.product_name || ""} style={{ padding: "6px", borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.product_name || "—"}</div>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right", color: C.sub }}>{dnum(r.prev_qty)}</div>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right" }}>{dnum(r.curr_qty)}</div>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right" }}>{dnum(r.decrease_qty)}</div>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right" }}>{dnum(r.order_qty)}</div>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right", fontWeight: 700, color: Number(r.diff_qty) ? col : C.faint }}>{sgn(r.diff_qty)}</div>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, textAlign: "right", color: C.watch }}>{Number(r.inbound_qty) ? "+" + r.inbound_qty : "—"}</div>
+                  <div style={{ padding: "6px", borderRight: `1px solid ${C.line}`, color: col, whiteSpace: "nowrap" }}>{txt}</div>
+                  <div title={r.note || ""} style={{ padding: "6px", color: C.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note || "—"}</div>
+                </div>
+              );
+            })}
+            {ok.length > 0 && (
+              <div onClick={() => setShowOk(v => !v)}
+                style={{ padding: "8px 10px", borderTop: `1px solid ${C.line}`, background: C.panel2, fontSize: 11, color: C.sub, cursor: "pointer" }}>
+                {showOk ? "▾" : "▸"} 一致 {ok.length} 个 SKU（点击{showOk ? "收起" : "展开"}）
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {loaded && days.length === 0 && !err && (
+        <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 10, padding: 40, textAlign: "center", color: C.faint, fontSize: 13, lineHeight: 1.9 }}>
+          还没有对账记录。<br />
+          <span style={{ fontSize: 12 }}>每日 10:00 自动跑（任务 Kinzon-Cdiscount-DailySync）：拉库存 → 存快照 → 对订单 → 出核对结果。</span>
+        </div>
+      )}
+
+      {role && !["admin", "fr", "cd_procurement", "finance", "cd_supplier", "cd_promotion"].includes(role) && (
+        <div style={{ marginTop: 10, fontSize: 11, color: C.faint }}>当前账号为只读角色，如需核对请找 KK。</div>
       )}
     </div>
   );
