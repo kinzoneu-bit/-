@@ -4680,6 +4680,9 @@ function OrderRecords() {
   const refTone = (r) => isRefused(r)
     ? { bg: "rgba(217,164,65,0.10)", bar: C.watch, line: "rgba(217,164,65,0.35)" }
     : { bg: C.refBg, bar: C.ref, line: "rgba(226,86,76,0.35)" };
+  // 未出仓的退款：货还在仓，压根不存在「是否可售」要核实 → 按默认口径(只计费用)，不进待核队列 (KK 2026-11-26)
+  const refShipped = (r) => r.refund_shipped === true;
+  const refPending = (r) => isRefund(r) && refShipped(r) && (r.refund_saleable === null || r.refund_saleable === undefined);
   // 退款原因（平台 cancellationDetails.reason）与货是否已出库
   const REFUND_REASON = {
     "refund-from-seller": "卖家主动退款",
@@ -4690,7 +4693,7 @@ function OrderRecords() {
   const refundTitle = (r) => {
     if (!isRefund(r)) return "";
     const rs = REFUND_REASON[r.refund_reason] || r.refund_reason || "退款";
-    const rule = isRefused(r) ? "拒收口径：只损运费（处理费+FBC配送费），货值不计损"
+    const rule = (isRefused(r) || !refShipped(r)) ? (isRefused(r) ? "拒收口径：只损运费（处理费+FBC配送费），货值不计损" : "未出仓口径：只损费用，货值不计损")
       : (r.refund_saleable === true ? "已核实可售，货值损失已冲回"
         : "卖家退款口径：暂计全损（到仓价×件数 + 处理费 + FBC配送费）");
     const loss = Number(r.refund_loss || 0) !== 0 ? "｜净损失 " + money(Math.abs(Number(r.refund_loss))) : "";
@@ -4778,14 +4781,14 @@ function OrderRecords() {
           </button>
           {canAuditRefund && (() => {
             const rf = view.filter(isRefund);
-            const pend = rf.filter(r => r.refund_saleable === null || r.refund_saleable === undefined).length;
+            const pend = rf.filter(refPending).length;
             return (
               <button onClick={() => {
                 const d = {};
                 rf.forEach(r => { d[r.id] = r.refund_saleable === true ? true : (r.refund_saleable === false ? false : null); });
                 setRefDraft(d); setShowRefAudit(true);
               }} disabled={!rf.length}
-                title="运营核实退货是否可售：可售的货值损失冲回，不可售的全额计损"
+                title="只核已出仓的退款：可售 → 货值冲回；不可售 → 全额计损。未出仓的按默认口径自动算，不用核"
                 style={{ padding: "5px 11px", background: pend ? "rgba(226,86,76,.16)" : C.panel2, border: `1px solid ${pend ? C.ref : C.line}`, borderRadius: 6, color: rf.length ? (pend ? C.ref : C.ink) : C.faint, fontSize: 12, cursor: rf.length ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
                 退款核实 {pend ? `(${pend} 待核)` : `(${rf.length})`}
               </button>
@@ -4883,14 +4886,14 @@ function OrderRecords() {
         const RATE = 7.2;
         const calcLoss = (r, saleable) => {
           const fee = (Number(r.service_fee || 0) + Number(r.fbc_fee || 0)) * RATE;
-          // 拒收：只损运费，货值不计损（KK 2026-11-26）
-          if (r.refund_reason === "shipping-refused") return -Number(fee.toFixed(2));
+          // 拒收 / 未出仓：只损运费，货值不计损（KK 2026-11-26）
+          if (r.refund_reason === "shipping-refused" || !refShipped(r)) return -Number(fee.toFixed(2));
           // 卖家退款：默认全损 = 到仓价 × 件数 + 费用；只有标了「可售」才把货值冲回
           const cost = saleable ? 0 : Number(r.landed_cost || 0) * Number(r.qty || 1);
           return -Number((cost + fee).toFixed(2));
         };
         const stateOf = (r) => (refDraft[r.id] === true ? true : (refDraft[r.id] === false ? false : null));
-        const pend = list.filter(r => stateOf(r) === null).length;
+        const pend = list.filter(r => refPending(r) && stateOf(r) === null).length;
         const total = list.reduce((a, r) => a + calcLoss(r, stateOf(r) === true), 0);
         const Btn = ({ on, children, onClick }) => (
           <button onClick={onClick} style={{
@@ -4923,7 +4926,7 @@ function OrderRecords() {
                   const fee = (Number(r.service_fee || 0) + Number(r.fbc_fee || 0)) * RATE;
                   const loss = calcLoss(r, st === true);
                   return (
-                    <div key={r.id} style={{ display: "grid", gridTemplateColumns: "86px 150px 100px 76px 118px 62px 86px 92px 158px 92px", fontSize: 11, borderBottom: `1px solid ${C.line}`, background: st === null ? "rgba(226,86,76,.07)" : (i % 2 ? C.bg : "transparent") }}>
+                    <div key={r.id} style={{ display: "grid", gridTemplateColumns: "86px 150px 100px 76px 118px 62px 86px 92px 158px 92px", fontSize: 11, borderBottom: `1px solid ${C.line}`, background: (refPending(r) && st === null) ? "rgba(226,86,76,.07)" : (i % 2 ? C.bg : "transparent") }}>
                       <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, color: C.sub }}>{(r.order_date || "").slice(5)}</div>
                       <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis" }} title={r.order_no}>{r.order_no}</div>
                       <div style={{ padding: "7px 8px", borderRight: `1px solid ${C.line}`, color: C.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.product || ""}>{cnMap[r.plat_sku] || r.product || "—"}</div>
@@ -4935,6 +4938,8 @@ function OrderRecords() {
                       <div style={{ padding: "6px 8px", borderRight: `1px solid ${C.line}`, display: "flex", gap: 4 }}>
                         {r.refund_reason === "shipping-refused"
                           ? <span style={{ fontSize: 11, color: C.watch }}>拒收 · 只损运费</span>
+                          : !refShipped(r)
+                          ? <span style={{ fontSize: 11, color: C.faint }} title="货没出仓，货值不计损，按默认口径">未出仓 · 默认</span>
                           : <>
                               <Btn on={st === true} onClick={() => setRefDraft(d => ({ ...d, [r.id]: true }))}>可售</Btn>
                               <Btn on={st === false} onClick={() => setRefDraft(d => ({ ...d, [r.id]: false }))}>不可售</Btn>
@@ -4948,7 +4953,7 @@ function OrderRecords() {
               </div>
               <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: 11, color: C.faint }}>
-                  改动直接写库并重算该单的净损失与毛利；未核实的仍按「全额计损」保守口径
+                  只核已出仓的退款（可售/不可售）；拒收与未出仓按固定口径自动算，不占待核。改动直接写库并重算净损失与毛利
                 </span>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                   <button onClick={() => setShowRefAudit(false)} style={{ padding: "6px 14px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
