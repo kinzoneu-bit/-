@@ -1124,7 +1124,7 @@ function Overview({ siteEvals, onPick }) {
           <div style={{ fontSize: 14, fontWeight: 700 }}>作业交接</div>
           <div style={{ fontSize: 12, color: C.sub, marginTop: 3 }}>5 个阶段 · 4 个交接节点 · 拖拽类目到目标框即交接并重新计时 · 一级类目聚合显示</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: C.faint }}>当前角色</span>
           <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6,
             background: (userRole === "admin" || userRole === "fr") ? `${C.brand}22` : (userRole ? `${C.line}` : "#3a3030"),
@@ -4554,6 +4554,8 @@ function OrderRecords() {
   const [ocRole, setOcRole] = useState(null);
   const [showRefAudit, setShowRefAudit] = useState(false);
   const [refDraft, setRefDraft] = useState({});   // {rowId: true(可售)/false(不可售)}
+  // 退款核实默认只看待核实：已核过的不占屏，运营点开就是待办清单 (KK 2026-11-26)
+  const [refOnlyPend, setRefOnlyPend] = useState(true);
   const [refSaving, setRefSaving] = useState(false);
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -4796,9 +4798,10 @@ function OrderRecords() {
                 rf.forEach(r => { d[r.id] = r.refund_saleable === true ? true : (r.refund_saleable === false ? false : null); });
                 setRefDraft(d); setShowRefAudit(true);
               }} disabled={!rf.length}
-                title="只核已出仓的退款：可售 → 货值冲回；不可售 → 全额计损。未出仓的按默认口径自动算，不用核"
+                title={`${rf.length} 笔退款，其中 ${pend} 笔待核实。只核已出仓的退款：可售 → 货值冲回；不可售 → 全额计损。未出仓的按默认口径自动算，不用核`}
                 style={{ padding: "5px 11px", background: pend ? "rgba(226,86,76,.16)" : C.panel2, border: `1px solid ${pend ? C.ref : C.line}`, borderRadius: 6, color: rf.length ? (pend ? C.ref : C.ink) : C.faint, fontSize: 12, cursor: rf.length ? "pointer" : "not-allowed", fontFamily: "inherit" }}>
-                退款核实 {pend ? `(${pend} 待核)` : `(${rf.length})`}
+                {/* 已核过的不再显示 —— 只报待核数；全核完就光一个按钮名 (KK 2026-11-26) */}
+                退款核实{pend ? ` (${pend} 待核)` : ""}
               </button>
             );
           })()}
@@ -4913,6 +4916,8 @@ function OrderRecords() {
         const stateOf = (r) => (refDraft[r.id] === true ? true : (refDraft[r.id] === false ? false : null));
         const pend = list.filter(r => refPending(r) && stateOf(r) === null).length;
         const total = list.reduce((a, r) => a + calcLoss(r, stateOf(r) === true), 0);
+        // 只显示「库里还没核」的行；点选可售/不可售后行不会立刻跳走，保存后才消失，避免误以为没点上
+        const shownList = refOnlyPend ? list.filter(r => refPending(r)) : list;
         const Btn = ({ on, children, onClick }) => (
           <button onClick={onClick} style={{
             padding: "3px 9px", fontSize: 11, borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
@@ -4926,12 +4931,31 @@ function OrderRecords() {
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, width: "min(1080px,95vw)", maxHeight: "88vh", display: "flex", flexDirection: "column", boxShadow: "0 18px 60px rgba(0,0,0,.6)" }}>
               <div style={{ padding: "15px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>退款核实</div>
-                <span style={{ fontSize: 11, color: C.faint }}>
+                <span style={{ fontSize: 11, color: C.faint, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title="卖家退款默认全损（货值×件数＋费用），标「可售」才冲回货值；拒收与未出仓只损费用，与可售无关">
                   卖家退款默认<b style={{ color: C.ref }}>全损</b>（货值×件数＋费用），标「可售」才冲回货值；<b style={{ color: C.watch }}>拒收只损运费</b>，与可售无关
                 </span>
-                <span style={{ marginLeft: "auto", fontSize: 12, color: pend ? C.ref : C.brand, fontWeight: 700 }}>
-                  {list.length} 单 · 待核 {pend} · 净损失合计 {money(total)}
-                </span>
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button onClick={() => setRefOnlyPend(true)} style={{
+                      padding: "3px 10px", fontSize: 11, borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
+                      background: refOnlyPend ? "rgba(226,86,76,.18)" : C.panel2,
+                      border: `1px solid ${refOnlyPend ? C.ref : C.line}`,
+                      color: refOnlyPend ? C.ref : C.sub, fontWeight: refOnlyPend ? 700 : 400 }}>
+                      待核实 {pend}
+                    </button>
+                    <button onClick={() => setRefOnlyPend(false)} style={{
+                      padding: "3px 10px", fontSize: 11, borderRadius: 5, cursor: "pointer", fontFamily: "inherit",
+                      background: !refOnlyPend ? C.panel2 : "transparent",
+                      border: `1px solid ${!refOnlyPend ? C.brand : C.line}`,
+                      color: !refOnlyPend ? C.ink : C.sub, fontWeight: !refOnlyPend ? 700 : 400 }}>
+                      全部 {list.length}
+                    </button>
+                  </div>
+                  <span style={{ fontSize: 12, color: pend ? C.ref : C.brand, fontWeight: 700 }}>
+                    净损失合计 {money(total)}
+                  </span>
+                </div>
               </div>
               <div style={{ overflow: "auto", flex: 1 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "86px 150px 100px 76px 118px 62px 86px 92px 158px 92px", background: "#1f3a68", color: "#fff", fontSize: 11, fontWeight: 600, position: "sticky", top: 0, zIndex: 1 }}>
@@ -4939,7 +4963,14 @@ function OrderRecords() {
                     <div key={h} style={{ padding: "8px 8px", borderRight: "1px solid rgba(255,255,255,.12)" }}>{h}</div>
                   ))}
                 </div>
-                {list.map((r, i) => {
+                {shownList.length === 0 && (
+                  <div style={{ padding: "40px 20px", textAlign: "center", fontSize: 12, color: C.faint, lineHeight: 1.9 }}>
+                    <div style={{ fontSize: 13, color: C.brand, fontWeight: 700, marginBottom: 6 }}>没有待核实的退款</div>
+                    {list.length} 笔退款全部核完（拒收与未出仓按固定口径自动计算，不占待核）。
+                    <br />切到「全部 {list.length}」可以回看或修改历史核实结果。
+                  </div>
+                )}
+                {shownList.map((r, i) => {
                   const st = stateOf(r);
                   const fee = (Number(r.service_fee || 0) + Number(r.fbc_fee || 0)) * RATE;
                   const loss = calcLoss(r, st === true);
