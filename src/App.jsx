@@ -86,7 +86,7 @@ let IDLE_LEAVES = [];
 // items 由 Overview 从 monitor_handoff + shelf_leaves 实时组装
 const HANDOFF_BOXES = [
   { id: "h1", title: "调研期间（调研到定款）", color: "#5b6670", sub: "" },
-  { id: "h2", title: "链接制作期间（定款到上架完成）", color: "#d9a441", sub: "" },
+  { id: "h2", title: "链接制作期间（定款到上架完成）", color: "#b07414", sub: "" },
   { id: "h3", title: "采购备货期间", color: "#3498db", sub: "" },
   { id: "h4", title: "进入可售状态", color: "#9b59b6", sub: "" },
 ];
@@ -410,10 +410,10 @@ const BOX_ALLOWED_ST = {
 // 中文显示为 "在调研-拉数据" 等, 挂在 st=idle 的 leaf 上, phase 为空 = 笼统"在调研"
 // 注: DB 里的 phase 键仍是 planning / pre_research / supplier / spec(不改键, 防历史数据丢), 只改显示名 — KK 2026-10-22
 const LEAF_PHASE = {
-  planning:    { label: "在调研-拉数据", color: "#d9a441" },
-  pre_research:{ label: "在调研-出报告", color: "#d9a441" },
-  supplier:    { label: "在调研-1688供应链", color: "#d9a441" },
-  spec:        { label: "在调研-看样品", color: "#d9a441" },
+  planning:    { label: "在调研-拉数据", color: "#b07414" },
+  pre_research:{ label: "在调研-出报告", color: "#b07414" },
+  supplier:    { label: "在调研-1688供应链", color: "#b07414" },
+  spec:        { label: "在调研-看样品", color: "#b07414" },
 };
 
 // CAT_DETAIL 由 fetchShelfData() 填充 (见上)
@@ -452,8 +452,8 @@ const CAT_VERDICT_OPTS = [
 ];
 // 报告结论胶囊
 const REPORT_VERDICT = {
-  fit: { label: "适合做", color: "#4db6a4" },
-  hold: { label: "待定", color: "#d9a441" },
+  fit: { label: "适合做", color: "#0f8b7e" },
+  hold: { label: "待定", color: "#b07414" },
   unfit: { label: "已否掉", color: "#dc6b6b" },
 };
 
@@ -474,12 +474,13 @@ const EXEC = [
 ];
 
 const C = {
-  bg: "#101418", panel: "#171d23", panel2: "#1e262e", line: "#2a333c",
-  ink: "#e8edf2", sub: "#8b97a3", faint: "#5b6670",
-  brand: "#4db6a4", // 主色 teal
-  rec: "#4db6a4", watch: "#d9a441", drop: "#c05b52",
-  ref: "#e2564c", refBg: "rgba(226,86,76,0.13)", // 退款高亮（整行红底 + 左侧红条）
-  fr: "#4db6a4", de: "#6f8fd0", uk: "#c08fd0",
+  // 浅色（清爽）套系：白卡片 + 极浅蓝灰底 + 深墨字
+  bg: "#eef2f7", panel: "#ffffff", panel2: "#f5f8fc", line: "#dbe3ec",
+  ink: "#18222e", sub: "#56657a", faint: "#8e9cae",
+  brand: "#0f8b7e", // 主色 teal（比旧值深，浅底当文字也读得清）
+  rec: "#0f8b7e", watch: "#b07414", drop: "#b8433a",
+  ref: "#d93a2f", refBg: "rgba(217,58,47,0.08)", // 退款高亮（浅红底 + 左侧红条）
+  fr: "#0f8b7e", de: "#3f63c4", uk: "#7c53c3",
 };
 
 const conclColor = (c) => c === "recommend" ? C.rec : c === "watch" ? C.watch : c === "drop" ? C.drop : C.faint;
@@ -517,7 +518,7 @@ function Login() {
             onKeyDown={e => e.key === "Enter" && go()}
             style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, color: C.ink, fontSize: 13, outline: "none" }} />
         </div>
-        {err && <div style={{ fontSize: 12, color: "#c05b52", marginBottom: 14 }}>{err}</div>}
+        {err && <div style={{ fontSize: 12, color: "#b8433a", marginBottom: 14 }}>{err}</div>}
         <button onClick={go} disabled={busy}
           style={{ width: "100%", padding: "10px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1 }}>
           {busy ? "登录中…" : "登 录"}
@@ -536,8 +537,8 @@ class ErrorBoundary extends React.Component {
     if (this.state.err) {
       const e = this.state.err;
       return (
-        <div style={{ background: C.panel, border: "1px solid #c05b52", borderRadius: 12, padding: 18 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#e0857a", marginBottom: 6 }}>这个页面渲染出错了</div>
+        <div style={{ background: C.panel, border: "1px solid #b8433a", borderRadius: 12, padding: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#b8433a", marginBottom: 6 }}>这个页面渲染出错了</div>
           <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>
             把下面这段文字发给 KK 就能定位问题; 也可以先点「重试」。
           </div>
@@ -635,13 +636,13 @@ export default function App() {
       <style>{`
         * { box-sizing: border-box; }
         .tab { padding:5px 8px; border-radius:6px; cursor:pointer; font-size:12px; letter-spacing:0; border:1px solid transparent; white-space:nowrap; }
-        .tab:hover { background:${C.panel2}; }
-        .cell:hover { background:${C.panel2}; }
-        .prow:hover { background:${C.panel2}; cursor:pointer; }
+        .tab:hover { background:#e2eaf3; }
+        .cell:hover { background:#f2f7fc; }
+        .prow:hover { background:#f2f7fc; cursor:pointer; }
       `}</style>
 
       {/* header */}
-      <div style={{ borderBottom: `1px solid ${C.line}`, padding: "18px 28px", display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ background: C.panel, borderBottom: `1px solid ${C.line}`, padding: "16px 28px", display: "flex", alignItems: "center", gap: 16, boxShadow: "0 1px 2px rgba(24,34,46,.04)" }}>
         <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: ".01em" }}>西欧运营体系</div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 11, color: C.faint }}>{session.user.email}</span>
@@ -684,7 +685,7 @@ export default function App() {
           ])
         ].map(([k, l]) => (
           <div key={k} className="tab" onClick={() => setTab(k)}
-            style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.line}` : "1px solid transparent", color: tab === k ? C.ink : C.sub }}>
+            style={{ background: tab === k ? C.panel : "transparent", border: tab === k ? `1px solid ${C.brand}` : "1px solid transparent", color: tab === k ? C.brand : C.sub, fontWeight: tab === k ? 700 : 500, boxShadow: tab === k ? "0 1px 3px rgba(24,34,46,.07)" : "none" }}>
             {l}
           </div>
         ))}
@@ -1128,7 +1129,7 @@ function Overview({ siteEvals, onPick }) {
                     <details key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 7px" }}>
                       <summary style={{ fontSize: 11, fontWeight: 600, color: C.ink, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                         <span>{group}</span>
-                        <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length}</span>
+                        <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 500 }}>{items.length}</span>
                       </summary>
                       <div style={{ marginTop: 5, paddingLeft: 6, borderLeft: `2px solid ${v.color}` }}>
                         {items.map(l => (
@@ -1162,8 +1163,8 @@ function Overview({ siteEvals, onPick }) {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: C.faint }}>当前角色</span>
           <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6,
-            background: (userRole === "admin" || userRole === "fr") ? `${C.brand}22` : (userRole ? `${C.line}` : "#3a3030"),
-            border: `1px solid ${(userRole === "admin" || userRole === "fr") ? C.brand : (userRole ? C.line : "#5a3030")}` }}>
+            background: (userRole === "admin" || userRole === "fr") ? `${C.brand}22` : (userRole ? `${C.line}` : "#e9eef5"),
+            border: `1px solid ${(userRole === "admin" || userRole === "fr") ? C.brand : (userRole ? C.line : "#fdecea")}` }}>
             {roleLabel}
           </span>
           {userRole && !isFullAccess && (
@@ -1187,9 +1188,9 @@ function Overview({ siteEvals, onPick }) {
           const dropAllowed = isDragging && dragFromBox !== box.id ? canDrop(dragFromBox, box.id, userRole) : true;
           const dropDenied = isDragging && dragFromBox !== box.id && !dropAllowed;
           // 边框 / 背景
-          const borderColor = dropDenied ? "#c05b52"
+          const borderColor = dropDenied ? "#b8433a"
             : hoverBox === box.id ? box.color
-            : (isDragging && !canDragFrom) ? "#3a3030"  // 当前用户不能从这框拖, 整体置灰
+            : (isDragging && !canDragFrom) ? "#e9eef5"  // 当前用户不能从这框拖, 整体置灰
             : C.line;
           return (
             <div key={box.id}
@@ -1208,14 +1209,14 @@ function Overview({ siteEvals, onPick }) {
                 <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{data.total} 项</span>
               </div>
               {box.sub && <div style={{ fontSize: 11, color: C.sub, marginBottom: 12 }}>{box.sub}</div>}
-              {dropDenied && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 8 }}>⚠ {roleLabel} 无权放入此框</div>}
+              {dropDenied && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 8 }}>⚠ {roleLabel} 无权放入此框</div>}
               {data.total ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {groupList.map(([group, items]) => (
                     <div key={group} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, padding: "6px 8px", marginBottom: 4 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                         <span>{group}</span>
-                        <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 400 }}>{items.length} 项</span>
+                        <span style={{ marginLeft: "auto", fontSize: 10, color: C.sub, fontWeight: 500 }}>{items.length} 项</span>
                       </div>
                       <div style={{ paddingLeft: 8, borderLeft: `2px solid ${box.color}` }}>
                         {items.map((it, i) => (
@@ -1296,8 +1297,8 @@ function Overview({ siteEvals, onPick }) {
                   {[
                     { k: "lt3", label: "< 3 天", c: "#2ecc71" },
                     { k: "d3_7", label: "3-7 天", c: "#3498db" },
-                    { k: "d7_14", label: "7-14 天", c: "#d9a441" },
-                    { k: "gte14", label: "≥ 14 天", c: "#c05b52" },
+                    { k: "d7_14", label: "7-14 天", c: "#b07414" },
+                    { k: "gte14", label: "≥ 14 天", c: "#b8433a" },
                   ].map(b => {
                     const n = s.dist[b.k];
                     return (
@@ -1499,10 +1500,10 @@ function CrossSite({ sel, setSel }) {
               const mark = siteMark[`${selIdx}-${site}`];
               const evaluated = isFR || mark;
               return (
-                <div key={site} style={{ background: C.panel, border: `1px solid ${evaluated ? (isFR && item.frConclusion === "recommend" ? "#4db6a4" : C.line) : C.line}`, borderRadius: 12, padding: 16, minHeight: 180, opacity: evaluated ? 1 : 0.85 }}>
+                <div key={site} style={{ background: C.panel, border: `1px solid ${evaluated ? (isFR && item.frConclusion === "recommend" ? "#0f8b7e" : C.line) : C.line}`, borderRadius: 12, padding: 16, minHeight: 180, opacity: evaluated ? 1 : 0.85 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontWeight: 700, color: site === "FR" ? "#4db6a4" : site === "DE" ? "#6f8fd0" : "#c08fd0" }}>{site}</span>
-                    {isFR && <span style={{ fontSize: 11, color: "#4db6a4" }}>在售/在调研</span>}
+                    <span style={{ fontWeight: 700, color: site === "FR" ? "#0f8b7e" : site === "DE" ? "#3f63c4" : "#7c53c3" }}>{site}</span>
+                    {isFR && <span style={{ fontSize: 11, color: "#0f8b7e" }}>在售/在调研</span>}
                     {!isFR && (mark ? <span style={{ fontSize: 11, color: C.sub }}>{mark === "analyzing" ? "分析中" : "已评估"}</span>
                       : <span style={{ fontSize: 11, color: C.faint }}>未评估</span>)}
                   </div>
@@ -2338,9 +2339,9 @@ function Shipments() {
             <span onClick={() => setOnlyMine(v => !v)} title="只看需要我处理的批次"
               style={{
                 fontSize: 11, fontWeight: 600, cursor: "pointer", borderRadius: 6, padding: "4px 10px",
-                border: `1px solid ${myTodoCount ? "#d9a441" : C.line}`,
-                background: onlyMine ? "#d9a44118" : "transparent",
-                color: myTodoCount ? "#d9a441" : C.faint,
+                border: `1px solid ${myTodoCount ? "#b07414" : C.line}`,
+                background: onlyMine ? "#b0741420" : "transparent",
+                color: myTodoCount ? "#b07414" : C.faint,
               }}>
               待我处理 {myTodoCount}{onlyMine ? " · 只看这些" : ""}
             </span>
@@ -2371,11 +2372,11 @@ function Shipments() {
         const byStore = {};
         un.forEach(r => { byStore[r.store] = (byStore[r.store] || 0) + Number(r.goods_value || 0); });
         return (
-          <div style={{ background: C.panel, border: "1px solid #d9a441", borderRadius: 8, padding: "12px 16px", marginBottom: 14 }}>
+          <div style={{ background: C.panel, border: "1px solid #b07414", borderRadius: 8, padding: "12px 16px", marginBottom: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
               <div>
                 <div style={{ fontSize: 11, color: C.sub }}>未上架货值 · 未标记「已上架」的行</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "#d9a441", marginTop: 2 }}>¥{unAmt.toFixed(2)}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#b07414", marginTop: 2 }}>¥{unAmt.toFixed(2)}</div>
               </div>
               <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.9 }}>
                 <div><b>{un.length}</b> 条 · <b>{unQty}</b> 件 未上架</div>
@@ -2398,12 +2399,12 @@ function Shipments() {
 
       {/* 未补字段警告条 (仅 admin/cd_promotion 可见) */}
       {canEdit && checkOverdue.r65.length > 0 && (
-        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+        <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b8433a" }}>
           🔴 <b>{checkOverdue.r65.length} 条</b>发货已超 65 天, 缺上架字段 (上架日期/上架数量/损耗/赔付/亏损), 需成都推广尽快补全
         </div>
       )}
       {canEdit && checkOverdue.r14.length > 0 && (
-        <div style={{ background: "#d9a44122", border: "1px solid #d9a441", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#d9a441" }}>
+        <div style={{ background: "#b0741422", border: "1px solid #b07414", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 12, color: "#b07414" }}>
           🟡 <b>{checkOverdue.r14.length} 条</b>发货已超 14 天, 缺费用/物流字段 (头程/杂费/关税/保险费/分摊费/到仓价/物流商/渠道/单价/尾程单号), 需成都推广尽快补全
         </div>
       )}
@@ -2416,7 +2417,7 @@ function Shipments() {
               {BCOLS.map(c => (
                 <div key={c.k} title={c.t === "batch" ? "批次级字段: 点合并格按批次修改" : (c.t === "sum" ? "自动 = 本批次各行货值之和" : "")}
                   style={{ padding: "8px 6px", borderRight: `1px solid #2a4a78` }}>
-                  {c.l}{c.t === "sum" && <span style={{ fontWeight: 400, color: "#9FE1CB" }}> 自动</span>}
+                  {c.l}{c.t === "sum" && <span style={{ fontWeight: 500, color: "#9FE1CB" }}> 自动</span>}
                 </div>
               ))}
             </div>
@@ -2426,7 +2427,7 @@ function Shipments() {
               const rowWarn = g.rows.map(r => {
                 const o65 = checkOverdue.r65.find(o => o.row.id === r.id);
                 const o14 = checkOverdue.r14.find(o => o.row.id === r.id);
-                return o65 ? { ...o65, color: "#c05b52" } : (o14 ? { ...o14, color: "#d9a441" } : null);
+                return o65 ? { ...o65, color: "#b8433a" } : (o14 ? { ...o14, color: "#b07414" } : null);
               });
               const anyWarn = rowWarn.find(Boolean);
               const blockColor = anyWarn ? anyWarn.color : null;
@@ -2455,7 +2456,7 @@ function Shipments() {
                           gridColumn: colIdx(c.k), gridRow: `span ${N}`, padding: "6px 8px",
                           borderRight: `1px solid ${C.line}`, display: "flex", flexDirection: "column",
                           gap: 4, justifyContent: "center", alignItems: "flex-start",
-                          background: rev.status === "approved" ? "#4db6a40d" : rev.status === "change_requested" ? "#d9a4410d" : "transparent",
+                          background: rev.status === "approved" ? "#0f8b7e0d" : rev.status === "change_requested" ? "#b074140d" : "transparent",
                         }}>
                           {rev.status === "pending" && (
                             <>
@@ -2463,7 +2464,7 @@ function Shipments() {
                               {canReview ? (
                                 <button onClick={(e) => { e.stopPropagation(); doReview(g); }}
                                   title="财务专员复核该批次 · 复核后任何数据改动都要 夏蕾 + 雪梅 双人签字"
-                                  style={{ ...btn, borderColor: "#4db6a4", color: "#4db6a4", fontWeight: 700 }}>点此复核</button>
+                                  style={{ ...btn, borderColor: "#0f8b7e", color: "#0f8b7e", fontWeight: 700 }}>点此复核</button>
                               ) : (
                                 <span style={{ fontSize: 10, color: C.faint }}>等夏蕾复核</span>
                               )}
@@ -2471,7 +2472,7 @@ function Shipments() {
                           )}
                           {rev.status === "approved" && (
                             <>
-                              <span style={{ fontSize: 11, color: "#4db6a4", fontWeight: 600 }}>✓ 已复核</span>
+                              <span style={{ fontSize: 11, color: "#0f8b7e", fontWeight: 600 }}>✓ 已复核</span>
                               <span style={{ fontSize: 10, color: C.faint }}>{nameOf(rev.by)} {fmtAt(rev.at)}</span>
                               <span style={{ fontSize: 9, color: C.faint, lineHeight: 1.4 }}>🔒 改动需 夏蕾 + 雪梅 双签</span>
                               {canPropose && (
@@ -2481,7 +2482,7 @@ function Shipments() {
                           )}
                           {rev.status === "change_requested" && req && (
                             <>
-                              <span style={{ fontSize: 11, color: "#d9a441", fontWeight: 700 }}>待签字</span>
+                              <span style={{ fontSize: 11, color: "#b07414", fontWeight: 700 }}>待签字</span>
                               <span style={{ fontSize: 10, color: C.faint, lineHeight: 1.45 }}>
                                 {nameOf(req.by)} 申请<br />
                                 已签 {signedList.length ? signedList.map(nameOf).join("、") : "无"}
@@ -2489,10 +2490,10 @@ function Shipments() {
                               </span>
                               {canSign ? (
                                 <div style={{ display: "flex", gap: 4 }}>
-                                  <button onClick={(e) => { e.stopPropagation(); signChange(g); }} style={{ ...btn, borderColor: "#4db6a4", color: "#4db6a4", fontWeight: 700 }}>
+                                  <button onClick={(e) => { e.stopPropagation(); signChange(g); }} style={{ ...btn, borderColor: "#0f8b7e", color: "#0f8b7e", fontWeight: 700 }}>
                                     {remain.length > 1 ? "签字" : "签字生效"}
                                   </button>
-                                  <button onClick={(e) => { e.stopPropagation(); rejectChange(g); }} style={{ ...btn, borderColor: "#c05b52", color: "#e0857a" }}>拒绝</button>
+                                  <button onClick={(e) => { e.stopPropagation(); rejectChange(g); }} style={{ ...btn, borderColor: "#b8433a", color: "#b8433a" }}>拒绝</button>
                                 </div>
                               ) : (
                                 <span style={{ fontSize: 10, color: C.faint }}>等 {remain.map(nameOf).join("、") || "对方"} 签字</span>
@@ -2516,8 +2517,8 @@ function Shipments() {
                           display: "flex", alignItems: "center", gap: 4,
                           padding: "6px", borderRight: `1px solid ${C.line}`,
                           cursor: canEdit && !editing ? "pointer" : "default",
-                          background: changed ? "#d9a44118" : (locked ? "#5b667010" : "transparent"),
-                          boxShadow: changed ? "inset 0 0 0 1px #d9a441" : "none",
+                          background: changed ? "#b0741420" : (locked ? "#5b667010" : "transparent"),
+                          boxShadow: changed ? "inset 0 0 0 1px #b07414" : "none",
                           fontSize: c.k === "ship_batch" ? 10 : 11, color: c.k === "ship_batch" ? C.sub : (locked ? C.sub : C.ink),
                           fontFamily: "inherit", textAlign: "left", overflow: "hidden",
                         }}>
@@ -2529,7 +2530,7 @@ function Shipments() {
                             style={{ width: "100%", padding: "5px 6px", background: C.bg, border: `1px solid ${C.brand}`, borderRadius: 5, color: C.ink, fontSize: 11, outline: "none" }} />
                         ) : (
                           <>
-                            {locked && <span title="已复核" style={{ fontSize: 10, color: "#d9a441" }}>🔒</span>}
+                            {locked && <span title="已复核" style={{ fontSize: 10, color: "#b07414" }}>🔒</span>}
                             {v === null || v === undefined || v === "" ? <span style={{ color: C.faint }}>—</span> : String(v)}
                             {c.k === "freight" && canEdit && (
                               <span
@@ -2585,9 +2586,9 @@ function Shipments() {
                       if (c.k === "loss_amount") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.drop }}>{r.loss_amount ? "¥" + Number(r.loss_amount).toFixed(2) : "—"}</div>;
                       if (c.k === "insurance_no") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.faint, fontSize: 10 }}>{r.insurance_no || "—"}</div>;
                       if (c.k === "insured_amount") return <div key={r.id + c.k} style={cell(c.k)}>{r.insured_amount ? "¥" + Number(r.insured_amount).toFixed(2) : "—"}</div>;
-                      if (c.k === "days") return <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: 600, color: cumDays > 65 ? "#c05b52" : cumDays > 14 ? "#d9a441" : C.ink }}>{cumDays != null ? `${cumDays}天` : "—"}</div>;
+                      if (c.k === "days") return <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: 600, color: cumDays > 65 ? "#b8433a" : cumDays > 14 ? "#b07414" : C.ink }}>{cumDays != null ? `${cumDays}天` : "—"}</div>;
                       if (c.k === "freight_paid") return (
-                        <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", fontWeight: 600, color: r.freight_paid ? "#4db6a4" : C.drop, cursor: canCheck ? "pointer" : "default", opacity: canCheck ? 1 : 0.6 }}
+                        <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", fontWeight: 600, color: r.freight_paid ? "#0f8b7e" : C.drop, cursor: canCheck ? "pointer" : "default", opacity: canCheck ? 1 : 0.6 }}
                           onClick={canCheck ? () => toggleField(r.id, "freight_paid", r.freight_paid) : undefined}>
                           {r.freight_paid ? "✓ 已付" : "✗ 未付"}
                         </div>
@@ -2597,10 +2598,10 @@ function Shipments() {
                         <div key={r.id + c.k} style={{ ...cell(c.k), justifyContent: "center", whiteSpace: "nowrap" }}>
                           {canEdit && !r.listed && (
                             <span onClick={() => markListed(r)} title="标记已上架 → 写入库存"
-                              style={{ color: "#5DCAA5", cursor: "pointer", fontWeight: 600, fontSize: 11, marginRight: 6 }}>↑上架</span>
+                              style={{ color: "#0f8b7e", cursor: "pointer", fontWeight: 600, fontSize: 11, marginRight: 6 }}>↑上架</span>
                           )}
                           {canEdit && r.listed && (
-                            <span title="已写入库存" style={{ color: "#4db6a4", fontWeight: 600, fontSize: 11, marginRight: 6 }}>✓已上架</span>
+                            <span title="已写入库存" style={{ color: "#0f8b7e", fontWeight: 600, fontSize: 11, marginRight: 6 }}>✓已上架</span>
                           )}
                           {canEdit && (
                             <span onClick={() => openEditShip(r)} style={{ color: C.brand, cursor: "pointer", fontWeight: 600, fontSize: 11 }}>✎</span>
@@ -2688,7 +2689,7 @@ function Shipments() {
 
       {/* 批次级改动: 待提交浮条 + 密码确认 */}
       {bPendingCount > 0 && !bPwdOpen && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #b07414", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, color: C.ink }}>
             批次级改动 <b style={{ color: C.brand, fontSize: 14 }}>{bPendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
           </span>
@@ -2724,8 +2725,8 @@ function Shipments() {
               onChange={e => { setBPwd(e.target.value); setBPwdErr(""); }}
               onKeyDown={e => { if (e.key === "Enter") confirmBatchAll(); if (e.key === "Escape") { setBPwdOpen(false); setBPwd(""); setBPwdErr(""); } }}
               placeholder="输入密码"
-              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${bPwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
-            {bPwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{bPwdErr}</div>}
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${bPwdErr ? "#b8433a" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {bPwdErr && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 6 }}>{bPwdErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button onClick={() => { setBPwdOpen(false); setBPwd(""); setBPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
               <button onClick={confirmBatchAll} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
@@ -2804,7 +2805,7 @@ function Shipments() {
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>编辑发货记录</div>
             <div style={{ fontSize: 11, color: C.faint, marginBottom: 14 }}>带 * 为必填 · 数值留空会清空 · 保存后表格即时更新 · 灰色虚线框 = 批次级字段(表格上点合并格改, 整批生效)</div>
             {lockEdit && (
-              <div style={{ background: "#d9a44118", border: "1px solid #d9a441", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 11, color: "#d9a441", lineHeight: 1.7 }}>
+              <div style={{ background: "#b0741420", border: "1px solid #b07414", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 11, color: "#b07414", lineHeight: 1.7 }}>
                 ⚠️ 该批次<b>已复核</b>: 整行数据（含金额与名称/ASIN/上架等）<b>全部锁定</b>，此处只能查看。<br />
                 要改就在下方点「发起修改申请」，由 <b>夏蕾 + 雪梅</b> 双方签字后才写入。
               </div>
@@ -2821,7 +2822,7 @@ function Shipments() {
                       style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 6, color: C.faint, fontSize: 12, outline: "none" }} />
                   ) : lockEdit ? (
                     <input value={shipForm[k] || ""} disabled title="该批次已复核: 整行锁定, 改动需 夏蕾 + 雪梅 双签"
-                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px dashed #d9a441`, borderRadius: 6, color: C.sub, fontSize: 12, outline: "none" }} />
+                      style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px dashed #b07414`, borderRadius: 6, color: C.sub, fontSize: 12, outline: "none" }} />
                   ) : SHIP_DATE.includes(k) ? (
                     <input type="date" value={shipForm[k] || ""} onChange={(e) => setShipForm(s => ({ ...s, [k]: e.target.value }))}
                       style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }} />
@@ -2840,7 +2841,7 @@ function Shipments() {
               </button>
               {lockEdit ? (
                 <button onClick={() => { const g0 = gEdit; setEditShip(null); if (canPropose && g0) openChange(g0); }} disabled={!canPropose}
-                  style={{ flex: 1, padding: "9px", background: canPropose ? "#d9a441" : C.line, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: canPropose ? "pointer" : "not-allowed", fontWeight: 600 }}>
+                  style={{ flex: 1, padding: "9px", background: canPropose ? "#b07414" : C.line, color: canPropose ? "#fff" : C.sub, border: "none", borderRadius: 8, fontSize: 13, cursor: canPropose ? "pointer" : "not-allowed", fontWeight: 600 }}>
                   发起修改申请
                 </button>
               ) : (
@@ -2969,7 +2970,7 @@ function LinkProgress() {
                 {canEdit && (
                   <td style={{ padding: "10px 8px" }}>
                     <span onClick={() => openEdit(r)} style={{ color: C.brand, cursor: "pointer", fontSize: 11, marginRight: 8 }}>编辑</span>
-                    <span onClick={() => delRow(r.id)} style={{ color: "#ff9090", cursor: "pointer", fontSize: 11 }}>删除</span>
+                    <span onClick={() => delRow(r.id)} style={{ color: "#b8433a", cursor: "pointer", fontSize: 11 }}>删除</span>
                   </td>
                 )}
               </tr>
@@ -3407,7 +3408,7 @@ function InventoryStats() {
           </span>
         </div>
       </div>
-      {err && <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+      {err && <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b8433a" }}>
         读取失败(请先建表 inventory): {err}
       </div>}
 
@@ -3490,7 +3491,7 @@ function InventoryStats() {
             <div style={{ display: "grid", gridTemplateColumns: GRID_INV, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2, margin: "0 -6px" }}>
               {COLS.map(c => (
                 <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>
-                  {c.l}{INV_BATCH_KEYS.includes(c.k) && <span style={{ fontWeight: 400, color: "#9FE1CB" }}> 批</span>}
+                  {c.l}{INV_BATCH_KEYS.includes(c.k) && <span style={{ fontWeight: 500, color: "#9FE1CB" }}> 批</span>}
                 </div>
               ))}
               {canEditInv && <div style={{ padding: "9px 8px" }}>操作</div>}
@@ -3550,7 +3551,7 @@ function InventoryStats() {
                           title={tip}
                           style={{
                           ...cell(c.k), fontWeight: (c.bold || isAge) ? 600 : 400,
-                          color: isAge ? (ageN > 90 ? "#e0857a" : ageN > 60 ? C.watch : C.ink) : (isFbc && v !== "—" ? C.brand : C.ink),
+                          color: isAge ? (ageN > 90 ? "#b8433a" : ageN > 60 ? C.watch : C.ink) : (isFbc && v !== "—" ? C.brand : C.ink),
                           cursor: canClick ? "pointer" : "default",
                           textDecoration: clickEdit ? "underline dotted rgba(77,182,164,.55)" : "none",
                         }}>
@@ -3668,7 +3669,7 @@ function InventoryStats() {
               <button onClick={() => setFbcBatch(null)}
                 style={{ marginLeft: "auto", padding: "7px 18px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>取消</button>
               <button onClick={saveFbcBatch}
-                style={{ padding: "7px 20px", background: C.brand, border: "none", borderRadius: 6, color: "#0b1116", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>保存</button>
+                style={{ padding: "7px 20px", background: C.brand, border: "none", borderRadius: 6, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>保存</button>
             </div>
           </div>
         </div>
@@ -3812,7 +3813,7 @@ function CatDash({ setProjectFor }) {
                     <Caret open={gOpen} small />
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{g.name}</span>
                     <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11 }}>
-                      <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {gTally.sell}</span>
+                      <span style={{ color: "#0f8b7e", fontWeight: 600 }}>在售 {gTally.sell}</span>
                       <span style={{ color: C.sub }}>在调研 {gTally.idleP}</span>
                       <span style={{ color: C.faint }}>已调研不做 {gTally.skip}</span>
                     </span>
@@ -3835,7 +3836,7 @@ function CatDash({ setProjectFor }) {
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600 }}>{c.name}</span>
                               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
-                                <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
+                                <span style={{ color: "#0f8b7e", fontWeight: 600 }}>在售 {t.sell}</span>
                                 <span style={{ color: C.sub }}>在调研 {t.idleP}</span>
                                 <span style={{ color: C.faint }}>已调研不做 {t.skip}</span>
                                 <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: c.name, path: c.name, chatName: null }); }}
@@ -3852,7 +3853,7 @@ function CatDash({ setProjectFor }) {
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
                                       <span>· {sub.name}</span>
                                       <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11, alignItems: "center" }}>
-                                        <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {st.sell}</span>
+                                        <span style={{ color: "#0f8b7e", fontWeight: 600 }}>在售 {st.sell}</span>
                                         <span style={{ color: C.sub }}>在调研 {st.idleP}</span>
                                         <span style={{ color: C.faint }}>已调研不做 {st.skip}</span>
                                         <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: sub.name, path: sub.name, chatName: null }); }}
@@ -3884,7 +3885,7 @@ function CatDash({ setProjectFor }) {
                               <Caret open={cOpen} small />
                               <span style={{ fontWeight: 600, marginLeft: 4 }}>{c.name}</span>
                               <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10, fontSize: 11, alignItems: "center" }}>
-                                <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
+                                <span style={{ color: "#0f8b7e", fontWeight: 600 }}>在售 {t.sell}</span>
                                 <span style={{ color: C.sub }}>在调研 {t.idleP}</span>
                                 <span style={{ color: C.faint }}>已调研不做 {t.skip}</span>
                                 <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: c.name, path: c.name, chatName: null }); }}
@@ -3901,7 +3902,7 @@ function CatDash({ setProjectFor }) {
                                     <div key={si} style={{ fontSize: 11, color: C.sub, marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
                                       <span>· {sub.name}</span>
                                       <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, fontSize: 11, alignItems: "center" }}>
-                                        <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {st.sell}</span>
+                                        <span style={{ color: "#0f8b7e", fontWeight: 600 }}>在售 {st.sell}</span>
                                         <span style={{ color: C.sub }}>在调研 {st.idleP}</span>
                                         <span style={{ color: C.faint }}>已调研不做 {st.skip}</span>
                                         <span onClick={(e) => { e.stopPropagation(); setProjectFor({ name: sub.name, path: sub.name, chatName: null }); }}
@@ -4028,19 +4029,19 @@ function LinkScore() {
       </div>
 
       {/* 评论预警: 最近 7 天差评集中 */}
-      <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 12, padding: "14px 16px", marginBottom: 14 }}>
+      <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 12, padding: "14px 16px", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <span style={{ fontSize: 14 }}>🔴</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#c05b52" }}>评论预警 · 最近 7 天差评 ({RECENT_BAD.length} 条)</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#b8433a" }}>评论预警 · 最近 7 天差评 ({RECENT_BAD.length} 条)</span>
           <span style={{ fontSize: 10, color: C.faint, marginLeft: "auto" }}>演示数据 · 待接亚马逊评论 API</span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
           {RECENT_BAD.map((r, i) => (
-            <div key={i} style={{ background: C.panel, border: "1px solid #c05b5244", borderRadius: 10, padding: "12px 14px" }}>
+            <div key={i} style={{ background: C.panel, border: "1px solid #b8433a44", borderRadius: 10, padding: "12px 14px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: "#0d1216", background: C.brand, borderRadius: 4, padding: "2px 6px", fontWeight: 700 }}>{r.brand}</span>
+                <span style={{ fontSize: 11, color: "#ffffff", background: C.brand, borderRadius: 4, padding: "2px 6px", fontWeight: 700 }}>{r.brand}</span>
                 <span style={{ fontSize: 11, fontFamily: "monospace", color: C.ink, fontWeight: 600 }}>{r.asin}</span>
-                <span style={{ fontSize: 12, color: "#d9756f", letterSpacing: 1, marginLeft: "auto" }}>{"★".repeat(r.rating) + "☆".repeat(5 - r.rating)}</span>
+                <span style={{ fontSize: 12, color: "#c25a52", letterSpacing: 1, marginLeft: "auto" }}>{"★".repeat(r.rating) + "☆".repeat(5 - r.rating)}</span>
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{r.title}</div>
               <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, marginBottom: 8 }}>{r.content}</div>
@@ -4060,7 +4061,7 @@ function LinkScore() {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
         {["全部", ...Object.keys(brandCounts).sort()].map(b => (
           <div key={b} onClick={() => setBrandFilter(b)}
-            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, cursor: "pointer", background: brandFilter === b ? C.brand : C.panel, color: brandFilter === b ? "#0d1216" : C.ink, border: `1px solid ${brandFilter === b ? C.brand : C.line}`, fontWeight: 600 }}>
+            style={{ padding: "6px 14px", borderRadius: 20, fontSize: 12, cursor: "pointer", background: brandFilter === b ? C.brand : C.panel, color: brandFilter === b ? "#ffffff" : C.ink, border: `1px solid ${brandFilter === b ? C.brand : C.line}`, fontWeight: 600 }}>
             {b} {b !== "全部" && <span style={{ opacity: .7 }}>{brandCounts[b]}</span>}
           </div>
         ))}
@@ -4086,12 +4087,12 @@ function LinkScore() {
             <div key={it.asin} onClick={() => setSelAsin(it.asin)}
               style={{ background: selAsin === it.asin ? `${C.brand}18` : C.panel, border: `1px solid ${selAsin === it.asin ? C.brand : C.line}`, borderRadius: 10, padding: "12px 14px", cursor: "pointer" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 10, color: "#0d1216", background: C.brand, borderRadius: 4, padding: "2px 6px", fontWeight: 700 }}>{it.brand}</span>
+                <span style={{ fontSize: 10, color: "#ffffff", background: C.brand, borderRadius: 4, padding: "2px 6px", fontWeight: 700 }}>{it.brand}</span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontFamily: "monospace" }}>{it.asin}</span>
                 <span style={{ fontSize: 11, color: C.sub, marginLeft: "auto" }}>{it.name}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-                <span style={{ fontSize: 13, color: "#d9a441", letterSpacing: 1 }}>{stars(it.avgRating)}</span>
+                <span style={{ fontSize: 13, color: "#b07414", letterSpacing: 1 }}>{stars(it.avgRating)}</span>
                 <span style={{ fontSize: 11, color: C.ink, fontWeight: 600 }}>{it.avgRating.toFixed(1)}</span>
                 <span style={{ fontSize: 11, color: C.faint, marginLeft: "auto" }}>{it.reviewCount} 条评论</span>
               </div>
@@ -4108,7 +4109,7 @@ function LinkScore() {
             <div style={{ display: "flex", alignItems: "center", gap: 16, paddingBottom: 14, borderBottom: `1px solid ${C.line}` }}>
               <div style={{ textAlign: "center", minWidth: 70 }}>
                 <div style={{ fontSize: 34, fontWeight: 800, color: C.ink }}>{sel.avgRating.toFixed(1)}</div>
-                <div style={{ fontSize: 12, color: "#d9a441", letterSpacing: 1 }}>{stars(sel.avgRating)}</div>
+                <div style={{ fontSize: 12, color: "#b07414", letterSpacing: 1 }}>{stars(sel.avgRating)}</div>
                 <div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>{sel.reviewCount} 条</div>
               </div>
               <div style={{ flex: 1 }}>
@@ -4122,7 +4123,7 @@ function LinkScore() {
                       <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10, color: C.sub }}>
                         <span style={{ width: 20 }}>{s}★</span>
                         <div style={{ flex: 1, height: 6, background: C.bg, borderRadius: 3, overflow: "hidden" }}>
-                          <div style={{ width: pct + "%", height: "100%", background: "#d9a441" }} />
+                          <div style={{ width: pct + "%", height: "100%", background: "#b07414" }} />
                         </div>
                         <span style={{ width: 30, textAlign: "right", color: C.faint }}>{Math.round(sel.reviewCount * pct / 100)}</span>
                       </div>
@@ -4138,11 +4139,11 @@ function LinkScore() {
               {sel.comments.map((c, i) => (
                 <div key={i} style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <span style={{ width: 24, height: 24, borderRadius: 12, background: C.brand, color: "#0d1216", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <span style={{ width: 24, height: 24, borderRadius: 12, background: C.brand, color: "#ffffff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {c.user[0]}
                     </span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: C.ink }}>{c.user}</span>
-                    <span style={{ fontSize: 11, color: "#d9a441" }}>{stars(c.rating)}</span>
+                    <span style={{ fontSize: 11, color: "#b07414" }}>{stars(c.rating)}</span>
                     <span style={{ fontSize: 10, color: C.faint, marginLeft: "auto" }}>{c.date}</span>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{c.title}</div>
@@ -4395,19 +4396,19 @@ function AfterStock() {
           )}
           {canEdit
             ? <span style={{ fontSize: 11, color: C.faint }}>当前角色：{getRoleLabel(role) || role} · 可录入（改动先标橙，确认提交后输密码入库）</span>
-            : <span style={{ fontSize: 11, color: "#e8c477" }}>只读模式 —— 当前账号「{getRoleLabel(role) || "未知角色"}」无录入权，所以要联系 KK 开权限</span>}
+            : <span style={{ fontSize: 11, color: "#b07414" }}>只读模式 —— 当前账号「{getRoleLabel(role) || "未知角色"}」无录入权，所以要联系 KK 开权限</span>}
         </div>
       </div>
 
       {orphanRows.length > 0 && (
-        <div style={{ background: "#d9a44122", border: "1px solid #d9a441", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#e8c477" }}>
+        <div style={{ background: "#b0741422", border: "1px solid #b07414", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b07414" }}>
           ⚠ 库里有 <b>{orphanRows.length}</b> 条的 kind 不属于三个区块（{Array.from(new Set(orphanRows.map(r => r.kind))).join("、")}）→ 已按别名归入区块①显示；
           如仍看不到，请联系 KK 用 SQL 统一 kind。
         </div>
       )}
 
       {err && (
-        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+        <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b8433a" }}>
           读取失败(请先在 Supabase 跑 sql/create_after_stock.sql, 含末尾新增列的 ALTER): {err}
         </div>
       )}
@@ -4422,8 +4423,8 @@ function AfterStock() {
           <div key={b.key} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
             <div style={{ padding: "11px 14px", background: "#1f3a68", color: "#fff", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span>{b.label}</span>
-              {!b.cols && <span style={{ fontSize: 10, color: "#c8d6ea", fontWeight: 400, border: "1px solid #4a6a9a", borderRadius: 4, padding: "1px 6px" }}>列待定</span>}
-              <span style={{ marginLeft: "auto", fontSize: 11, color: "#c8d6ea", fontWeight: 400 }}>{rows.length} 条</span>
+              {!b.cols && <span style={{ fontSize: 10, color: "#c8d6ea", fontWeight: 500, border: "1px solid #4a6a9a", borderRadius: 4, padding: "1px 6px" }}>列待定</span>}
+              <span style={{ marginLeft: "auto", fontSize: 11, color: "#c8d6ea", fontWeight: 500 }}>{rows.length} 条</span>
               {canEdit && (
                 <button onClick={() => addRow(b.key)}
                   style={{ padding: "4px 12px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
@@ -4442,7 +4443,7 @@ function AfterStock() {
 
                 {rows.map((r, i) => {
                   const pend = !!dirty[r.key];
-                  const bgc = pend ? "#d9a44118" : (i % 2 ? C.bg : "transparent");
+                  const bgc = pend ? "#b0741420" : (i % 2 ? C.bg : "transparent");
                   return (
                     <div key={r.key} style={{ display: "grid", gridTemplateColumns: grid, borderTop: `1px solid ${C.line}`, background: bgc }}>
                       <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center", borderRight: `1px solid ${C.line}` }}>{i + 1}</div>
@@ -4451,7 +4452,7 @@ function AfterStock() {
                           {cols.map(c => <div key={c.k} style={cellBox}>{inputFor(c, r)}</div>)}
                           <div style={{ padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <button onClick={() => delRow(r)} title="删除此行 (提交后生效)"
-                              style={{ padding: "4px 10px", background: "transparent", color: "#e0857a", border: "1px solid #c05b52", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
+                              style={{ padding: "4px 10px", background: "transparent", color: "#b8433a", border: "1px solid #b8433a", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
                           </div>
                         </>
                       ) : (
@@ -4494,7 +4495,7 @@ function AfterStock() {
 
       {/* 待提交浮条: 改动只缓存在页面, 点确认提交才输密码一次性入库 */}
       {pendingCount > 0 && !pwdOpen && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #b07414", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, color: C.ink }}>
             本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
           </span>
@@ -4517,7 +4518,7 @@ function AfterStock() {
                 <span style={{ flex: 1 }}>该行内容</span>
               </div>
               {removed.map(id => (
-                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#e0857a" }}>
+                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#b8433a" }}>
                   <span style={{ width: 52 }}>删除</span>
                   <span style={{ width: 150 }}>—</span>
                   <span style={{ width: 92 }}>—</span>
@@ -4538,8 +4539,8 @@ function AfterStock() {
               onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
               onKeyDown={e => { if (e.key === "Enter" && !saving) confirmSubmit(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
               placeholder="输入密码"
-              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
-            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#b8433a" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 6 }}>{pwdErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
               <button onClick={confirmSubmit} disabled={saving} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: saving ? "wait" : "pointer", fontWeight: 600, opacity: saving ? .7 : 1 }}>{saving ? "提交中…" : "确认提交"}</button>
@@ -4971,7 +4972,7 @@ function OrderRecords() {
       </div>
 
       {err && (
-        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+        <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b8433a" }}>
           读取失败(请先建表 order_records): {err}
         </div>
       )}
@@ -4992,7 +4993,7 @@ function OrderRecords() {
                 if (c.k === "idx") return <div key={c.k} style={{ color: C.faint, ...bd }} />;
                 if (c.k === "order_date") return <div key={c.k} style={{ color: C.brand, ...bd }}>统计</div>;
                 if (c.k === "order_no") return <div key={c.k} style={{ color: C.sub, ...bd }}>{nOrders} 单</div>;
-                if (c.k === "product") return <div key={c.k} style={{ color: C.faint, fontWeight: 400, ...bd }}>{nSkus} 个 SKU</div>;
+                if (c.k === "product") return <div key={c.k} style={{ color: C.faint, fontWeight: 500, ...bd }}>{nSkus} 个 SKU</div>;
                 // 数量是件数，不是钱 —— 走 OC_SUM 会被 money() 包成 ¥656.00 撑爆列宽 (KK 2026-11-26 修)
                 if (c.k === "qty") {
                   const qs = Math.round(sumOK("qty"));
@@ -5171,7 +5172,7 @@ function OrderRecords() {
                     }
                     setRefSaving(false); setShowRefAudit(false); loadRows();
                     if (fail) alert(`已保存 ${ok} 条，失败 ${fail} 条` + (ok === 0 ? "\n\n保存失败通常是账号无此权限，请联系 KK 确认账号角色。" : ""));
-                  }} style={{ padding: "6px 16px", background: refSaving ? C.panel2 : C.brand, border: `1px solid ${refSaving ? C.line : C.brand}`, borderRadius: 6, color: refSaving ? C.faint : "#0b1412", fontSize: 12, fontWeight: 700, cursor: refSaving ? "wait" : "pointer", fontFamily: "inherit" }}>
+                  }} style={{ padding: "6px 16px", background: refSaving ? C.panel2 : C.brand, border: `1px solid ${refSaving ? C.line : C.brand}`, borderRadius: 6, color: refSaving ? C.faint : "#fff", fontSize: 12, fontWeight: 700, cursor: refSaving ? "wait" : "pointer", fontFamily: "inherit" }}>
                     {refSaving ? "保存中…" : "确认提交"}
                   </button>
                 </div>
@@ -5471,7 +5472,7 @@ function CashBook() {
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
         <div style={{ fontSize: 17, fontWeight: 700 }}>现金账</div>
-        <span style={{ fontSize: 10.5, color: "#d9a441", border: "1px solid #5c4a1f", background: "#2a2113", borderRadius: 4, padding: "1px 6px" }}>仅你可见</span>
+        <span style={{ fontSize: 10.5, color: "#b07414", border: "1px solid #e8d5a8", background: "#fdf7ea", borderRadius: 4, padding: "1px 6px" }}>仅你可见</span>
         <span style={{ fontSize: 11, color: C.faint }}>只算真金白银付出去的，不算平台余额扣减</span>
         <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.sub, cursor: "pointer", userSelect: "none" }}>
           <input type="checkbox" checked={inclFixed} onChange={e => setInclFixed(e.target.checked)} style={{ cursor: "pointer" }} />
@@ -5479,13 +5480,13 @@ function CashBook() {
           <span style={{ fontSize: 10, color: C.faint }}>（固定支出，默认不含）</span>
         </label>
       </div>
-      {err && <div style={{ margin: "10px 0", padding: "9px 12px", background: "#3a1d1d", border: "1px solid #6b2a2a", borderRadius: 8, color: "#f0a0a0", fontSize: 12 }}>{err}</div>}
+      {err && <div style={{ margin: "10px 0", padding: "9px 12px", background: "#fdecea", border: "1px solid #efc4bf", borderRadius: 8, color: "#b8433a", fontSize: 12 }}>{err}</div>}
 
       {/* 本月概览 */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "16px 0 14px" }}>
-        {card("本月流出", money(mOut), "#e08a8a", inclFixed ? "含人工 / 场地" : "仅采购·物流·办公室·店铺")}
-        {card("本月流入", money(mIn), "#4db6a4", "平台回款 + 手动")}
-        {card("本月净额", money(mNet), mNet >= 0 ? "#4db6a4" : "#e08a8a", ym)}
+        {card("本月流出", money(mOut), "#b8433a", inclFixed ? "含人工 / 场地" : "仅采购·物流·办公室·店铺")}
+        {card("本月流入", money(mIn), "#0f8b7e", "平台回款 + 手动")}
+        {card("本月净额", money(mNet), mNet >= 0 ? "#0f8b7e" : "#b8433a", ym)}
         {card("年度累计流出", money(sumYear(inclFixed ? "total_out" : "core_out")), C.ink, `${yearFlows.length} 个月有记录`)}
       </div>
 
@@ -5510,13 +5511,13 @@ function CashBook() {
           const isCur = f.period === ym;
           const fmt = (v) => num(v) ? num(v).toLocaleString("zh-CN", { maximumFractionDigits: 0 }) : "—";
           return (
-            <div key={f.period} style={{ display: "grid", gridTemplateColumns: "74px repeat(6, 1fr) 1fr 1fr", fontSize: 11.5, background: isCur ? "#1d3a35" : (i % 2 ? "#1a2128" : "transparent"), borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
-              <div style={{ padding: "7px 8px", color: isCur ? "#4db6a4" : C.sub, fontWeight: isCur ? 700 : 400 }}>{f.period}</div>
+            <div key={f.period} style={{ display: "grid", gridTemplateColumns: "74px repeat(6, 1fr) 1fr 1fr", fontSize: 11.5, background: isCur ? "#e3f4f0" : (i % 2 ? "#f7fafd" : "transparent"), borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+              <div style={{ padding: "7px 8px", color: isCur ? "#0f8b7e" : C.sub, fontWeight: isCur ? 700 : 400 }}>{f.period}</div>
               {[f.purchase, f.logistics, f.office, f.store_other, f.labor, f.site].map((v, j) => (
                 <div key={j} style={{ padding: "7px 8px", textAlign: "right", color: (j >= 4 && !inclFixed) ? C.faint : C.ink }}>{fmt(v)}</div>
               ))}
-              <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 600, color: "#e08a8a" }}>{fmt(out)}</div>
-              <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 600, color: net >= 0 ? "#4db6a4" : "#e08a8a" }}>{fmt(net)}</div>
+              <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 600, color: "#b8433a" }}>{fmt(out)}</div>
+              <div style={{ padding: "7px 8px", textAlign: "right", fontWeight: 600, color: net >= 0 ? "#0f8b7e" : "#b8433a" }}>{fmt(net)}</div>
             </div>
           );
         })}
@@ -5531,7 +5532,7 @@ function CashBook() {
         </div>
         {openGates && (
           <div style={{ borderTop: `1px solid ${C.line}`, padding: "10px 15px 14px" }}>
-            <div style={{ fontSize: 10.5, color: "#4db6a4", fontWeight: 700, marginBottom: 7 }}>核心现金流出（你定的 4 类）</div>
+            <div style={{ fontSize: 10.5, color: "#0f8b7e", fontWeight: 700, marginBottom: 7 }}>核心现金流出（你定的 4 类）</div>
             <div style={{ display: "grid", gridTemplateColumns: "96px 150px 1fr", gap: "6px 10px", fontSize: 11 }}>
               <div style={{ color: C.faint, fontWeight: 700 }}>科目</div>
               <div style={{ color: C.faint, fontWeight: 700 }}>数据来源表</div>
@@ -5557,11 +5558,11 @@ function CashBook() {
               </div>
             </div>
             <div style={{ marginTop: 13 }}>
-              <div style={{ fontSize: 10.5, color: "#d9a441", fontWeight: 700, marginBottom: 7 }}>缺口（真实现金支出，但系统里还没有台账）</div>
+              <div style={{ fontSize: 10.5, color: "#b07414", fontWeight: 700, marginBottom: 7 }}>缺口（真实现金支出，但系统里还没有台账）</div>
               <div style={{ display: "grid", gridTemplateColumns: "96px 1fr", gap: "5px 10px", fontSize: 11 }}>
                 {CASH_GAP.map(g => (
                   <React.Fragment key={g.cat}>
-                    <div style={{ color: "#d9a441", fontWeight: 600 }}>{g.cat}</div>
+                    <div style={{ color: "#b07414", fontWeight: 600 }}>{g.cat}</div>
                     <div style={{ color: C.faint }}>{g.note}</div>
                   </React.Fragment>
                 ))}
@@ -5583,7 +5584,7 @@ function CashBook() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
         <span style={{ fontSize: 12.5, fontWeight: 700 }}>手动补录</span>
         <span style={{ fontSize: 10.5, color: C.faint }}>只补上面 4 类没覆盖的（如 VAT 实缴、平台年费），日常不需要在这里录</span>
-        <button onClick={() => setForm(blank())} style={{ marginLeft: "auto", background: "#4db6a4", color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ 记一笔</button>
+        <button onClick={() => setForm(blank())} style={{ marginLeft: "auto", background: "#0f8b7e", color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ 记一笔</button>
       </div>
 
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" }}>
@@ -5599,19 +5600,19 @@ function CashBook() {
             还没有现金流水 · 点右上「+ 记一笔」录第一条，或等系统从各业务表自动回填
           </div>
         ) : entries.map((r, i) => (
-          <div key={r.id} style={{ display: "grid", gridTemplateColumns: "92px 54px 1fr 130px 130px 1fr 54px", fontSize: 12, background: i % 2 ? "#1a2128" : "transparent", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+          <div key={r.id} style={{ display: "grid", gridTemplateColumns: "92px 54px 1fr 130px 130px 1fr 54px", fontSize: 12, background: i % 2 ? "#f7fafd" : "transparent", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
             <div style={{ padding: "8px 10px", color: C.sub }}>{r.entry_date}</div>
             <div style={{ padding: "8px 10px" }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: r.direction === "in" ? "#4db6a4" : "#e08a8a" }}>{r.direction === "in" ? "流入" : "流出"}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: r.direction === "in" ? "#0f8b7e" : "#b8433a" }}>{r.direction === "in" ? "流入" : "流出"}</span>
             </div>
             <div style={{ padding: "8px 10px", color: C.ink }}>{r.category}</div>
-            <div style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, color: r.direction === "in" ? "#4db6a4" : "#e08a8a" }}>
+            <div style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600, color: r.direction === "in" ? "#0f8b7e" : "#b8433a" }}>
               {r.direction === "in" ? "+" : "−"}{Number(r.amount_cny || 0).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <div style={{ padding: "8px 10px", color: C.sub, fontFamily: "ui-monospace,monospace", fontSize: 10.5 }}>{r.ref_no || "—"}</div>
             <div style={{ padding: "8px 10px", color: C.faint, fontSize: 11 }}>
               {r.ref_note || "—"}
-              {r.auto && <span style={{ marginLeft: 6, fontSize: 9.5, color: "#4db6a4", border: "1px solid #2d5f57", borderRadius: 3, padding: "0 4px" }}>自动</span>}
+              {r.auto && <span style={{ marginLeft: 6, fontSize: 9.5, color: "#0f8b7e", border: "1px solid #b9dcd6", borderRadius: 3, padding: "0 4px" }}>自动</span>}
               {r.source_table && r.source_table !== "manual" && <span style={{ marginLeft: 6, fontSize: 9.5, color: C.faint }}>{r.source_table}</span>}
             </div>
             <div style={{ padding: "8px 10px", textAlign: "right" }}>
@@ -5645,7 +5646,7 @@ function CashBook() {
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button onClick={() => setForm(null)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.line}`, color: C.sub, borderRadius: 7, padding: "9px", fontSize: 12.5, cursor: "pointer" }}>取消</button>
-              <button onClick={save} style={{ flex: 2, background: "#4db6a4", border: "none", color: "#fff", borderRadius: 7, padding: "9px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>保存</button>
+              <button onClick={save} style={{ flex: 2, background: "#0f8b7e", border: "none", color: "#fff", borderRadius: 7, padding: "9px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>保存</button>
             </div>
           </div>
         </div>
@@ -5662,10 +5663,10 @@ function CashBook() {
             <input type="password" value={pwd} onChange={e => { setPwd(e.target.value); setPwdErr(""); }} placeholder="输入密码" autoFocus
               onKeyDown={e => { if (e.key === "Enter") doSave(); }}
               style={{ ...inp, marginBottom: 8 }} />
-            {pwdErr && <div style={{ fontSize: 11, color: "#e08a8a", marginBottom: 8 }}>{pwdErr}</div>}
+            {pwdErr && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 8 }}>{pwdErr}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button onClick={() => setPwdOpen(false)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.line}`, color: C.sub, borderRadius: 7, padding: "8px", fontSize: 12, cursor: "pointer" }}>取消</button>
-              <button onClick={doSave} disabled={saving} style={{ flex: 1, background: "#4db6a4", border: "none", color: "#fff", borderRadius: 7, padding: "8px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "写入中…" : "确认"}</button>
+              <button onClick={doSave} disabled={saving} style={{ flex: 1, background: "#0f8b7e", border: "none", color: "#fff", borderRadius: 7, padding: "8px", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "写入中…" : "确认"}</button>
             </div>
           </div>
         </div>
@@ -5844,7 +5845,7 @@ function OfficeExpense() {
       </div>
 
       {err && (
-        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+        <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b8433a" }}>
           读取失败(请先在 Supabase 跑 sql/create_office_expense.sql): {err}
         </div>
       )}
@@ -5877,7 +5878,7 @@ function OfficeExpense() {
               }
               const r = item.row, i = item.idx - 1;
               const pend = !!dirty[r.key];
-              const bgc = pend ? "#d9a44118" : (i % 2 ? C.bg : "transparent");
+              const bgc = pend ? "#b0741420" : (i % 2 ? C.bg : "transparent");
               return (
                 <div key={r.key} style={{ display: "grid", gridTemplateColumns: OEC_GRID, borderTop: `1px solid ${C.line}`, background: bgc }}>
                   <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center", borderRight: `1px solid ${C.line}` }}>{i + 1}</div>
@@ -5905,7 +5906,7 @@ function OfficeExpense() {
                       </div>
                       <div style={{ padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <button onClick={() => delRow(r)} title="删除此行 (提交后生效)"
-                          style={{ padding: "4px 10px", background: "transparent", color: "#e0857a", border: "1px solid #c05b52", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
+                          style={{ padding: "4px 10px", background: "transparent", color: "#b8433a", border: "1px solid #b8433a", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
                       </div>
                     </>
                   ) : (
@@ -5932,7 +5933,7 @@ function OfficeExpense() {
                 <div style={{ padding: "10px 8px" }} />
                 <div style={{ padding: "10px 12px", color: C.brand }}>合计</div>
                 <div style={{ padding: "10px 12px" }} />
-                <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 400 }}>{ym} 共 {list.length} 条明细</div>
+                <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 500 }}>{ym} 共 {list.length} 条明细</div>
                 <div style={{ padding: "10px 12px", textAlign: "right", color: C.brand }}>¥{totalSum.toFixed(2)}</div>
                 <div style={{ padding: "10px 8px" }} />
               </div>
@@ -5943,7 +5944,7 @@ function OfficeExpense() {
 
       {/* 待提交浮条: 改动只缓存在页面, 点确认提交才输密码一次性入库 */}
       {pendingCount > 0 && !pwdOpen && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #b07414", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, color: C.ink }}>
             本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
           </span>
@@ -5966,7 +5967,7 @@ function OfficeExpense() {
                 <span style={{ width: 110, textAlign: "right" }}>费用</span>
               </div>
               {removed.map(id => (
-                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#e0857a" }}>
+                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#b8433a" }}>
                   <span style={{ width: 52 }}>删除</span>
                   <span style={{ width: 92 }}>—</span>
                   <span style={{ flex: 1 }}>已删除的一行</span>
@@ -5987,8 +5988,8 @@ function OfficeExpense() {
               onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
               onKeyDown={e => { if (e.key === "Enter" && !saving) confirmSubmit(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
               placeholder="输入密码"
-              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
-            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#b8433a" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 6 }}>{pwdErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
               <button onClick={confirmSubmit} disabled={saving} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: saving ? "wait" : "pointer", fontWeight: 600, opacity: saving ? .7 : 1 }}>{saving ? "提交中…" : "确认提交"}</button>
@@ -6351,7 +6352,7 @@ function Purchase() {
       </div>
 
       {err && (
-        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+        <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b8433a" }}>
           读取失败: {err}
         </div>
       )}
@@ -6471,7 +6472,7 @@ function Purchase() {
                       </div>
 
                       {open && (
-                        <div style={{ borderTop: `1px solid ${C.line}`, background: "#12181d", padding: "12px 16px 16px" }}>
+                        <div style={{ borderTop: `1px solid ${C.line}`, background: "#f4f7fb", padding: "12px 16px 16px" }}>
                           {/* 到深圳仓成本拆解（口径：货款+运费+税费 ÷ 数量，不含头程/佣金/包材） */}
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, padding: "8px 12px", background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8 }}>
                             <span style={{ fontSize: 11.5, fontWeight: 700, color: C.brand }}>到深圳仓成本</span>
@@ -6722,7 +6723,7 @@ function Purchase() {
               </div>
 
               {!isRequester && (<>
-                <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>多少钱 <span style={{ color: C.faint, fontWeight: 400 }}>（由雪梅下单时填）</span></div>
+                <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>多少钱 <span style={{ color: C.faint, fontWeight: 500 }}>（由雪梅下单时填）</span></div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
                   <div><label style={lb}>货款（自动）</label><input type="number" step="0.01" value={form.goods_amount} onChange={e => setF("goods_amount", e.target.value)} style={inp} /></div>
                   <div><label style={lb}>运费</label><input type="number" step="0.01" value={form.freight} onChange={e => setF("freight", e.target.value)} style={inp} /></div>
@@ -6979,7 +6980,7 @@ function StoreOtherExpense() {
       </div>
 
       {err && (
-        <div style={{ background: "#c05b5222", border: "1px solid #c05b52", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#c05b52" }}>
+        <div style={{ background: "#b8433a22", border: "1px solid #b8433a", borderRadius: 8, padding: "10px 14px", marginBottom: 10, fontSize: 12, color: "#b8433a" }}>
           读取失败(请先在 Supabase 跑 sql/create_store_other_expense.sql): {err}
         </div>
       )}
@@ -7011,7 +7012,7 @@ function StoreOtherExpense() {
 
             {view.map((r, i) => {
               const pend = !!dirty[r.key];
-              const bgc = pend ? "#d9a44118" : (i % 2 ? C.bg : "transparent");
+              const bgc = pend ? "#b0741420" : (i % 2 ? C.bg : "transparent");
               return (
                 <div key={r.key} style={{ display: "grid", gridTemplateColumns: SOC_GRID, borderTop: `1px solid ${C.line}`, background: bgc }}>
                   <div style={{ padding: "10px 8px", fontSize: 11, color: C.faint, textAlign: "center", borderRight: `1px solid ${C.line}` }}>{i + 1}</div>
@@ -7036,7 +7037,7 @@ function StoreOtherExpense() {
                       </div>
                       <div style={{ padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <button onClick={() => delRow(r)} title="删除此行 (提交后生效)"
-                          style={{ padding: "4px 10px", background: "transparent", color: "#e0857a", border: "1px solid #c05b52", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
+                          style={{ padding: "4px 10px", background: "transparent", color: "#b8433a", border: "1px solid #b8433a", borderRadius: 6, fontSize: 11, cursor: "pointer" }}>删除</button>
                       </div>
                     </>
                   ) : (
@@ -7062,8 +7063,8 @@ function StoreOtherExpense() {
               <div style={{ display: "grid", gridTemplateColumns: SOC_GRID, borderTop: `2px solid ${C.line}`, background: C.bg, fontSize: 12, fontWeight: 700 }}>
                 <div style={{ padding: "10px 8px" }} />
                 <div style={{ padding: "10px 12px", color: C.brand }}>合计</div>
-                <div style={{ padding: "10px 12px", color: C.sub, fontWeight: 400 }}>{storeFilter || "全部店铺"}</div>
-                <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 400 }}>{ym} 共 {view.length} 条明细</div>
+                <div style={{ padding: "10px 12px", color: C.sub, fontWeight: 500 }}>{storeFilter || "全部店铺"}</div>
+                <div style={{ padding: "10px 12px", color: C.faint, fontWeight: 500 }}>{ym} 共 {view.length} 条明细</div>
                 <div style={{ padding: "10px 12px", textAlign: "right", color: C.brand }}>¥{viewSum.toFixed(2)}</div>
                 <div style={{ padding: "10px 8px" }} />
               </div>
@@ -7074,7 +7075,7 @@ function StoreOtherExpense() {
 
       {/* 待提交浮条: 改动只缓存在页面, 点确认提交才输密码一次性入库 */}
       {pendingCount > 0 && !pwdOpen && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #b07414", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, color: C.ink }}>
             本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
           </span>
@@ -7098,7 +7099,7 @@ function StoreOtherExpense() {
                 <span style={{ width: 100, textAlign: "right" }}>费用</span>
               </div>
               {removed.map(id => (
-                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#e0857a" }}>
+                <div key={`del-${id}`} style={{ display: "flex", padding: "5px 0", borderBottom: `1px solid ${C.line}`, color: "#b8433a" }}>
                   <span style={{ width: 52 }}>删除</span>
                   <span style={{ width: 92 }}>—</span>
                   <span style={{ width: 60 }}>—</span>
@@ -7121,8 +7122,8 @@ function StoreOtherExpense() {
               onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
               onKeyDown={e => { if (e.key === "Enter" && !saving) confirmSubmit(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
               placeholder="输入密码"
-              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
-            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#b8433a" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 6 }}>{pwdErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
               <button onClick={confirmSubmit} disabled={saving} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: saving ? "wait" : "pointer", fontWeight: 600, opacity: saving ? .7 : 1 }}>{saving ? "提交中…" : "确认提交"}</button>
@@ -7179,7 +7180,7 @@ const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
 // 2026-09-27 起场地放开手填: 没单独录过的月份按这个默认值计, 录了就以录的为准 (KK 定)
 const SHARED_SITE_FEE = 3800;
 // 批次配色 (发货记录 / 库存记录 共用): 每个批次一块底色, 循环取色
-const BATCH_PALETTE = ["#4db6a4", "#6f8fd0", "#c08fd0", "#d9a441", "#d9756f", "#7fb069", "#b57edc", "#5b9bd5"];
+const BATCH_PALETTE = ["#0f8b7e", "#3f63c4", "#7c53c3", "#b07414", "#c25a52", "#7fb069", "#b57edc", "#5b9bd5"];
 
 // 本月汇率输入 (店铺运维费用 / 店铺月度核算 共用)
 // 规则: 汇率按月各自记录(表 fx_rates); 改动后失焦 → 弹框输密码 → 才写库
@@ -7253,8 +7254,8 @@ function RateField({ month, canEdit, pwd, onRate }) {
               onChange={e => { setPin(e.target.value); setErr(""); }}
               onKeyDown={e => { if (e.key === "Enter") confirm(); if (e.key === "Escape") cancel(); }}
               placeholder="输入密码"
-              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${err ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
-            {err && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{err}</div>}
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${err ? "#b8433a" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {err && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 6 }}>{err}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button onClick={cancel} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>取消</button>
               <button onClick={confirm} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认修改</button>
@@ -7964,7 +7965,7 @@ function OpsFee() {
                   <div key={cat} style={{ display: "grid", gridTemplateColumns: `${CATW}px repeat(${SITES.length}, 110px) 130px 130px`, borderTop: `1px solid ${C.line}`, fontSize: 12, background: "rgba(127,119,221,.10)" }}>
                     <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink }}>
                       {cat}
-                      <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
+                      <span style={{ marginLeft: 6, fontSize: 10, color: "#5b4bbf", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>月固定 · 不分国家</span>
                     </div>
                     {SITES.map(site => (
                       <div key={site} style={{ padding: "8px 10px", textAlign: "right", color: C.faint }}>—</div>
@@ -7979,7 +7980,7 @@ function OpsFee() {
                           onBlur={() => requestCell(MONTHLY_SITE, cat)}
                           onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
                           placeholder="—" inputMode="decimal" title="人民币金额 (¥)"
-                          style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: 600, outline: "none" }} />
+                          style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: pendingMap[k] ? "#b0741420" : C.bg, border: `1px solid ${pendingMap[k] ? "#b07414" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: 600, outline: "none" }} />
                       ) : (
                         <div style={{ padding: "5px 4px", textAlign: "right", fontWeight: 700, color: v ? C.ink : C.faint }}>{v ? v.toFixed(2) : "—"}</div>
                       )}
@@ -7991,7 +7992,7 @@ function OpsFee() {
                 <div style={{ padding: "10px 12px", fontWeight: 600, color: C.ink, background: C.bg }}>
                   {cat}
                   {plat === "cdiscount" && OPS_CD_HINT[cat] && (
-                    <span title={`账单科目：${OPS_CD_HINT[cat]}`} style={{ marginLeft: 6, fontSize: 10, color: C.faint, fontWeight: 400 }}>{OPS_CD_HINT[cat]}</span>
+                    <span title={`账单科目：${OPS_CD_HINT[cat]}`} style={{ marginLeft: 6, fontSize: 10, color: C.faint, fontWeight: 500 }}>{OPS_CD_HINT[cat]}</span>
                   )}
                 </div>
                 {SITES.map(site => {
@@ -8013,14 +8014,14 @@ function OpsFee() {
                         onBlur={() => requestCell(site, cat)}
                         onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
                         placeholder="—" inputMode="decimal"
-                        style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: v ? 600 : 400, outline: "none" }} />
+                        style={{ width: "100%", padding: "5px 8px", textAlign: "right", background: pendingMap[k] ? "#b0741420" : C.bg, border: `1px solid ${pendingMap[k] ? "#b07414" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: v ? 600 : 400, outline: "none" }} />
                     </div>
                   );
                 })}
                 <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: C.brand, background: C.bg, borderRight: `1px solid ${C.line}` }}>
                   {total(cat).toFixed(2)}
                 </div>
-                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#5DCAA5", background: "rgba(15,110,86,.15)" }}>
+                <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#0f8b7e", background: "rgba(15,110,86,.15)" }}>
                   ¥{toRmb(cat).toFixed(2)}
                 </div>
               </div>
@@ -8045,7 +8046,7 @@ function OpsFee() {
               <div style={{ gridColumn: `span ${SITES.length + 1}`, padding: "8px 12px", color: C.faint }}>
                 站点金额均为欧元(€) · 本月汇率 €→¥ = {rate} · 月度核算费用 ¥ = (欧元合计 {eurTotal.toFixed(2)} × {rate}) + 网络IP等月固定 ¥{monthlyRmb.toFixed(2)}
               </div>
-              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#5DCAA5" }}>¥{rmbTotal.toFixed(2)}</div>
+              <div style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, color: "#0f8b7e" }}>¥{rmbTotal.toFixed(2)}</div>
             </div>
           </div>
         </div>
@@ -8053,7 +8054,7 @@ function OpsFee() {
 
       {/* 待提交浮条: 改动只缓存在页面, 点确认提交才输密码一次性入库 */}
       {pendingCount > 0 && !pwdOpen && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: `1px solid #d9a441`, boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: `1px solid #b07414`, boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, color: C.ink }}>
             本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
           </span>
@@ -8091,8 +8092,8 @@ function OpsFee() {
               onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
               onKeyDown={e => { if (e.key === "Enter") confirmBatch(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
               placeholder="输入密码"
-              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
-            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#b8433a" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 6 }}>{pwdErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
               <button onClick={confirmBatch} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
@@ -8374,7 +8375,7 @@ function StoreMonthly() {
                     {isCalc && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="收入 − 各项成本 − 店铺其他费用">自动计算</span>}
                     {row.type === "storeother" && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="由「店铺其他费用」Tab 当月按店合计自动填入, 这里只读, 改去明细页维护">自动·明细页</span>}
                     {isNet && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title={`${SHARE_GROUP.join("/")} 三家合计: 店铺利润合计 − 共享人工 − 共享场地 − 当月办公室费用明细合计; 其余店铺各自 = 店铺利润 − 人工 − 场地 − 办公室费用明细`}>自动计算</span>}
-                    {shareOn && isShared && row.k !== "其他" && <span style={{ marginLeft: 6, fontSize: 10, color: "#CECBF6", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>三家共享·只扣一次</span>}
+                    {shareOn && isShared && row.k !== "其他" && <span style={{ marginLeft: 6, fontSize: 10, color: "#5b4bbf", border: "1px solid #534AB7", background: "rgba(127,119,221,.18)", borderRadius: 4, padding: "1px 5px" }}>三家共享·只扣一次</span>}
                     {shareOn && row.k === "其他" && <span style={{ marginLeft: 6, fontSize: 10, color: C.brand, border: `1px solid ${C.brand}`, borderRadius: 4, padding: "1px 5px" }} title="由「办公室费用明细」Tab 自动汇总, 不可手填">自动·明细页</span>}
                   </div>
                   {STORES.map((st, idx) => {
@@ -8388,7 +8389,7 @@ function StoreMonthly() {
                         const blank = !shareIncomeEntered();
                         const v = shareGroupProfit();
                         return (
-                          <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: 700, background: "rgba(77,182,164,.10)", color: blank ? C.faint : (v >= 0 ? C.brand : "#e0857a") }}>
+                          <div key="merged" style={{ ...style, ...td, padding: "12px 10px", fontWeight: 700, background: "rgba(77,182,164,.10)", color: blank ? C.faint : (v >= 0 ? C.brand : "#b8433a") }}>
                             {blank ? "—" : v.toFixed(2)}
                           </div>
                         );
@@ -8421,7 +8422,7 @@ function StoreMonthly() {
                                 title="由「办公室费用明细」Tab 当月合计自动填入, 这里只读, 改去明细页维护">自动·明细页</span>
                             </div>
                             {(offCN > 0 || offFR > 0 || offNA > 0) && (
-                              <div style={{ fontSize: 10, fontWeight: 400, color: C.sub, marginTop: 3 }} title="按「办公室费用明细」的「区域」列归集">
+                              <div style={{ fontSize: 10, fontWeight: 500, color: C.sub, marginTop: 3 }} title="按「办公室费用明细」的「区域」列归集">
                                 法国公司 ¥{offFR.toFixed(2)} · 中国公司 ¥{offCN.toFixed(2)}{offNA > 0 ? ` · 未设置 ¥${offNA.toFixed(2)}` : ""}
                               </div>
                             )}
@@ -8442,7 +8443,7 @@ function StoreMonthly() {
                             title={row.k === "场地"
                               ? "三家共享场地费: 没录过的月份默认 ¥3,800/月, 可以直接改 (KK 2026-09-27 放开手填)"
                               : "三家共用的这笔费用: 填一次, 三家合计利润里只扣一次"}
-                            style={{ width: "100%", padding: "6px 8px", textAlign: "right", background: pendingMap[sk] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[sk] ? "#d9a441" : "#534AB7"}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: pendingMap[sk] ? 600 : 400, outline: "none" }} />
+                            style={{ width: "100%", padding: "6px 8px", textAlign: "right", background: pendingMap[sk] ? "#b0741420" : C.bg, border: `1px solid ${pendingMap[sk] ? "#b07414" : "#534AB7"}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: pendingMap[sk] ? 600 : 400, outline: "none" }} />
                         </div>
                       );
                     }
@@ -8463,7 +8464,7 @@ function StoreMonthly() {
                     if (isCalc || isNet) {
                       const ok = incomeEntered(st);
                       const v = isNet ? netOf(st) : shopProfit(st);
-                      return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: 700, color: !ok ? C.faint : (v >= 0 ? C.ink : "#e0857a") }}>{ok ? v.toFixed(2) : "—"}</div>;
+                      return <div key={st} style={{ ...td, padding: "12px 10px", fontWeight: 700, color: !ok ? C.faint : (v >= 0 ? C.ink : "#b8433a") }}>{ok ? v.toFixed(2) : "—"}</div>;
                     }
                     const v = manVal(st, row.k);
                     // 场地已放开: 走下面的通用输入框, 按店各填 (KK 2026-09-27)
@@ -8480,7 +8481,7 @@ function StoreMonthly() {
                           onBlur={() => requestCell(st, row.k)}
                           onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
                           placeholder="—" inputMode="decimal"
-                          style={{ width: "100%", padding: "6px 8px", textAlign: "right", background: pendingMap[k] ? "#d9a44118" : C.bg, border: `1px solid ${pendingMap[k] ? "#d9a441" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: pendingMap[k] ? 600 : 400, outline: "none" }} />
+                          style={{ width: "100%", padding: "6px 8px", textAlign: "right", background: pendingMap[k] ? "#b0741420" : C.bg, border: `1px solid ${pendingMap[k] ? "#b07414" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: pendingMap[k] ? 600 : 400, outline: "none" }} />
                       </div>
                     );
                   })}
@@ -8503,7 +8504,7 @@ function StoreMonthly() {
       </div>
 
       {pendingCount > 0 && !pwdOpen && (
-        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #d9a441", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 26, zIndex: 110, background: C.panel, border: "1px solid #b07414", boxShadow: "0 10px 30px rgba(0,0,0,.28)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ fontSize: 12, color: C.ink }}>
             本次已改 <b style={{ color: C.brand, fontSize: 14 }}>{pendingCount}</b> 项 · 尚未入库, 点右侧确认提交(需密码)
           </span>
@@ -8540,8 +8541,8 @@ function StoreMonthly() {
               onChange={e => { setPwd(e.target.value); setPwdErr(""); }}
               onKeyDown={e => { if (e.key === "Enter") confirmBatch(); if (e.key === "Escape") { setPwdOpen(false); setPwd(""); setPwdErr(""); } }}
               placeholder="输入密码"
-              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#c05b52" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
-            {pwdErr && <div style={{ fontSize: 11, color: "#c05b52", marginBottom: 6 }}>{pwdErr}</div>}
+              style={{ width: "100%", padding: "9px 12px", background: C.bg, border: `1px solid ${pwdErr ? "#b8433a" : C.line}`, borderRadius: 6, color: C.ink, fontSize: 14, marginBottom: 6 }} />
+            {pwdErr && <div style={{ fontSize: 11, color: "#b8433a", marginBottom: 6 }}>{pwdErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
               <button onClick={() => { setPwdOpen(false); setPwd(""); setPwdErr(""); }} style={{ flex: 1, padding: "9px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, cursor: "pointer" }}>返回继续改</button>
               <button onClick={confirmBatch} style={{ flex: 1, padding: "9px", background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>确认提交</button>
@@ -9246,7 +9247,7 @@ function Shelf() {
               const t = tallyCatDeepV2(sub);
               return (
                 <>
-                  <span style={{ color: "#4db6a4", fontWeight: 600 }}>在售 {t.sell}</span>
+                  <span style={{ color: "#0f8b7e", fontWeight: 600 }}>在售 {t.sell}</span>
                   <span style={{ color: C.sub }}>在调研 {t.idle}</span>
                 </>
               );
@@ -9439,7 +9440,7 @@ function Shelf() {
                                   return (
                                     <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px 10px 58px", borderTop: `1px solid ${C.line}` }}>
                                       <span style={{ fontSize: 13, color: C.faint }}>{c.name}</span>
-                                      <span style={{ marginLeft: "auto", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600, background: "#5a3030", color: "#ff9090", border: "1px solid #7a4040" }}>
+                                      <span style={{ marginLeft: "auto", padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 600, background: "#fdecea", color: "#b8433a", border: "1px solid #efc4bf" }}>
                                         不做
                                       </span>
                                     </div>
@@ -9830,7 +9831,7 @@ function CatSidePanel({ cat, canEditSt, me, onClose, onSetSt, onSaveField }) {
           <div style={box}>
             <div style={lbl}>
               调研报告
-              <span style={{ color: C.faint, fontWeight: 400 }}>{reports.length} 条</span>
+              <span style={{ color: C.faint, fontWeight: 500 }}>{reports.length} 条</span>
               {!repForm && (
                 <span onClick={() => setRepForm({ title: "", url: "", verdict: "", summary: "" })}
                   style={{ marginLeft: "auto", color: C.brand, cursor: "pointer", fontWeight: 600 }}>+ 添加</span>
@@ -9885,7 +9886,7 @@ function CatSidePanel({ cat, canEditSt, me, onClose, onSetSt, onSaveField }) {
           {/* ③ 判断选项 */}
           <div style={box}>
             <div style={lbl}>这个类目怎么判
-              {!canEditSt && <span style={{ color: C.faint, fontWeight: 400 }}>（只读：仅管理员/法国、成都·供应链可改）</span>}
+              {!canEditSt && <span style={{ color: C.faint, fontWeight: 500 }}>（只读：仅管理员/法国、成都·供应链可改）</span>}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {CAT_VERDICT_OPTS.map(o => {
@@ -9911,7 +9912,7 @@ function CatSidePanel({ cat, canEditSt, me, onClose, onSetSt, onSaveField }) {
           {/* ④ 分析记录 */}
           <div style={box}>
             <div style={lbl}>分析记录
-              <span style={{ color: C.faint, fontWeight: 400 }}>{analysis.length} 条 · 追加式</span>
+              <span style={{ color: C.faint, fontWeight: 500 }}>{analysis.length} 条 · 追加式</span>
             </div>
             <textarea value={anaText} onChange={(e) => setAnaText(e.target.value)} rows={3}
               placeholder="写一段对这个类目的分析（市场、竞品、供应链……）。保存后追加为一条记录，不会覆盖旧的。"
