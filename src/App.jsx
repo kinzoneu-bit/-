@@ -339,18 +339,22 @@ async function fetchShelfData() {
   cats.forEach(c => {
     if (c.parent_cat_id) (catsByParent[c.parent_cat_id] = catsByParent[c.parent_cat_id] || []).push(c);
   });
+  // 侧栏记录: 报告外链 / 分析记录 都存 shelf_cats 上的 jsonb 数组 (KK 2026-11-27)
+  const arr = (v) => (Array.isArray(v) ? v : []);
   const buildCatTree = (parentId) => (catsByParent[parentId] || [])
     .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     .map(c => ({
       id: c.id, name: c.name, st: c.st || "idle",
       phase: c.phase || null,
       chatName: c.chat_name || null, chatUrl: c.chat_url || null,
+      reports: arr(c.cat_reports), analysis: arr(c.cat_analysis),
       children: buildCatTree(c.id),
     }));
   const mapRootCat = (c) => ({
     id: c.id, name: c.name, st: c.st || "idle",
     phase: c.phase || null,
     chatName: c.chat_name || null, chatUrl: c.chat_url || null,
+    reports: arr(c.cat_reports), analysis: arr(c.cat_analysis),
     children: buildCatTree(c.id),
   });
   brands.forEach(b => {
@@ -422,6 +426,36 @@ function catDetail(name, groupName) {
   const key = Object.keys(CAT_DETAIL).find(k => !k.includes(" || ") && (name.startsWith(k) || name.includes(k)));
   return key ? CAT_DETAIL[key] : null;
 }
+
+// ── 侧栏计数 (KK 2026-11-27 定口径) ─────────────────────────────
+// 本节点自己的在售款数: 只算直接挂在该类目上的产品, 不含子类目
+function catOwnProducts(catId) {
+  const d = CAT_DETAIL[catId];
+  return d && Array.isArray(d.products) ? d.products : [];
+}
+function catOwnSelling(catId) {
+  return catOwnProducts(catId).filter(p => p.st === "selling").length;
+}
+// 含子类目合计
+function catDeepSelling(cat) {
+  let n = catOwnSelling(cat.id);
+  (cat.children || []).forEach(c => { n += catDeepSelling(c); });
+  return n;
+}
+
+// 判断选项 (侧栏第三块): 直接复用类目状态的 5 值, 不另立口径
+const CAT_VERDICT_OPTS = [
+  { k: "selling", label: "在售", desc: "已上架在卖" },
+  { k: "idle", label: "在调研", desc: "正在研究要不要做" },
+  { k: "ready", label: "还没动", desc: "先放着, 未启动" },
+  { k: "skip", label: "不做", desc: "已判定不做" },
+];
+// 报告结论胶囊
+const REPORT_VERDICT = {
+  fit: { label: "适合做", color: "#4db6a4" },
+  hold: { label: "待定", color: "#d9a441" },
+  unfit: { label: "已否掉", color: "#dc6b6b" },
+};
 
 
 
@@ -9012,6 +9046,43 @@ function Shelf() {
   const [leafPath, setLeafPath] = useState("");
   const [tick, setTick] = useState(0);
 
+  // —— 类目侧栏 (KK 2026-11-27) ——
+  // 四块: 在售产品 / 调研报告外链 / 判断选项 / 分析记录
+  const [sideCat, setSideCat] = useState(null);
+  const openSide = (c, path) => setSideCat({
+    id: c.id, name: c.name, path: path || c.name, st: c.st,
+    children: c.children || [],
+    reports: Array.isArray(c.reports) ? c.reports : [],
+    analysis: Array.isArray(c.analysis) ? c.analysis : [],
+  });
+  const patchSide = (patch) => setSideCat(s => (s ? { ...s, ...patch } : s));
+
+  // 侧栏第三块改状态: 与类目状态点同一套值 + 同一套交接联动
+  const sideSaveSt = async (newSt) => {
+    if (!sideCat) return;
+    if (!sCatSt) { alert("无权修改类目状态：仅管理员/法国、以及成都·供应链可改"); return; }
+    const { error } = await supabase.from("shelf_cats").update({ st: newSt }).eq("id", sideCat.id);
+    if (error) { alert("保存失败: " + error.message); return; }
+    if (newSt === "idle") {
+      await supabase.from("monitor_handoff").insert({ cat_id: sideCat.id, box_key: "h1", start_at: new Date().toISOString() });
+    }
+    if (newSt === "skip" || newSt === "researched_skip") {
+      await supabase.from("monitor_handoff").delete().eq("cat_id", sideCat.id);
+    }
+    patchSide({ st: newSt });
+    await refreshShelf();
+  };
+
+  // 侧栏第二/四块写库 (jsonb 整数组覆盖)
+  const sideSaveField = async (field, next) => {
+    if (!sideCat) return false;
+    const { error } = await supabase.from("shelf_cats").update({ [field]: next }).eq("id", sideCat.id);
+    if (error) { alert("保存失败: " + error.message); return false; }
+    patchSide(field === "cat_reports" ? { reports: next } : { analysis: next });
+    await refreshShelf();
+    return true;
+  };
+
   const refreshShelf = async () => {
     await fetchShelfData();
     setTick(t => t + 1);
@@ -9144,6 +9215,18 @@ function Shelf() {
     );
   };
 
+  // 侧栏入口按钮 › (行尾) · 点行只展开, 点它才开侧栏 (东欧同款交互)
+  const sideBtn = (c, path) => (
+    <span onClick={(e) => { e.stopPropagation(); openSide(c, path); }}
+      title="打开类目侧栏：在售产品 / 调研报告 / 判断 / 分析"
+      style={{
+        marginLeft: 8, minWidth: 22, height: 20, padding: "0 6px", borderRadius: 5,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        color: C.brand, border: `1px solid ${C.line}`, background: C.panel,
+        cursor: "pointer", fontSize: 14, lineHeight: 1, flex: "0 0 auto",
+      }}>›</span>
+  );
+
   // 子类目递归渲染 (cat 嵌套: Transport et voyages > Accessoires voiture > leaves)
   const renderCatTree = (children, parentKey, depth) => children && children.length ? sortCatsBySt(children).map((sub, si) => {
     const subKey = `${parentKey}|sub${si}`;
@@ -9169,6 +9252,7 @@ function Shelf() {
               );
             })()}
           </span>
+          {sideBtn(sub)}
         </div>
         {subOpen && (
           <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
@@ -9304,6 +9388,7 @@ function Shelf() {
                       <div key={ci} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px 11px 34px", borderTop: ci ? `1px solid ${C.line}` : "none" }}>
                         {stDot(c.st, (e) => { e.stopPropagation(); setEdit({ type: "cat", table: "shelf_cats", id: c.id, st: c.st, label: c.name }); }, null, sCatSt)}
                         <span style={{ fontSize: 13, color: C.ink }}>{c.name}</span>
+                        <span style={{ marginLeft: "auto" }}>{sideBtn(c, c.name)}</span>
                       </div>
                     );
                   })}
@@ -9403,6 +9488,7 @@ function Shelf() {
                                           </span>
                                         );
                                       })()}
+                                      {sideBtn(c, `${g.name} › ${c.name}`)}
                                     </div>
                                     {cOpen && (
                                       <div style={{ background: C.bg, borderTop: `1px solid ${C.line}` }}>
@@ -9411,102 +9497,33 @@ function Shelf() {
                                           try { return renderCatTree(c.children, ckey, 1); } catch (e) { console.error("cat nested render err:", e); return null; }
                                         })()}
                                         {detail && detail.products && detail.products.length > 0 ? (
-                                          <div style={{ padding: '6px 16px 14px 82px', background: C.panel }}>
+                                          <div style={{ padding: '6px 16px 12px 82px', background: C.panel }}>
                                             <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, letterSpacing: '.04em', marginBottom: 4 }}>产品</div>
                                             {detail.products.map((p) => renderProductRow(p, c.id))}
                                           </div>
                                         ) : (
-                                          <div style={{ padding: '8px 16px 14px 82px', fontSize: 12, color: C.faint }}>暂无产品</div>
+                                          <div style={{ padding: '8px 16px 12px 82px', fontSize: 12, color: C.faint }}>暂无产品</div>
+                                        )}
+                                        {/* 供应商: 显示在产品之后 */}
+                                        {detail && detail.suppliers && detail.suppliers.length > 0 && (
+                                          <div style={{ padding: '0 16px 8px 82px' }}>
+                                            <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, letterSpacing: '.04em', marginBottom: 4 }}>供应商</div>
+                                            {detail.suppliers.map((sp, si) => (
+                                              <div key={si} style={{ fontSize: 12, padding: '4px 0', lineHeight: 1.6 }}>
+                                                <span style={{ color: C.ink, fontWeight: 600 }}>{sp.factory}</span>
+                                                <span style={{ color: C.sub }}> · {sp.contact}</span>
+                                                <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
+                                              </div>
+                                            ))}
+                                          </div>
                                         )}
                                         <div onClick={(e) => { e.stopPropagation(); setAddProd({ catId: c.id }); }}
                                           style={{ fontSize: 11, color: C.brand, cursor: 'pointer', padding: '5px 16px 10px 82px' }}>
                                           + 新增产品
-                                        </div>: (
-                                          <div style={{ padding: "10px 16px 14px 82px" }}>
-                                            {/* 顶部统计: 产品 · 变体 · 供应商 */}
-                                            <div style={{ display: "flex", gap: 14, fontSize: 11, color: C.sub, marginBottom: 8, padding: "6px 8px", background: C.bg, borderRadius: 6 }}>
-                                              <span>产品 <b style={{ color: C.ink }}>{detail ? detail.products.length : 0}</b></span>
-                                              <span>变体 <b style={{ color: C.ink }}>{detail ? detail.products.reduce((s, p) => s + (p.variant_count || 0), 0) : 0}</b></span>
-                                              <span>供应商 <b style={{ color: C.ink }}>{detail ? detail.suppliers.length : 0}</b></span>
-                                            </div>
-                                            <Branch title="产品">
-                                              {detail && detail.products.length ? detail.products.map((p, pi) => {
-                                                const variants = Array.isArray(p.variants) ? p.variants : [];
-                                                const pOpen = !!openPV[p.id];
-                                                return (
-                                                  <div key={pi} style={{ fontSize: 12, padding: "6px 0", color: C.ink }}>
-                                                    {/* 主行: 状态点 + 产品名 + 状态词 + (有变体: SPU·N变体 / 无变体: ASIN) */}
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                      {variants.length > 0 && (
-                                                        <span onClick={(e) => { e.stopPropagation(); setOpenPV(st => ({ ...st, [p.id]: !st[p.id] })); }}
-                                                          style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", color: C.sub }}>
-                                                          <Caret open={pOpen} small />
-                                                        </span>
-                                                      )}
-                                                      <span onClick={(e) => { e.stopPropagation(); setEdit({ type: "product", table: "products", id: p.id, st: p.st, label: p.name }); }}
-                                                        style={{ width: 6, height: 6, borderRadius: 2, background: SHELF_ST[p.st] ? SHELF_ST[p.st].color : C.faint, display: "inline-block", cursor: "pointer" }}
-                                                        title="点击修改状态" />{p.name}
-                                                      <span style={{ color: C.faint, fontSize: 11 }}>· {SHELF_ST[p.st].label}</span>
-                                                      {variants.length > 0 ? (
-                                                        <span style={{ color: C.faint, fontSize: 11 }}>
-                                                          · {p.spu && <>SPU: <span style={{ fontFamily: "monospace" }}>{p.spu}</span> · </>}
-                                                          {variants.length}个变体
-                                                        </span>
-                                                      ) : (
-                                                        p.asin && (
-                                                          <a href={`https://amazon.fr/dp/${p.asin}`} target="_blank" rel="noreferrer"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            style={{ color: C.brand, fontSize: 11, textDecoration: "none" }}>
-                                                            · ASIN <span style={{ fontFamily: "monospace" }}>{p.asin}</span>
-                                                          </a>
-                                                        )
-                                                      )}
-                                                    </div>
-                                                    {/* 变体下拉: 默认全部展开 (KK 2026-08-08 反馈默认展开可见) */}
-                                                    {variants.length > 0 && (
-                                                      <div style={{ marginLeft: 28, marginTop: 6, padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, fontSize: 11, color: C.sub }}>
-                                                        {variants.map((v, vi) => (
-                                                          <div key={vi} style={{ display: "flex", alignItems: "center", gap: 12, padding: "3px 0" }}>
-                                                            {v.color && (
-                                                              <span style={{ display: "inline-flex", alignItems: "center", minWidth: 50 }}>
-                                                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: (p.variant_colors || []).find(c => c.name === v.color)?.hex || "#888", marginRight: 4, border: `1px solid ${C.line}` }} />
-                                                                {v.color}
-                                                              </span>
-                                                            )}
-                                                            {v.size && <span style={{ fontFamily: "monospace", minWidth: 24 }}>{v.size}</span>}
-                                                            {v.asin ? (
-                                                              <a href={`https://amazon.fr/dp/${v.asin}`} target="_blank" rel="noreferrer"
-                                                                onClick={(e) => e.stopPropagation()}
-                                                                style={{ color: C.brand, textDecoration: "none", fontFamily: "monospace" }}>
-                                                                {v.asin}
-                                                              </a>
-                                                            ) : <span style={{ color: C.faint, fontStyle: "italic" }}>ASIN 待填</span>}
-                                                          </div>
-                                                        ))}
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                );
-                                              }) : <Empty t="暂无产品" />}
-                                              <div onClick={(e) => { e.stopPropagation(); setAddProd({ leafId: lf.id }); }}
-                                                style={{ fontSize: 11, color: C.brand, cursor: "pointer", padding: "5px 0", marginTop: 2 }}>
-                                                + 新增产品
-                                              </div>
-                                              {/* 供应商: 叶端共享, 显示在产品列表后 (按 KK 2026-08-08 模板) */}
-                                              {detail && detail.suppliers.length ? detail.suppliers.map((sp, si) => (
-                                                <div key={si} style={{ fontSize: 12, padding: "5px 0", lineHeight: 1.6 }}>
-                                                  <span style={{ color: C.ink, fontWeight: 600 }}>{sp.factory}</span>
-                                                  <span style={{ color: C.sub }}> · {sp.contact}</span>
-                                                  <div style={{ color: C.faint, fontSize: 11 }}>主要产品：{sp.products}</div>
-                                                </div>
-                                              )) : null}
-                                              {/* 规则未定, 暂不显示新增供应商按钮 */}
-                                            </Branch>
-                                          </div>
-                                        )}
+                                        </div>
                                       </div>
                                     )}
-                                  </div>
+                                      </div>
                                 );
                               })}
                             </div>
@@ -9671,10 +9688,252 @@ function Shelf() {
           </div>
         </div>
       )}
+      {/* 类目侧栏: 在售产品 / 调研报告 / 判断 / 分析 (KK 2026-11-27) */}
+      <CatSidePanel
+        cat={sideCat}
+        canEditSt={sCatSt}
+        me={shelfEmail ? shelfEmail.split("@")[0] : ""}
+        onClose={() => setSideCat(null)}
+        onSetSt={sideSaveSt}
+        onSaveField={sideSaveField}
+      />
     </div>
   );
 }
 
+// ── 类目侧栏 ────────────────────────────────────────────────
+// 四块从上到下: ① 在售产品 ② 调研报告外链 ③ 判断选项 ④ 分析记录
+// 交互: 点类目行只展开下一级, 点行尾 › 才开侧栏; 打开时点别的类目是切换内容
+function CatSidePanel({ cat, canEditSt, me, onClose, onSetSt, onSaveField }) {
+  const [repForm, setRepForm] = useState(null); // { title, url, verdict, summary }
+  const [anaText, setAnaText] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setRepForm(null); setAnaText(""); }, [cat && cat.id]);
+
+  // ESC 关闭
+  useEffect(() => {
+    if (!cat) return;
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [cat, onClose]);
+
+  if (!cat) return null;
+
+  const own = catOwnProducts(cat.id);
+  const selling = own.filter(p => p.st === "selling");
+  const deepSell = catDeepSelling(cat);
+  const reports = cat.reports || [];
+  const analysis = cat.analysis || [];
+
+  const box = { background: C.panel, border: `1px solid ${C.line}`, borderRadius: 10, padding: 14, marginBottom: 12 };
+  const lbl = { fontSize: 11, color: C.sub, fontWeight: 700, letterSpacing: ".05em", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 };
+  const inp = { width: "100%", padding: "8px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 7, color: C.ink, fontSize: 12.5, outline: "none", boxSizing: "border-box", marginBottom: 8 };
+  const btnP = { padding: "7px 14px", background: C.brand, color: "#fff", border: "none", borderRadius: 7, fontSize: 12.5, cursor: "pointer", fontWeight: 600 };
+  const btnG = { padding: "7px 14px", background: "transparent", color: C.sub, border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 12.5, cursor: "pointer" };
+
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const fmt = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+
+  const saveReport = async () => {
+    const f = repForm || {};
+    if (!String(f.title || "").trim() && !String(f.url || "").trim()) { alert("标题或链接至少填一个"); return; }
+    const rec = {
+      id: newId(), title: String(f.title || "").trim(), url: String(f.url || "").trim(),
+      verdict: f.verdict || null, summary: String(f.summary || "").trim(),
+      author: me || "", at: new Date().toISOString(),
+    };
+    setBusy(true);
+    const ok = await onSaveField("cat_reports", [rec, ...reports]);
+    setBusy(false);
+    if (ok) setRepForm(null);
+  };
+
+  const delReport = async (id) => {
+    if (!confirm("删除这条报告记录？")) return;
+    const next = reports.filter(r => r.id !== id);
+    setBusy(true); await onSaveField("cat_reports", next); setBusy(false);
+  };
+
+  const saveAnalysis = async () => {
+    if (!anaText.trim()) { alert("先写点内容"); return; }
+    const rec = { id: newId(), body: anaText.trim(), author: me || "", at: new Date().toISOString() };
+    setBusy(true);
+    const ok = await onSaveField("cat_analysis", [rec, ...analysis]);
+    setBusy(false);
+    if (ok) setAnaText("");
+  };
+
+  const delAnalysis = async (id) => {
+    if (!confirm("删除这条分析？")) return;
+    setBusy(true); await onSaveField("cat_analysis", analysis.filter(a => a.id !== id)); setBusy(false);
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 150, display: "flex", justifyContent: "flex-end" }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(540px, 96vw)", height: "100vh", background: C.bg, borderLeft: `1px solid ${C.line}`,
+          display: "flex", flexDirection: "column", boxShadow: "-16px 0 40px rgba(0,0,0,.5)",
+        }}>
+        {/* 头部 */}
+        <div style={{ padding: "16px 18px 12px", borderBottom: `1px solid ${C.line}`, background: C.panel, flex: "0 0 auto" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 11, color: C.faint, marginBottom: 5 }}>{cat.path}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, lineHeight: 1.35 }}>{cat.name}</div>
+            </div>
+            <span onClick={onClose} title="关闭 (Esc)"
+              style={{ cursor: "pointer", color: C.sub, fontSize: 20, lineHeight: 1, padding: "0 4px", flex: "0 0 auto" }}>×</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9, fontSize: 11 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: (SHELF_ST[cat.st] || {}).color || C.faint, display: "inline-block" }} />
+            <span style={{ color: C.sub }}>当前：{(SHELF_ST[cat.st] || {}).label || cat.st}</span>
+          </div>
+        </div>
+
+        {/* 内容 */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px 24px" }}>
+
+          {/* ① 在售产品 */}
+          <div style={box}>
+            <div style={lbl}>在售产品</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+              <span style={{ fontSize: 30, fontWeight: 800, color: C.brand, lineHeight: 1 }}>{selling.length}</span>
+              <span style={{ fontSize: 12, color: C.sub }}>款</span>
+              <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>含子类目共 {deepSell} 款</span>
+            </div>
+            {own.length > 0 && (
+              <div style={{ fontSize: 11, color: C.faint, marginBottom: 8 }}>
+                本节点共 {own.length} 款（在售 {selling.length} · 其它 {own.length - selling.length}）
+              </div>
+            )}
+            <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: selling.length ? 8 : 0 }}>
+              {selling.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.faint, padding: "6px 0" }}>本节点暂无在售产品</div>
+              ) : selling.map(p => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 12.5, color: C.ink, borderBottom: `1px solid ${C.line}` }}>
+                  <span style={{ width: 5, height: 5, borderRadius: 2, background: SHELF_ST.selling.color, flex: "0 0 auto" }} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                  {p.spu ? <span style={{ fontSize: 10.5, color: C.faint, fontFamily: "monospace" }}>{p.spu}</span>
+                    : p.asin ? <span style={{ fontSize: 10.5, color: C.faint, fontFamily: "monospace" }}>{p.asin}</span> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ② 调研报告外链 */}
+          <div style={box}>
+            <div style={lbl}>
+              调研报告
+              <span style={{ color: C.faint, fontWeight: 400 }}>{reports.length} 条</span>
+              {!repForm && (
+                <span onClick={() => setRepForm({ title: "", url: "", verdict: "", summary: "" })}
+                  style={{ marginLeft: "auto", color: C.brand, cursor: "pointer", fontWeight: 600 }}>+ 添加</span>
+              )}
+            </div>
+            {reports.length === 0 && !repForm && (
+              <div style={{ fontSize: 12, color: C.faint }}>还没有报告。点「+ 添加」贴一条外链。</div>
+            )}
+            {reports.map(r => {
+              const v = REPORT_VERDICT[r.verdict];
+              return (
+                <div key={r.id} style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                    {v && <span style={{ fontSize: 10, padding: "1px 7px", borderRadius: 9, border: `1px solid ${v.color}`, color: v.color, fontWeight: 600 }}>{v.label}</span>}
+                    <span style={{ fontSize: 10.5, color: C.faint }}>{fmt(r.at)}{r.author ? " · " + r.author : ""}</span>
+                    <span onClick={() => delReport(r.id)} title="删除"
+                      style={{ marginLeft: "auto", cursor: "pointer", color: C.faint, fontSize: 13 }}>×</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: C.ink, fontWeight: 600, marginBottom: 4, lineHeight: 1.4 }}>{r.title || r.url}</div>
+                  {r.summary && <div style={{ fontSize: 11.5, color: C.sub, lineHeight: 1.55, marginBottom: 6 }}>{r.summary}</div>}
+                  {r.url && (
+                    <a href={r.url} target="_blank" rel="noreferrer"
+                      style={{ fontSize: 11.5, color: C.brand, textDecoration: "none" }}>打开报告 ›</a>
+                  )}
+                </div>
+              );
+            })}
+            {repForm && (
+              <div style={{ background: C.panel2, border: `1px solid ${C.brand}`, borderRadius: 8, padding: 10 }}>
+                <input autoFocus value={repForm.title} placeholder="报告标题（如 德国蒸汽清洁机市场调研）"
+                  onChange={(e) => setRepForm({ ...repForm, title: e.target.value })} style={inp} />
+                <input value={repForm.url} placeholder="链接 https://..."
+                  onChange={(e) => setRepForm({ ...repForm, url: e.target.value })} style={inp} />
+                <select value={repForm.verdict} onChange={(e) => setRepForm({ ...repForm, verdict: e.target.value })}
+                  style={{ ...inp, cursor: "pointer" }}>
+                  <option value="">结论：不填</option>
+                  <option value="fit">适合做</option>
+                  <option value="hold">待定</option>
+                  <option value="unfit">已否掉</option>
+                </select>
+                <textarea value={repForm.summary} placeholder="一句话结论" rows={2}
+                  onChange={(e) => setRepForm({ ...repForm, summary: e.target.value })}
+                  style={{ ...inp, resize: "vertical", fontFamily: "inherit" }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setRepForm(null)} style={btnG}>取消</button>
+                  <button onClick={saveReport} disabled={busy} style={{ ...btnP, opacity: busy ? .6 : 1 }}>{busy ? "保存中…" : "保存"}</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ③ 判断选项 */}
+          <div style={box}>
+            <div style={lbl}>这个类目怎么判
+              {!canEditSt && <span style={{ color: C.faint, fontWeight: 400 }}>（只读：仅管理员/法国、成都·供应链可改）</span>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {CAT_VERDICT_OPTS.map(o => {
+                const on = cat.st === o.k;
+                const col = (SHELF_ST[o.k] || {}).color || C.faint;
+                return (
+                  <div key={o.k} onClick={() => { if (!on) onSetSt(o.k); }}
+                    title={o.desc}
+                    style={{
+                      padding: "8px 14px", borderRadius: 8, fontSize: 12.5, cursor: on || !canEditSt ? "default" : "pointer",
+                      border: `1px solid ${on ? col : C.line}`,
+                      background: on ? `${col}22` : C.panel2,
+                      color: on ? col : C.sub, fontWeight: on ? 700 : 400,
+                      opacity: canEditSt ? 1 : .55,
+                    }}>
+                    {o.label}{on ? " ✓" : ""}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ④ 分析记录 */}
+          <div style={box}>
+            <div style={lbl}>分析记录
+              <span style={{ color: C.faint, fontWeight: 400 }}>{analysis.length} 条 · 追加式</span>
+            </div>
+            <textarea value={anaText} onChange={(e) => setAnaText(e.target.value)} rows={3}
+              placeholder="写一段对这个类目的分析（市场、竞品、供应链……）。保存后追加为一条记录，不会覆盖旧的。"
+              style={{ ...inp, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6 }} />
+            <button onClick={saveAnalysis} disabled={busy} style={{ ...btnP, opacity: busy ? .6 : 1, marginBottom: analysis.length ? 12 : 0 }}>
+              {busy ? "保存中…" : "保存这条分析"}
+            </button>
+            {analysis.map(a => (
+              <div key={a.id} style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                  <span style={{ fontSize: 10.5, color: C.faint }}>{fmt(a.at)}{a.author ? " · " + a.author : ""}</span>
+                  <span onClick={() => delAnalysis(a.id)} style={{ marginLeft: "auto", cursor: "pointer", color: C.faint, fontSize: 13 }}>×</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: C.ink, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{a.body}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function Caret({ open, small }) {
   return <span style={{ display: "inline-block", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s", color: C.sub, fontSize: small ? 10 : 12, width: 12 }}>▶</span>;
 }
