@@ -140,6 +140,12 @@ const PLATFORMS = [
 const PLATFORM_LABEL = Object.fromEntries(PLATFORMS.map(p => [p.key, p.label]));
 // 平台 → 账号(店铺) 口径：与订单记录页完全一致 — KK 2026-11-26
 const PLAT_ACCOUNTS = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
+// 采购单不分平台（KK 2026-11-28）：一张采购单只记「买了什么、多少、给哪个店」，
+// 平台不落在采购单上，而是落在「发货批次」的每一行（一批货可以拆给亚马逊/CD/Mano 三个平台）。
+// 所以采购单的店铺下拉 = 全平台店铺并集，未分配批次的数量就是「在库」。
+const PUR_STORES = [...new Set([
+  ...OPS_FIXED_STORES, ...PLAT_ACCOUNTS.cdiscount, ...PLAT_ACCOUNTS.manomano,
+])];
 const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];                                // 三家共享 (人工/场地)
 const ALL_STORES = OPS_FIXED_STORES;
 // 角色 → 可见店铺范围 (不在此表内的角色 = 全部 6 家)
@@ -6072,10 +6078,6 @@ function Purchase() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // 平台 → 店铺两级筛选，与库存统计 / 发货记录同一套 — KK 2026-11-28
-  const [platF, setPlatF] = useState("amazon");   // 默认亚马逊，保持现有习惯
-  const myStores = (role && ROLE_STORES[role]) || null;   // 黄丹(cd_procurement) 收窄到共享三家
-  const platView = myStores ? "amazon" : platF;           // 收窄角色锁死亚马逊
   const [storeF, setStoreF] = useState("");
   const [payF, setPayF] = useState("");
   const [recvF, setRecvF] = useState("");
@@ -6112,17 +6114,11 @@ function Purchase() {
 
   const load = async () => {
     setLoading(true); setErr("");
-    // v_purchase_overview 是建视图时定死的列，加不了 platform；
-    // 这里单独从 purchase_records 取平台再合并，避免为了一列重建视图 — KK 2026-11-28
-    const [poR, supR, platR] = await Promise.all([
+    const [poR, supR] = await Promise.all([
       supabase.from("v_purchase_overview").select("*").order("order_date", { ascending: false, nullsFirst: false }).limit(1000),
       supabase.from("purchase_suppliers").select("*").order("name"),
-      supabase.from("purchase_records").select("id,platform").limit(2000),
     ]);
-    const pmap = {};
-    (platR.data || []).forEach(x => { pmap[x.id] = x.platform || "amazon"; });
-    if (poR.error) setErr(poR.error.message);
-    else setRows((poR.data || []).map(r => ({ ...r, platform: pmap[r.id] || "amazon" })));
+    if (poR.error) setErr(poR.error.message); else setRows(poR.data || []);
     if (!supR.error) setSupList(supR.data || []);
     else if (!poR.error) setErr(supR.error.message);
     setLoading(false);
@@ -6150,14 +6146,13 @@ function Purchase() {
 
   // ---- 采购单表单 ----
   const blankPO = () => ({
-    id: null, po_no: "", order_date: TODAY, platform: platView || "amazon", store: "", supplier: "", supplier_id: "",
+    id: null, po_no: "", order_date: TODAY, store: "", supplier: "", supplier_id: "",
     product_name: "", sku: "", asin: "", qty: "", unit_price: "", goods_amount: "",
     freight: "", tax_amount: "", total_amount: "", currency: "CNY",
     pay_terms: "", arrive_date: "", tracking_no: "", note: "",
   });
   const editPO = (r) => setForm({
-    id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY,
-    platform: r.platform || "amazon", store: r.store || "",
+    id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY, store: r.store || "",
     supplier: r.supplier || "", supplier_id: r.supplier_id || "",
     product_name: r.product_name || "", sku: r.sku || "", asin: r.asin || "",
     qty: r.qty ?? "", unit_price: r.unit_price ?? "", goods_amount: r.goods_amount ?? "",
@@ -6186,7 +6181,6 @@ function Purchase() {
     // 价格类字段一律不进 payload —— insert 走默认 null，update 不覆盖雪梅已填的价
     const payload = isRequester ? {
       order_date: f.order_date,
-      platform: f.platform || "amazon",
       store: f.store || null,
       product_name: String(f.product_name).trim(),
       sku: f.sku || null,
@@ -6198,7 +6192,6 @@ function Purchase() {
     } : {
       po_no: f.po_no ? String(f.po_no).trim() : null,
       order_date: f.order_date,
-      platform: f.platform || "amazon",
       store: f.store || null,
       supplier: f.supplier || null,
       supplier_id: f.supplier_id || null,
@@ -6248,21 +6241,36 @@ function Purchase() {
       await load();
     }, "登记付款");
   };
-  const submitBat = () => {
+  // 一批货可以拆给多个平台（KK 2026-11-28）：一次可录多行，每行带自己的平台/店铺/数量，
+  // 采购数量 − 已分配批次合计 = 在库（还没分出去的货）。
+  const blankBatRow = (store) => ({ platform: "amazon", store: store || "", ship_batch: "", qty: "", ship_date: "", tracking_no: "" });
+  const submitBats = () => {
     const d = batDraft;
-    if (!String(d.ship_batch || "").trim()) return alert("请填货件号 / 批次号");
-    if (!d.qty || Number(d.qty) <= 0) return alert("数量必须大于 0");
+    if (!d) return;
+    const use = (d.rows || []).map(x => ({ ...x, qty: Number(x.qty || 0) })).filter(x => x.qty > 0);
+    if (!use.length) return alert("请至少填一行数量大于 0 的批次");
+    const total = use.reduce((a, x) => a + x.qty, 0);
+    const left = Number(d.poQty || 0) - Number(d.usedQty || 0);
+    if (total > left) {
+      return alert(`这次要分出去 ${total} 件，但只剩 ${left} 件未分配`
+        + `（采购 ${d.poQty || 0} 件，已分配 ${d.usedQty || 0} 件）。`);
+    }
     askPwd(async () => {
-      const { error } = await supabase.from("purchase_batches").insert({
-        purchase_id: d.purchase_id, ship_batch: String(d.ship_batch).trim(), qty: Number(d.qty),
-        store: d.store || null, ship_date: d.ship_date || null, tracking_no: d.tracking_no || null, note: d.note || null,
-      });
+      const { error } = await supabase.from("purchase_batches").insert(use.map(x => ({
+        purchase_id: d.purchase_id,
+        platform: x.platform || "amazon",
+        store: x.store || null,
+        ship_batch: String(x.ship_batch || "").trim() || null,
+        qty: x.qty,
+        ship_date: x.ship_date || null,
+        tracking_no: x.tracking_no || null,
+      })));
       if (error) throw error;
       setBatDraft(null);
       const { data } = await supabase.from("purchase_batches").select("*").eq("purchase_id", d.purchase_id).order("ship_date");
       setBats(p => ({ ...p, [d.purchase_id]: data || [] }));
       await load();
-    }, "关联发货批次");
+    }, `录入 ${use.length} 条发货批次`);
   };
   const delPay = (pid, id) => {
     if (!confirm("删除这笔付款记录？")) return;
@@ -6315,7 +6323,6 @@ function Purchase() {
 
   // ---- 筛选与统计 ----
   const view = rows.filter(r => {
-    if (platView && (r.platform || "amazon") !== platView) return false;
     if (storeF && r.store !== storeF) return false;
     if (payF && (r.pay_status_calc || "unpaid") !== payF) return false;
     if (recvF && (r.receive_status || "pending") !== recvF) return false;
@@ -6334,9 +6341,11 @@ function Purchase() {
   const underOrder = view.filter(r => !isOrdered(r)).length;
   // 需求方在「雪梅下单前」看不到任何金额，下单后才开放成本（KK 定的后段可见）
   const hideCost = (r) => isRequester && !isOrdered(r);
+  // 采购数量 − 已分配批次合计 = 在库（还没分给平台/店铺的货）— KK 2026-11-28
+  const inStockOf = (r) => Math.max(0, Number(r.qty || 0) - Number(r.ship_qty || 0));
 
   // ---- 样式 ----
-  const GRID = "34px 132px 96px 84px 122px minmax(200px, 1fr) 62px 86px 102px 116px 96px 56px 84px";
+  const GRID = "34px 132px 96px 84px 122px minmax(190px, 1fr) 62px 86px 102px 116px 96px 88px 84px";
   const th = { padding: "9px 10px", fontSize: 11.5, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78", whiteSpace: "nowrap" };
   const td = { padding: "8px 10px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const inp = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
@@ -6347,11 +6356,8 @@ function Purchase() {
   const tag = (c) => ({ fontSize: 11, fontWeight: 700, color: c, background: c + "1f", border: `1px solid ${c}55`, borderRadius: 5, padding: "1px 7px", whiteSpace: "nowrap" });
   const modalBg = { position: "fixed", inset: 0, background: "#000a", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", zIndex: 90, overflow: "auto" };
   const modal = { background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, width: 860, maxWidth: "100%" };
-  // 店铺下拉跟随平台：亚马逊 6 店 / CD 梦想 / Mano 飞鸟 — KK 2026-11-28
-  const storeOpts = myStores ? myStores.slice() : (PLAT_ACCOUNTS[platView] || OPS_FIXED_STORES);
-  // 采购单弹窗里的店铺也要跟平台走，否则能选到别平台的店
-  const formPlat = (form && form.platform) || "amazon";
-  const formStoreOpts = myStores ? myStores.slice() : (PLAT_ACCOUNTS[formPlat] || OPS_FIXED_STORES);
+  // 采购单不分平台：店铺 = 黄丹收窄的共享三家，其余角色给全平台店铺并集
+  const storeOpts = (role && ROLE_STORES[role]) || PUR_STORES;
 
   const subBtn = (k, l) => (
     <div onClick={() => setSub(k)} className="tab"
@@ -6394,15 +6400,6 @@ function Purchase() {
             {canPO && <button onClick={() => setForm(blankPO())} style={btn(C.brand, "#fff")}>+ {isRequester ? "提采购需求" : "新建采购单"}</button>}
             <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜单号 / 产品 / SKU / ASIN / 供应商"
               style={{ ...inp, width: 260 }} />
-            {/* 收窄角色(黄丹)只给亚马逊，平台下拉不显示 — 与库存统计一致 */}
-            {!myStores && (
-              <select value={platF}
-                onChange={e => { setPlatF(e.target.value); setStoreF(""); }}
-                title="先选平台，再选店铺"
-                style={{ ...inp, width: 116, border: `1px solid ${platF !== "amazon" ? C.brand : C.line}`, fontWeight: platF !== "amazon" ? 700 : 400 }}>
-                {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-              </select>
-            )}
             <select value={storeF} onChange={e => setStoreF(e.target.value)} style={{ ...inp, width: 110 }}>
               <option value="">全部店铺</option>
               {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
@@ -6452,7 +6449,7 @@ function Purchase() {
                   <div style={{ ...th, textAlign: "right" }}>总额 ¥</div>
                   <div style={{ ...th, textAlign: "right" }}>已付 / 状态</div>
                   <div style={{ ...th, textAlign: "center" }}>收货</div>
-                  <div style={{ ...th, textAlign: "center" }}>批次</div>
+                  <div style={{ ...th, textAlign: "center" }}>批次 / 在库</div>
                   <div style={{ ...th, textAlign: "center", borderRight: "none" }}>操作</div>
                 </div>
 
@@ -6502,7 +6499,14 @@ function Purchase() {
                           <span style={tag(PUR_RECV_TONE[rst])}>{PUR_RECV_LABEL[rst] || rst}</span>
                           <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>{r.received_qty ?? 0}/{r.qty ?? 0}{Number(r.damaged_qty) > 0 ? ` · 破损${r.damaged_qty}` : ""}</div>
                         </div>
-                        <div style={{ ...td, textAlign: "center", color: r.batch_cnt ? C.ink : C.faint }}>{r.batch_cnt || 0}</div>
+                        <div style={{ ...td, textAlign: "center" }}>
+                          <span style={{ color: r.batch_cnt ? C.ink : C.faint, fontWeight: r.batch_cnt ? 600 : 400 }}>
+                            {r.batch_cnt || 0} 批
+                          </span>
+                          <div style={{ fontSize: 10.5, marginTop: 1, color: inStockOf(r) > 0 ? C.watch : C.faint }}>
+                            在库 {inStockOf(r)}
+                          </div>
+                        </div>
                         <div style={{ ...td, textAlign: "center", borderRight: "none" }} onClick={e => e.stopPropagation()}>
                           {canPO && <button onClick={() => editPO(r)} style={{ ...btnO, padding: "3px 8px" }}>改</button>}
                           {canDel && <button onClick={() => deletePO(r)} style={{ ...btnO, padding: "3px 8px", marginLeft: 4, color: C.drop, borderColor: C.drop + "66" }}>删</button>}
@@ -6583,47 +6587,107 @@ function Purchase() {
                               </div>
                             </div>
 
-                            {/* 发货批次 */}
-                            <div style={{ flex: "1 1 380px", minWidth: 330 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            {/* 发货批次 —— 一批货可以拆给多个平台，一次可录多行 */}
+                            <div style={{ flex: "1 1 560px", minWidth: 480 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                                 <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>发货批次</span>
-                                <span style={{ fontSize: 11, color: C.faint }}>货件号与「发货记录」对齐</span>
+                                <span style={{ fontSize: 11, color: C.faint }}>
+                                  一批货可拆给多个平台 · 货件号与「发货记录」对齐
+                                </span>
+                                <span style={{ fontSize: 11, color: inStockOf(r) > 0 ? C.watch : C.brand, fontWeight: 600 }}>
+                                  已分配 {Number(r.ship_qty || 0)} / 采购 {Number(r.qty || 0)} · 在库 {inStockOf(r)}
+                                </span>
                                 {canBat && !batDraft && (
-                                  <button onClick={() => setBatDraft({ purchase_id: r.id, ship_batch: "", qty: r.qty || "", store: r.store || "", ship_date: "", tracking_no: "" })}
-                                    style={{ ...btnO, marginLeft: "auto", color: C.brand, borderColor: C.brand + "66" }}>+ 关联批次</button>
+                                  <button onClick={() => setBatDraft({
+                                    purchase_id: r.id, poQty: Number(r.qty || 0), usedQty: Number(r.ship_qty || 0),
+                                    rows: [blankBatRow(r.store)],
+                                  })}
+                                    style={{ ...btnO, marginLeft: "auto", color: C.brand, borderColor: C.brand + "66" }}>+ 录入批次</button>
                                 )}
                               </div>
                               <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 56px 92px 26px", background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
-                                  {["货件号", "数量", "发货日", ""].map((h, ii) => (
-                                    <div key={ii} style={{ padding: "6px 9px", fontSize: 11, color: C.sub }}>{h}</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "78px 74px 1fr 50px 88px 22px", background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
+                                  {["平台", "店铺", "货件号", "数量", "发货日", ""].map((h, ii) => (
+                                    <div key={ii} style={{ padding: "6px 8px", fontSize: 11, color: C.sub }}>{h}</div>
                                   ))}
                                 </div>
                                 {(bats[r.id] || []).length === 0 && (
-                                  <div style={{ padding: "12px 10px", fontSize: 11.5, color: C.faint }}>暂未关联发货批次</div>
+                                  <div style={{ padding: "12px 10px", fontSize: 11.5, color: C.faint }}>
+                                    暂未分配批次 · 全部 {inStockOf(r)} 件都算在库
+                                  </div>
                                 )}
                                 {(bats[r.id] || []).map(b => (
-                                  <div key={b.id} style={{ display: "grid", gridTemplateColumns: "1fr 56px 92px 26px", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
-                                    <div style={{ padding: "6px 9px", fontSize: 11.5, color: C.brand, overflow: "hidden", textOverflow: "ellipsis" }}>{b.ship_batch}{b.tracking_no ? <span style={{ color: C.faint }}> · {b.tracking_no}</span> : null}</div>
-                                    <div style={{ padding: "6px 9px", fontSize: 11.5 }}>{b.qty}</div>
-                                    <div style={{ padding: "6px 9px", fontSize: 11.5, color: C.sub }}>{b.ship_date || "—"}</div>
+                                  <div key={b.id} style={{ display: "grid", gridTemplateColumns: "78px 74px 1fr 50px 88px 22px", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+                                    <div style={{ padding: "6px 8px", fontSize: 11 }}>
+                                      <span style={tag(b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub)}>
+                                        {PLATFORM_LABEL[b.platform || "amazon"] || "亚马逊"}
+                                      </span>
+                                    </div>
+                                    <div style={{ padding: "6px 8px", fontSize: 11.5, color: C.sub }}>{b.store || "—"}</div>
+                                    <div style={{ padding: "6px 8px", fontSize: 11.5, color: C.brand, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {b.ship_batch || <span style={{ color: C.faint }}>未填货件号</span>}
+                                      {b.tracking_no ? <span style={{ color: C.faint }}> · {b.tracking_no}</span> : null}
+                                    </div>
+                                    <div style={{ padding: "6px 8px", fontSize: 11.5, fontWeight: 600 }}>{b.qty}</div>
+                                    <div style={{ padding: "6px 8px", fontSize: 11, color: C.sub }}>{b.ship_date || "—"}</div>
                                     <div style={{ textAlign: "center" }}>
                                       {canBat && <span onClick={() => delBat(r.id, b.id)} style={{ cursor: "pointer", color: C.faint, fontSize: 12 }}>×</span>}
                                     </div>
                                   </div>
                                 ))}
-                                {batDraft && batDraft.purchase_id === r.id && (
-                                  <div style={{ borderTop: `1px solid ${C.line}`, padding: 9, display: "grid", gridTemplateColumns: "1.4fr 60px 1fr 1fr", gap: 6, background: C.panel2 }}>
-                                    <input placeholder="货件号 FBA15…" value={batDraft.ship_batch} onChange={e => setBatDraft(d => ({ ...d, ship_batch: e.target.value }))} style={inp} />
-                                    <input type="number" placeholder="数量" value={batDraft.qty} onChange={e => setBatDraft(d => ({ ...d, qty: e.target.value }))} style={inp} />
-                                    <input type="date" value={batDraft.ship_date} onChange={e => setBatDraft(d => ({ ...d, ship_date: e.target.value }))} style={inp} />
-                                    <input placeholder="追踪号" value={batDraft.tracking_no} onChange={e => setBatDraft(d => ({ ...d, tracking_no: e.target.value }))} style={inp} />
-                                    <div style={{ gridColumn: "1 / -1", display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                      <button onClick={() => setBatDraft(null)} style={btnO}>取消</button>
-                                      <button onClick={submitBat} style={btn(C.brand, "#fff")}>保存批次</button>
+
+                                {batDraft && batDraft.purchase_id === r.id && (() => {
+                                  const dsum = (batDraft.rows || []).reduce((a, x) => a + Number(x.qty || 0), 0);
+                                  const over = dsum > (Number(batDraft.poQty || 0) - Number(batDraft.usedQty || 0));
+                                  const setRow = (i, k, v) => setBatDraft(d => ({ ...d, rows: d.rows.map((x, j) => j === i ? { ...x, [k]: v } : x) }));
+                                  return (
+                                    <div style={{ borderTop: `1px solid ${C.line}`, background: C.panel2, padding: 8 }}>
+                                      {(batDraft.rows || []).map((x, i) => (
+                                        <div key={i} style={{ display: "grid", gridTemplateColumns: "78px 74px 1fr 50px 88px 22px", gap: 5, marginBottom: 5, alignItems: "center" }}>
+                                          <select value={x.platform || "amazon"} onChange={e => {
+                                            const p = e.target.value;
+                                            setBatDraft(d => ({ ...d, rows: d.rows.map((y, j) => j === i
+                                              ? { ...y, platform: p, store: (PLAT_ACCOUNTS[p] || []).includes(y.store) ? y.store : (PLAT_ACCOUNTS[p] || [])[0] || "" }
+                                              : y) }));
+                                          }} style={{ ...inp, padding: "4px 5px", fontSize: 11 }}>
+                                            {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                                          </select>
+                                          <select value={x.store || ""} onChange={e => setRow(i, "store", e.target.value)}
+                                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }}>
+                                            <option value="">未指定</option>
+                                            {(PLAT_ACCOUNTS[x.platform || "amazon"] || []).map(s => <option key={s} value={s}>{s}</option>)}
+                                          </select>
+                                          <input placeholder="货件号(选填)" value={x.ship_batch} onChange={e => setRow(i, "ship_batch", e.target.value)}
+                                            style={{ ...inp, padding: "4px 6px", fontSize: 11 }} />
+                                          <input type="number" placeholder="数量" value={x.qty} onChange={e => setRow(i, "qty", e.target.value)}
+                                            style={{ ...inp, padding: "4px 6px", fontSize: 11 }} />
+                                          <input type="date" value={x.ship_date || ""} onChange={e => setRow(i, "ship_date", e.target.value)}
+                                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }} />
+                                          <div style={{ textAlign: "center" }}>
+                                            {(batDraft.rows || []).length > 1 && (
+                                              <span onClick={() => setBatDraft(d => ({ ...d, rows: d.rows.filter((_, j) => j !== i) }))}
+                                                style={{ cursor: "pointer", color: C.faint, fontSize: 12 }}>×</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                                        <button onClick={() => setBatDraft(d => ({ ...d, rows: [...d.rows, blankBatRow(r.store)] }))} style={btnO}>+ 再加一行</button>
+                                        <span style={{ fontSize: 11, color: over ? C.drop : C.sub }}>
+                                          本次合计 {dsum} 件 / 可分配 {Math.max(0, Number(batDraft.poQty || 0) - Number(batDraft.usedQty || 0))} 件
+                                          {over ? " · 超出采购数量" : ""}
+                                        </span>
+                                        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                                          <button onClick={() => setBatDraft(null)} style={btnO}>取消</button>
+                                          <button onClick={submitBats} disabled={over}
+                                            style={{ ...btn(over ? C.faint : C.brand, "#fff"), opacity: over ? 0.6 : 1 }}>
+                                            保存 {(() => { const n = (batDraft.rows || []).filter(x => Number(x.qty || 0) > 0).length; return n ? `${n} 条` : "批次"; })()}
+                                          </button>
+                                        </div>
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -6736,17 +6800,10 @@ function Purchase() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 {!isRequester && <div><label style={lb}>采购单号</label><input value={form.po_no} onChange={e => setF("po_no", e.target.value)} placeholder="PO-20261119-01" style={inp} /></div>}
                 <div><label style={lb}>{isRequester ? "需求日期 *" : "采购日期 *"}</label><input type="date" value={form.order_date} onChange={e => setF("order_date", e.target.value)} style={inp} /></div>
-                <div><label style={lb}>平台</label>
-                  <select value={formPlat}
-                    onChange={e => setForm(f => ({ ...f, platform: e.target.value, store: "" }))}
-                    style={{ ...inp, border: `1px solid ${formPlat !== "amazon" ? C.brand : C.line}`, fontWeight: formPlat !== "amazon" ? 700 : 400 }}>
-                    {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-                  </select>
-                </div>
                 <div><label style={lb}>店铺</label>
                   <select value={form.store} onChange={e => setF("store", e.target.value)} style={inp}>
                     <option value="">未指定</option>
-                    {formStoreOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                    {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 {!isRequester && <div><label style={lb}>供应商</label>
