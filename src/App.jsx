@@ -6453,8 +6453,17 @@ function Purchase() {
   // ---- 采购单表单 ----
   // 注意（KK 2026-11-28）：建单时不要求写发货分配 —— 有的货采购回来就放在家里/仓里，
   // 未发货那部分天然就是「在库」，等真要发货时在列表里点「+ 分配发货」再填。
+  // 采购单号自动生成（KK 2026-11-28）：建单当天 YYMMDD + 3 位当日流水 → 261128001 / 261128002
+  const genPoNo = () => {
+    const d = new Date();
+    const pre = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    const used = new Set((rows || []).map(r => String(r.po_no || "").trim()).filter(s => s.startsWith(pre)));
+    let n = 1;
+    while (used.has(pre + String(n).padStart(3, "0"))) n++;
+    return pre + String(n).padStart(3, "0");
+  };
   const blankPO = () => ({
-    id: null, po_no: "", order_date: TODAY, store: "", supplier: "", supplier_id: "",
+    id: null, po_no: genPoNo(), order_date: TODAY, store: "", supplier: "", supplier_id: "",
     product_name: "", sku: "", asin: "", qty: "", unit_price: "", goods_amount: "",
     freight: "", tax_amount: "", total_amount: "", currency: "CNY",
     pay_terms: "", pay_date: "", arrive_date: "", warehouse_in_date: "", tracking_no: "", note: "",
@@ -6487,9 +6496,12 @@ function Purchase() {
     if (!f.order_date) return alert(isRequester ? "请填需求日期" : "请填采购日期");
     if (!String(f.product_name).trim()) return alert("请填产品名称");
     if (!f.qty || Number(f.qty) <= 0) return alert("数量必须大于 0");
+    // 单号在提交这一刻再算一次：表单可能是几分钟前打开的，防止两张单撞同一个号
+    const autoNo = f.id ? (String(f.po_no || "").trim() || null) : genPoNo();
     // 需求方（cd_promotion）只写「要什么 / 要多少 / 哪个店」，
     // 价格类字段一律不进 payload —— insert 走默认 null，update 不覆盖雪梅已填的价
     const payload = isRequester ? {
+      po_no: autoNo,
       order_date: f.order_date,
       store: f.store || null,
       product_name: String(f.product_name).trim(),
@@ -6500,7 +6512,7 @@ function Purchase() {
       note: f.note || null,
       requested_by: meEmail || null,
     } : {
-      po_no: f.po_no ? String(f.po_no).trim() : null,
+      po_no: autoNo,
       order_date: f.order_date,
       store: f.store || null,
       supplier: f.supplier || null,
@@ -7197,7 +7209,14 @@ function Purchase() {
             <div style={{ padding: 18 }}>
               <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, marginBottom: 8 }}>归谁 / 买什么</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                {!isRequester && <div><label style={lb}>采购单号</label><input value={form.po_no} onChange={e => setF("po_no", e.target.value)} placeholder="PO-20261119-01" style={inp} /></div>}
+                {!isRequester && (
+                  <div>
+                    <label style={lb}>采购单号 <span style={{ color: C.faint, fontSize: 10 }}>自动生成</span></label>
+                    <input value={form.po_no || (form.id ? "" : genPoNo())} readOnly
+                      title="系统按建单当天生成：YYMMDD + 当日流水（如 261128001）"
+                      style={{ ...inp, background: C.panel2, color: C.sub, cursor: "default", fontWeight: 600, letterSpacing: 0.5 }} />
+                  </div>
+                )}
                 <div><label style={lb}>{isRequester ? "需求日期 *" : "采购日期 *"}</label><input type="date" value={form.order_date} onChange={e => setF("order_date", e.target.value)} style={inp} /></div>
                 <div><label style={lb}>付款体系</label>
                   <select value={form.store} onChange={e => setF("store", e.target.value)} style={inp}>
