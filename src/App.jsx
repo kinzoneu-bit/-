@@ -6072,6 +6072,10 @@ function Purchase() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // 平台 → 店铺两级筛选，与库存统计 / 发货记录同一套 — KK 2026-11-28
+  const [platF, setPlatF] = useState("amazon");   // 默认亚马逊，保持现有习惯
+  const myStores = (role && ROLE_STORES[role]) || null;   // 黄丹(cd_procurement) 收窄到共享三家
+  const platView = myStores ? "amazon" : platF;           // 收窄角色锁死亚马逊
   const [storeF, setStoreF] = useState("");
   const [payF, setPayF] = useState("");
   const [recvF, setRecvF] = useState("");
@@ -6108,11 +6112,17 @@ function Purchase() {
 
   const load = async () => {
     setLoading(true); setErr("");
-    const [poR, supR] = await Promise.all([
+    // v_purchase_overview 是建视图时定死的列，加不了 platform；
+    // 这里单独从 purchase_records 取平台再合并，避免为了一列重建视图 — KK 2026-11-28
+    const [poR, supR, platR] = await Promise.all([
       supabase.from("v_purchase_overview").select("*").order("order_date", { ascending: false, nullsFirst: false }).limit(1000),
       supabase.from("purchase_suppliers").select("*").order("name"),
+      supabase.from("purchase_records").select("id,platform").limit(2000),
     ]);
-    if (poR.error) setErr(poR.error.message); else setRows(poR.data || []);
+    const pmap = {};
+    (platR.data || []).forEach(x => { pmap[x.id] = x.platform || "amazon"; });
+    if (poR.error) setErr(poR.error.message);
+    else setRows((poR.data || []).map(r => ({ ...r, platform: pmap[r.id] || "amazon" })));
     if (!supR.error) setSupList(supR.data || []);
     else if (!poR.error) setErr(supR.error.message);
     setLoading(false);
@@ -6140,13 +6150,14 @@ function Purchase() {
 
   // ---- 采购单表单 ----
   const blankPO = () => ({
-    id: null, po_no: "", order_date: TODAY, store: "", supplier: "", supplier_id: "",
+    id: null, po_no: "", order_date: TODAY, platform: platView || "amazon", store: "", supplier: "", supplier_id: "",
     product_name: "", sku: "", asin: "", qty: "", unit_price: "", goods_amount: "",
     freight: "", tax_amount: "", total_amount: "", currency: "CNY",
     pay_terms: "", arrive_date: "", tracking_no: "", note: "",
   });
   const editPO = (r) => setForm({
-    id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY, store: r.store || "",
+    id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY,
+    platform: r.platform || "amazon", store: r.store || "",
     supplier: r.supplier || "", supplier_id: r.supplier_id || "",
     product_name: r.product_name || "", sku: r.sku || "", asin: r.asin || "",
     qty: r.qty ?? "", unit_price: r.unit_price ?? "", goods_amount: r.goods_amount ?? "",
@@ -6175,6 +6186,7 @@ function Purchase() {
     // 价格类字段一律不进 payload —— insert 走默认 null，update 不覆盖雪梅已填的价
     const payload = isRequester ? {
       order_date: f.order_date,
+      platform: f.platform || "amazon",
       store: f.store || null,
       product_name: String(f.product_name).trim(),
       sku: f.sku || null,
@@ -6186,6 +6198,7 @@ function Purchase() {
     } : {
       po_no: f.po_no ? String(f.po_no).trim() : null,
       order_date: f.order_date,
+      platform: f.platform || "amazon",
       store: f.store || null,
       supplier: f.supplier || null,
       supplier_id: f.supplier_id || null,
@@ -6302,6 +6315,7 @@ function Purchase() {
 
   // ---- 筛选与统计 ----
   const view = rows.filter(r => {
+    if (platView && (r.platform || "amazon") !== platView) return false;
     if (storeF && r.store !== storeF) return false;
     if (payF && (r.pay_status_calc || "unpaid") !== payF) return false;
     if (recvF && (r.receive_status || "pending") !== recvF) return false;
@@ -6333,7 +6347,11 @@ function Purchase() {
   const tag = (c) => ({ fontSize: 11, fontWeight: 700, color: c, background: c + "1f", border: `1px solid ${c}55`, borderRadius: 5, padding: "1px 7px", whiteSpace: "nowrap" });
   const modalBg = { position: "fixed", inset: 0, background: "#000a", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", zIndex: 90, overflow: "auto" };
   const modal = { background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, width: 860, maxWidth: "100%" };
-  const storeOpts = (role && ROLE_STORES[role]) || OPS_FIXED_STORES;
+  // 店铺下拉跟随平台：亚马逊 6 店 / CD 梦想 / Mano 飞鸟 — KK 2026-11-28
+  const storeOpts = myStores ? myStores.slice() : (PLAT_ACCOUNTS[platView] || OPS_FIXED_STORES);
+  // 采购单弹窗里的店铺也要跟平台走，否则能选到别平台的店
+  const formPlat = (form && form.platform) || "amazon";
+  const formStoreOpts = myStores ? myStores.slice() : (PLAT_ACCOUNTS[formPlat] || OPS_FIXED_STORES);
 
   const subBtn = (k, l) => (
     <div onClick={() => setSub(k)} className="tab"
@@ -6376,6 +6394,15 @@ function Purchase() {
             {canPO && <button onClick={() => setForm(blankPO())} style={btn(C.brand, "#fff")}>+ {isRequester ? "提采购需求" : "新建采购单"}</button>}
             <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜单号 / 产品 / SKU / ASIN / 供应商"
               style={{ ...inp, width: 260 }} />
+            {/* 收窄角色(黄丹)只给亚马逊，平台下拉不显示 — 与库存统计一致 */}
+            {!myStores && (
+              <select value={platF}
+                onChange={e => { setPlatF(e.target.value); setStoreF(""); }}
+                title="先选平台，再选店铺"
+                style={{ ...inp, width: 116, border: `1px solid ${platF !== "amazon" ? C.brand : C.line}`, fontWeight: platF !== "amazon" ? 700 : 400 }}>
+                {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+            )}
             <select value={storeF} onChange={e => setStoreF(e.target.value)} style={{ ...inp, width: 110 }}>
               <option value="">全部店铺</option>
               {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
@@ -6709,10 +6736,17 @@ function Purchase() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 {!isRequester && <div><label style={lb}>采购单号</label><input value={form.po_no} onChange={e => setF("po_no", e.target.value)} placeholder="PO-20261119-01" style={inp} /></div>}
                 <div><label style={lb}>{isRequester ? "需求日期 *" : "采购日期 *"}</label><input type="date" value={form.order_date} onChange={e => setF("order_date", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>平台</label>
+                  <select value={formPlat}
+                    onChange={e => setForm(f => ({ ...f, platform: e.target.value, store: "" }))}
+                    style={{ ...inp, border: `1px solid ${formPlat !== "amazon" ? C.brand : C.line}`, fontWeight: formPlat !== "amazon" ? 700 : 400 }}>
+                    {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                  </select>
+                </div>
                 <div><label style={lb}>店铺</label>
                   <select value={form.store} onChange={e => setF("store", e.target.value)} style={inp}>
                     <option value="">未指定</option>
-                    {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                    {formStoreOpts.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 {!isRequester && <div><label style={lb}>供应商</label>
