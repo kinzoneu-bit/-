@@ -148,7 +148,7 @@ const PLAT_ACCOUNTS = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manoman
 const PUR_STORES = [...new Set([
   ...OPS_FIXED_STORES, ...PLAT_ACCOUNTS.cdiscount, ...PLAT_ACCOUNTS.manomano,
 ])];
-// 采购单的「店铺」= 付款主体（KK 2026-11-28）：只认乾霖、野趣两个付款体系，
+// 采购单的「店铺」= 付款体系（KK 2026-11-28）：只认乾霖、野趣两个付款主体，
 // 与「货发到哪个平台店」无关 —— 发货去向归发货分配（purchase_batches）。
 const PUR_PAY_ENTITIES = ["乾霖", "野趣"];
 const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];                                // 三家共享 (人工/场地)
@@ -6688,7 +6688,7 @@ function Purchase() {
   const tag = (c) => ({ fontSize: 11, fontWeight: 700, color: c, background: c + "1f", border: `1px solid ${c}55`, borderRadius: 5, padding: "1px 7px", whiteSpace: "nowrap" });
   const modalBg = { position: "fixed", inset: 0, background: "#000a", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", zIndex: 90, overflow: "auto" };
   const modal = { background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, width: 860, maxWidth: "100%" };
-  // 采购单的店铺 = 付款主体（乾霖 / 野趣）；黄丹只看到自己范围内的那一个
+  // 采购单的店铺 = 付款体系（乾霖 / 野趣）；黄丹只看到自己范围内的那一个
   const storeOpts = role && ROLE_STORES[role]
     ? PUR_PAY_ENTITIES.filter(s => ROLE_STORES[role].includes(s))
     : PUR_PAY_ENTITIES;
@@ -6735,7 +6735,7 @@ function Purchase() {
             <input value={kw} onChange={e => setKw(e.target.value)} placeholder="搜单号 / 产品 / SKU / ASIN / 供应商"
               style={{ ...inp, width: 260 }} />
             <select value={storeF} onChange={e => setStoreF(e.target.value)} style={{ ...inp, width: 110 }}>
-              <option value="">全部付款主体</option>
+              <option value="">全部付款体系</option>
               {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <select value={payF} onChange={e => setPayF(e.target.value)} style={{ ...inp, width: 110 }}>
@@ -6798,7 +6798,7 @@ function Purchase() {
                   <div style={th}>创建</div>
                   <div style={th}>付款</div>
                   <div style={th}>入库</div>
-                  <div style={th}>付款主体</div>
+                  <div style={th}>付款体系</div>
                   <div style={th}>供应商</div>
                   <div style={th}>产品 / SKU</div>
                   <div style={{ ...th, textAlign: "right" }}>数量</div>
@@ -7190,7 +7190,7 @@ function Purchase() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 {!isRequester && <div><label style={lb}>采购单号</label><input value={form.po_no} onChange={e => setF("po_no", e.target.value)} placeholder="PO-20261119-01" style={inp} /></div>}
                 <div><label style={lb}>{isRequester ? "需求日期 *" : "采购日期 *"}</label><input type="date" value={form.order_date} onChange={e => setF("order_date", e.target.value)} style={inp} /></div>
-                <div><label style={lb}>付款主体</label>
+                <div><label style={lb}>付款体系</label>
                   <select value={form.store} onChange={e => setF("store", e.target.value)} style={inp}>
                     <option value="">未指定</option>
                     {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
