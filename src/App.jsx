@@ -1844,6 +1844,100 @@ function Shipments() {
     return () => clearTimeout(t);
   }, [filterStore, filterBatch, filterPlatform]);
 
+  // —— 采购单 → 发货行（KK 2026-11-28）——
+  // 一批发货 = 多张采购单各拿一部分凑成一批（多对多）；每行记自己的来源采购单，
+  // 采购日 / 付款日随行带过来 → 准备周期 = 付款日 → 发货日，全部自动，不用手填。
+  const [poInfo, setPoInfo] = useState({});     // purchase_id → 采购单
+  const [poAlloc, setPoAlloc] = useState({});   // purchase_id → 已分配件数（purchase_batches 合计）
+  const loadPo = async () => {
+    const [pr, pb] = await Promise.all([
+      supabase.from("purchase_records")
+        .select("id,po_no,product_name,sku,asin,qty,unit_price,order_date,pay_date,warehouse_in_date,supplier,platform")
+        .limit(3000),
+      supabase.from("purchase_batches").select("purchase_id,qty,ship_batch").limit(6000),
+    ]);
+    const pm = {};
+    (pr.data || []).forEach(x => { pm[x.id] = x; });
+    setPoInfo(pm);
+    const am = {};
+    (pb.data || []).forEach(x => { am[x.purchase_id] = (am[x.purchase_id] || 0) + Number(x.qty || 0); });
+    setPoAlloc(am);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (shipRole) loadPo(); }, [shipRole]);
+  // 发货行的采购日 / 付款日 / 准备天数
+  const poOf = (r) => (r && r.purchase_id ? poInfo[r.purchase_id] : null);
+  const prepDays = (r) => {
+    const po = poOf(r);
+    if (!po || !po.pay_date || !r.ship_date) return null;
+    const ms = new Date(r.ship_date).getTime() - new Date(po.pay_date).getTime();
+    return ms < 0 ? null : Math.round(ms / 86400000);
+  };
+
+  // —— 批次发货：多张采购单各拿一部分凑成一批（KK 2026-11-28 的业务场景）——
+  const TODAY_S = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const [newShip, setNewShip] = useState(null);
+  const [nbBusy, setNbBusy] = useState(false);
+  const leftOf = (pid) => Math.max(0, Number((poInfo[pid] || {}).qty || 0) - Number(poAlloc[pid] || 0));
+  const openNewShip = () => {
+    setNewShip({
+      platform: platView, store: filterStore || storeOpts[0] || (PLAT_ACCOUNTS[platView] || [])[0] || "",
+      ship_date: TODAY_S, ship_batch: "", ship_warehouse: "", logistics_provider: "", tracking_no: "",
+      rows: [{ purchase_id: "", qty: "" }],
+    });
+  };
+  const submitNewShip = async () => {
+    const d = newShip;
+    if (!d) return;
+    const batch = String(d.ship_batch || "").trim();
+    const use = (d.rows || []).filter(x => x.purchase_id && Number(x.qty) > 0);
+    if (!batch) return alert("请填发货批次 / 货件号");
+    if (!d.ship_date) return alert("请填发货日期");
+    if (!d.store) return alert("请选店铺");
+    if (!use.length) return alert("请至少选一张采购单并填本次发货数量");
+    const ids = use.map(x => x.purchase_id);
+    if (new Set(ids).size !== ids.length) return alert("同一张采购单在一批里只能出现一行");
+    for (const x of use) {
+      const po = poInfo[x.purchase_id] || {};
+      if (Number(x.qty) > leftOf(x.purchase_id)) {
+        return alert(`「${po.product_name || "?"}」最多只能发 ${leftOf(x.purchase_id)} 件（采购 ${po.qty || 0}，已分配 ${poAlloc[x.purchase_id] || 0}）`);
+      }
+    }
+    const totalQty = use.reduce((a, x) => a + Number(x.qty), 0);
+    const totalGoods = use.reduce((a, x) => {
+      const up = poInfo[x.purchase_id] && poInfo[x.purchase_id].unit_price;
+      return a + (up != null ? Number(x.qty) * Number(up) : 0);
+    }, 0);
+    if (!confirm(`确认发出批次「${batch}」？\n\n${use.length} 个产品 · 共 ${totalQty} 件 · 货值 ¥${totalGoods.toFixed(2)}\n发货日 ${d.ship_date} · ${d.store}\n\n写入后：发货记录生成 ${use.length} 行，采购单已分配数量同步 +${totalQty}。`)) return;
+    setNbBusy(true);
+    const payload = use.map(x => {
+      const po = poInfo[x.purchase_id] || {};
+      const qty = Number(x.qty);
+      const up = po.unit_price != null ? Number(po.unit_price) : null;
+      return {
+        store: d.store || null, platform: d.platform || "amazon",
+        ship_date: d.ship_date, ship_warehouse: d.ship_warehouse || null,
+        ship_batch: batch, product_name: po.product_name || null,
+        asin: po.asin || null, qty, purchase_price: up,
+        goods_value: up != null ? Number((qty * up).toFixed(2)) : null,
+        logistics_provider: d.logistics_provider || null,
+        last_mile_no: d.tracking_no || null,
+        purchase_id: x.purchase_id,
+      };
+    });
+    const { error } = await supabase.from("shipments").insert(payload);
+    if (error) { setNbBusy(false); return alert("写入发货记录失败: " + error.message); }
+    // 采购批次分配同步（采购页的「已分配 / 在库」跟着变）
+    const bres = await supabase.from("purchase_batches").insert(use.map(x => ({
+      purchase_id: x.purchase_id, platform: d.platform || "amazon", store: d.store || null,
+      ship_batch: batch, qty: Number(x.qty), ship_date: d.ship_date, tracking_no: d.tracking_no || null,
+    })));
+    setNbBusy(false);
+    setNewShip(null);
+    if (bres.error) alert("发货记录已写入，但采购批次分配没写进去: " + bres.error.message + "\n（采购页的「已分配」会少这部分，请补录）");
+    await load(); await loadPo();
+  };
+
   // 勾选切换 (运费已付) · admin + 采购(黄丹)
   const toggleField = async (rowId, field, current) => {
     if (!canCheck) return;
@@ -1872,6 +1966,7 @@ function Shipments() {
   const openEditShip = (row) => {
     const f = {};
     SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).forEach(k => f[k] = row[k] != null ? String(row[k]) : "");
+    f.purchase_id = row.purchase_id || "";
     setShipForm(f); setEditShip({ id: row.id });
   };
   const saveShip = async () => {
@@ -1893,6 +1988,8 @@ function Shipments() {
     });
     // 平台跟随该行原值，不因当前筛选变化（KK 2026-11-28）
     clean.platform = (rows.find(r => r.id === editShip.id) || {}).platform || platView;
+    // 来源采购单（改了它，采购日/付款日/准备天数跟着重算）
+    if (!locked) clean.purchase_id = shipForm.purchase_id || null;
     // 记「录入人」; 若该批已复核, 非金额字段的改动把它打回「待复核」
     Object.assign(clean, g ? ownerPatch(g) : { batch_owner: myEmail, batch_owner_at: new Date().toISOString() });
     const { error } = await writeShip(clean, [editShip.id]);
@@ -1911,6 +2008,7 @@ function Shipments() {
     const avail = Math.max(0, Number(r.qty || 0) - Number(r.loss_qty || 0));
     const today = new Date().toISOString().slice(0, 10);
     if (!confirm(`确认将「${r.product_name}」标记为已上架？\n\n上架数量 = 发货 ${r.qty} − 损耗 ${r.loss_qty || 0} = ${avail}\n上架日期 = ${today}（可之后编辑修改）`)) return;
+    const po = poOf(r);
     const rec = {
       store: r.store || null,
       // 库存页按 platform 过滤，这里必须带上，否则「标记已上架」写进去的行在库存里查不到
@@ -1921,6 +2019,9 @@ function Shipments() {
       asin: r.asin || null, product_name: r.product_name,
       listed_date: today, listed_qty: avail,
       landed_cost: r.landed_cost != null ? Number(r.landed_cost) : null,
+      // 采购链路随行带进库存（KK 2026-11-28）：准备周期 = 付款日 → 发货日
+      purchase_date: (po && po.order_date) || null,
+      pay_date: (po && po.pay_date) || null,
     };
     const { error: e1 } = await supabase.from("inventory").upsert({ shipment_id: r.id, ...rec }, { onConflict: "shipment_id" });
     if (e1) { alert("写入库存失败(请先建表 inventory): " + e1.message); return; }
@@ -1937,6 +2038,10 @@ function Shipments() {
     { k: "ship_batch", l: "发货批次", w: 120, t: "batch", ty: "text" },
     { k: "review", l: "复核", w: 136, t: "batch", ty: "text" },   // 批次级: 复核状态 / 双人确认入口 (KK 2026-09-18)
     { k: "product_name", l: "名称", w: 130, t: "row" },
+    // 采购链路（KK 2026-11-28）：行上自动带出来源采购单的采购日/付款日，不用手填
+    { k: "po_order", l: "采购日", w: 82, t: "row" },
+    { k: "po_pay", l: "付款日", w: 82, t: "row" },
+    { k: "prep_days", l: "准备天数", w: 72, t: "row" },
     { k: "asin", l: "ASIN", w: 100, t: "row" },
     { k: "qty", l: "数量", w: 60, t: "row" },
     { k: "purchase_price", l: "采购价", w: 80, t: "row" },
@@ -2326,6 +2431,13 @@ function Shipments() {
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {canEdit && (
+            <button onClick={openNewShip}
+              title="多张采购单各拿一部分 → 凑成一批发出去；采购日/付款日自动带到每一行"
+              style={{ padding: "7px 16px", background: C.brand, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              + 批次发货（凑批）
+            </button>
+          )}
           <span style={{ fontSize: 11, color: C.faint }}>数据更新于</span>
           <span style={{ fontSize: 12, color: C.ink, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: C.panel, border: `1px solid ${C.line}` }}>尚未录入</span>
         </div>
@@ -2596,6 +2708,24 @@ function Shipments() {
                         </div>
                       );
                       if (c.k === "asin") return <div key={r.id + c.k} style={{ ...cell(c.k), color: C.sub }}>{r.asin || "—"}</div>;
+                      if (c.k === "po_order" || c.k === "po_pay") {
+                        const po = poOf(r);
+                        const v = c.k === "po_order" ? (po && po.order_date) : (po && po.pay_date);
+                        return (
+                          <div key={r.id + c.k}
+                            title={po ? `来源采购单 ${po.po_no || "(无单号)"} · ${po.product_name || ""}` : "未关联采购单 · 点行末 ✎ 选来源采购单"}
+                            style={{ ...cell(c.k), fontSize: 10, color: v ? C.sub : C.faint }}>{v || "—"}</div>
+                        );
+                      }
+                      if (c.k === "prep_days") {
+                        const d = prepDays(r);
+                        return (
+                          <div key={r.id + c.k} title="准备周期 = 付款日 → 发货日（付款后到货发出：供应商备货 + 等物流单）"
+                            style={{ ...cell(c.k), fontWeight: 600, color: d == null ? C.faint : d > 30 ? "#b07414" : "#0f8b7e" }}>
+                            {d == null ? "—" : `${d} 天`}
+                          </div>
+                        );
+                      }
                       if (c.k === "qty") return <div key={r.id + c.k} style={{ ...cell(c.k), fontWeight: 600 }}>{r.qty}</div>;
                       if (c.k === "purchase_price") return <div key={r.id + c.k} style={cell(c.k)}>{r.purchase_price ? "¥" + Number(r.purchase_price).toFixed(2) : "—"}</div>;
                       if (c.k === "goods_value") return <div key={r.id + c.k} style={cell(c.k)}>{r.goods_value || "—"}</div>;
@@ -2645,6 +2775,132 @@ function Shipments() {
           暂无发货记录 · Excel 导入: node scripts/import-shipments.mjs {"<文件>"} --store=店铺名
         </div>
       )}
+
+      {/* 批次发货（凑批）：多张采购单各拿一部分 → 一批发出（KK 2026-11-28） */}
+      {newShip && (() => {
+        const poOptions = Object.values(poInfo).filter(p => leftOf(p.id) > 0);
+        const used = newShip.rows.map(r => r.purchase_id).filter(Boolean);
+        const pickRow = (i, patch) => setNewShip(s => ({ ...s, rows: s.rows.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
+        const totQty = newShip.rows.reduce((a, x) => a + Number(x.qty || 0), 0);
+        const totGoods = newShip.rows.reduce((a, x) => {
+          const po = poInfo[x.purchase_id];
+          return a + (po && po.unit_price != null ? Number(x.qty || 0) * Number(po.unit_price) : 0);
+        }, 0);
+        const cellIn = { width: "100%", padding: "5px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 5, color: C.ink, fontSize: 11.5, outline: "none" };
+        return (
+          <div onClick={() => !nbBusy && setNewShip(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.62)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 124 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ width: "min(1120px, 96vw)", maxHeight: "90vh", overflow: "auto", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, boxShadow: "0 18px 50px rgba(0,0,0,.4)" }}>
+              <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>批次发货 · 凑批</div>
+                  <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>
+                    多张采购单各拿一部分凑成一批 · 采购日/付款日/采购价按行自动带出 · 准备天数 = 付款日 → 发货日
+                  </div>
+                </div>
+                <span onClick={() => !nbBusy && setNewShip(null)} style={{ marginLeft: "auto", cursor: "pointer", color: C.faint, fontSize: 14 }}>✕</span>
+              </div>
+
+              {/* 批次级 */}
+              <div style={{ padding: "12px 18px", display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 10 }}>
+                {[
+                  ["平台", "platform", "select", PLATFORMS.map(p => [p.key, p.label])],
+                  ["店铺", "store", "select", [...new Set([...(PLAT_ACCOUNTS[newShip.platform] || []), ...storeOpts])].sort().map(s => [s, s])],
+                  ["发货日期", "ship_date", "date"],
+                  ["发货批次 / 货件号", "ship_batch", "text"],
+                  ["发货仓库", "ship_warehouse", "text"],
+                  ["物流商", "logistics_provider", "text"],
+                  ["尾程单号", "tracking_no", "text"],
+                ].map(([label, k, ty, opts]) => (
+                  <div key={k} style={{ gridColumn: k === "ship_batch" ? "span 2" : "auto" }}>
+                    <div style={{ fontSize: 10.5, color: C.sub, marginBottom: 3 }}>{label}{k === "ship_batch" && <span style={{ color: C.drop }}> *</span>}</div>
+                    {ty === "select" ? (
+                      <select value={newShip[k] || ""}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setNewShip(s => k === "platform"
+                            ? { ...s, platform: v, store: (PLAT_ACCOUNTS[v] || [])[0] || "" }
+                            : { ...s, [k]: v });
+                        }} style={cellIn}>
+                        {k === "store" && <option value="">选店铺</option>}
+                        {(opts || []).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    ) : (
+                      <input type={ty === "date" ? "date" : "text"} value={newShip[k] || ""}
+                        onChange={e => setNewShip(s => ({ ...s, [k]: e.target.value }))} style={cellIn} />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* 明细：选采购单 + 本次数量 */}
+              <div style={{ padding: "0 18px 12px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.7fr) 90px 90px 92px 92px 100px 28px", background: "#1f3a68", fontSize: 10.5, color: "#fff", fontWeight: 600, borderRadius: 6 }}>
+                  {["来源采购单（产品 · 单号 · 可发）", "采购日", "付款日", "可发", "本次发货", "货值", ""].map((h, hi) => (
+                    <div key={hi} style={{ padding: "7px 8px", textAlign: hi === 0 ? "left" : "right", borderRight: hi < 6 ? "1px solid #2a4a78" : "none" }}>{h}</div>
+                  ))}
+                </div>
+                {newShip.rows.map((x, i) => {
+                  const po = poInfo[x.purchase_id];
+                  const goods = po && po.unit_price != null ? Number(x.qty || 0) * Number(po.unit_price) : null;
+                  return (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.7fr) 90px 90px 92px 92px 100px 28px", borderTop: `1px solid ${C.line}`, fontSize: 11.5, color: C.ink, alignItems: "center" }}>
+                      <div style={{ padding: 4, borderRight: `1px solid ${C.line}` }}>
+                        <select value={x.purchase_id} onChange={e => pickRow(i, { purchase_id: e.target.value })}
+                          style={{ ...cellIn, color: x.purchase_id ? C.ink : C.faint }}>
+                          <option value="">— 选采购单 —</option>
+                          {poOptions.map(p => (
+                            <option key={p.id} value={p.id} disabled={used.includes(p.id) && p.id !== x.purchase_id}>
+                              {p.product_name || "(无名)"} · {p.po_no || "无单号"} · 可发 {leftOf(p.id)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div style={{ padding: "6px 8px", textAlign: "right", color: po && po.order_date ? C.sub : C.faint, borderRight: `1px solid ${C.line}` }}>{(po && po.order_date) || "—"}</div>
+                      <div style={{ padding: "6px 8px", textAlign: "right", color: po && po.pay_date ? C.sub : C.faint, borderRight: `1px solid ${C.line}` }}>{(po && po.pay_date) || "—"}</div>
+                      <div style={{ padding: "6px 8px", textAlign: "right", color: C.brand, fontWeight: 600, borderRight: `1px solid ${C.line}` }}>{po ? leftOf(po.id) : "—"}</div>
+                      <div style={{ padding: "3px 4px", borderRight: `1px solid ${C.line}` }}>
+                        <input value={x.qty} inputMode="decimal" placeholder="0"
+                          onChange={e => pickRow(i, { qty: e.target.value })}
+                          style={{ ...cellIn, textAlign: "right", borderColor: po && Number(x.qty) > leftOf(po.id) ? C.drop : C.line }} />
+                      </div>
+                      <div style={{ padding: "6px 8px", textAlign: "right", color: goods == null ? C.faint : C.ink }}>{goods == null ? "—" : "¥" + goods.toFixed(2)}</div>
+                      <div style={{ padding: "6px 4px", textAlign: "center" }}>
+                        {newShip.rows.length > 1 && (
+                          <span onClick={() => setNewShip(s => ({ ...s, rows: s.rows.filter((_, j) => j !== i) }))}
+                            style={{ color: C.faint, cursor: "pointer", fontSize: 13 }} title="删除这一行">✕</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 12 }}>
+                  <button onClick={() => setNewShip(s => ({ ...s, rows: [...s.rows, { purchase_id: "", qty: "" }] }))}
+                    style={{ padding: "6px 12px", background: "transparent", border: `1px dashed ${C.line}`, borderRadius: 6, color: C.sub, fontSize: 11.5, cursor: "pointer" }}>
+                    + 再加一个产品
+                  </button>
+                  <span style={{ fontSize: 11, color: C.faint }}>
+                    可发 = 采购数量 − 已分配批次合计；剩余即在库，等下一批发
+                  </span>
+                  <span style={{ marginLeft: "auto", fontSize: 12, color: C.ink, fontWeight: 600 }}>
+                    合计 {totQty} 件 · 货值 ¥{totGoods.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ padding: "12px 18px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setNewShip(null)} disabled={nbBusy}
+                  style={{ padding: "8px 18px", background: "transparent", border: `1px solid ${C.line}`, borderRadius: 7, color: C.sub, fontSize: 12.5, cursor: "pointer" }}>取消</button>
+                <button onClick={submitNewShip} disabled={nbBusy}
+                  style={{ padding: "8px 20px", background: C.brand, border: "none", borderRadius: 7, color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: nbBusy ? "default" : "pointer", opacity: nbBusy ? 0.6 : 1 }}>
+                  {nbBusy ? "写入中…" : "确认发出这一批"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 按货值摊分: 预览 + 密码确认 (KK 2026-11-19) */}
       {spreadAsk && (
@@ -2834,6 +3090,29 @@ function Shipments() {
                 要改就在下方点「发起修改申请」，由 <b>夏蕾 + 雪梅</b> 双方签字后才写入。
               </div>
             )}
+            {/* 来源采购单：采购日 / 付款日 / 准备天数从这张单带出（KK 2026-11-28） */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: C.sub, marginBottom: 4 }}>
+                来源采购单 <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>· 采购日 / 付款日从这里带出，列表自动算准备天数</span>
+              </div>
+              {lockEdit ? (
+                <input disabled value={(() => { const p = poInfo[shipForm.purchase_id]; return p ? `${p.product_name || ""} · ${p.po_no || "无单号"} · 采购 ${p.order_date || "—"} · 付款 ${p.pay_date || "—"}` : "未关联"; })()}
+                  style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px dashed #b07414`, borderRadius: 6, color: C.sub, fontSize: 12, outline: "none" }} />
+              ) : (
+                <select value={shipForm.purchase_id || ""} onChange={e => setShipForm(s => ({ ...s, purchase_id: e.target.value }))}
+                  style={{ width: "100%", padding: "7px 9px", background: C.bg, border: `1px solid ${shipForm.purchase_id ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none" }}>
+                  <option value="">— 未关联采购单 —</option>
+                  {Object.values(poInfo)
+                    .filter(p => !p.product_name || !shipForm.product_name || p.product_name === shipForm.product_name)
+                    .map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.product_name || "(无名)"} · {p.po_no || "无单号"} · 采购 {p.order_date || "—"} · 付款 {p.pay_date || "—"} · 共 {p.qty || 0} 件
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
+
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               {SHIP_TEXT.concat(SHIP_DATE).concat(SHIP_NUM).map(k => (
                 <div key={k}>
@@ -3231,7 +3510,7 @@ function InventoryStats() {
       listed_qty: r.listed_qty != null ? String(r.listed_qty) : "",
       stock_qty: r.stock_qty != null ? String(r.stock_qty) : "",
       landed_cost: r.landed_cost != null ? String(r.landed_cost) : "",
-      purchase_date: r.purchase_date || "", listed_date: r.listed_date || "", sold_date: r.sold_date || "",
+      purchase_date: r.purchase_date || "", pay_date: r.pay_date || "", listed_date: r.listed_date || "", sold_date: r.sold_date || "",
     };
     setInvForm(f); setEdInv({ id: r.id });
   };
@@ -3334,7 +3613,7 @@ function InventoryStats() {
     { k: "product_name", l: isAmazon ? "款式" : "中文名" },
     { k: isAmazon ? "asin" : "sku", l: skuHead }, { k: "listed_qty", l: "上架数量", t: "num" },
     { k: "stock_qty", l: "库存数量", t: "num" }, { k: "landed_cost", l: "到仓价", t: "num" },
-    { k: "purchase_date", l: "采购时间", t: "date" }, { k: "listed_date", l: "上架时间", t: "date" },
+    { k: "purchase_date", l: "采购时间", t: "date" }, { k: "pay_date", l: "付款日期", t: "date" }, { k: "listed_date", l: "上架时间", t: "date" },
     { k: "sold_date", l: "售完时间", t: "date" },
   ];
   const COLS = [
@@ -3362,8 +3641,9 @@ function InventoryStats() {
     // 仅 Cdiscount：标准 FBC 配送费(EUR/件)，运营手填 → 订单按 SKU 自动带入 (KK 2026-11-25)
     ...(isCD ? [{ k: "fbc_fee_std", l: "FBC标准费", fmt: "eur" }] : []),
     { k: "purchase_date",  l: "采购时间" },
+    { k: "pay_date",       l: "付款日期" },
     { k: "ship_date_disp", l: "发货时间", disp: r => r.ship_date },
-    { k: "prep_days",      l: "准备周期", calc: r => daysBetween(r.purchase_date, r.ship_date) },
+    { k: "prep_days",      l: "准备周期", calc: r => daysBetween(r.pay_date || r.purchase_date, r.ship_date) },
     { k: "listed_date",    l: "上架时间" },
     { k: "logistics_days", l: "物流周期", calc: r => daysBetween(r.ship_date, r.listed_date) },
     { k: "sold_date",      l: "售完时间" },
@@ -3390,10 +3670,14 @@ function InventoryStats() {
   const INV_BATCH_KEYS = ["ship_batch"];
   const INV_BATCH_COLS = COLS.filter(c => INV_BATCH_KEYS.includes(c.k));
   const INV_ROW_COLS = COLS.filter(c => !INV_BATCH_KEYS.includes(c.k));
-  // 列宽：仅 Cdiscount 多「FBC明细」+「FBC标准费」两列（亚马逊/ManoMano 同构）
-  const W_INV = isCD
-    ? [100, 100, 100, 130, 130, 90, 90, 180, 95, 100, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70]
-    : [100, 100, 100, 130, 130, 90, 90, 95, 100, 100, 100, 90, 100, 90, 100, 90, 90, 90, 70];
+  // 列宽按列 key 映射，COLS 增删列时自动对齐（不再手数数组长度）— KK 2026-11-28
+  const W_OF_INV = {
+    ship_date: 100, ship_warehouse: 100, ship_batch: 100, product_name: 130, asin: 130,
+    listed_qty: 90, stock_qty: 90, fbc_detail: 180, age_days: 95, landed_cost: 100,
+    fbc_fee_std: 100, purchase_date: 100, pay_date: 92, ship_date_disp: 100, prep_days: 90,
+    listed_date: 100, logistics_days: 90, sold_date: 100, sales_days: 90, total_days: 90, cycle_rate: 70,
+  };
+  const W_INV = COLS.map(c => W_OF_INV[c.k] || 90);
   const GRID_INV = (canEditInv ? W_INV : W_INV.slice(0, W_INV.length - 1)).map(w => `${w}px`).join(" ");
   const colIdxInv = (k) => COLS.findIndex(c => c.k === k) + 1;
   const invBatches = useMemo(() => {
@@ -3511,7 +3795,7 @@ function InventoryStats() {
 
       {view.length ? (
         <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-          <div style={{ minWidth: canEditInv ? 1890 : 1810, padding: "0 6px 4px" }}>
+          <div style={{ minWidth: canEditInv ? 1982 : 1902, padding: "0 6px 4px" }}>
             <div style={{ display: "grid", gridTemplateColumns: GRID_INV, background: "#1f3a68", fontSize: 11, color: "#fff", fontWeight: 600, position: "sticky", top: 0, zIndex: 2, margin: "0 -6px" }}>
               {COLS.map(c => (
                 <div key={c.k} style={{ padding: "9px 8px", borderRight: `1px solid #2a4a78` }}>
