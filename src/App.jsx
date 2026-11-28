@@ -6440,7 +6440,7 @@ function Purchase() {
   };
   // 行上直接开录入（KK 2026-11-28）：不用先展开再找「+ 录入批次」
   const openBat = async (r, firstRow) => {
-    if (openId !== r.id) await toggle(r.id);
+    if (openId !== r.id) await toggle(r.id);   // 已经展开就别再 toggle（会把它收起来）
     setBatDraft({
       purchase_id: r.id, poQty: Number(r.qty || 0), usedQty: Number(r.ship_qty || 0),
       rows: firstRow ? [firstRow] : [blankBatRow(r.store)],
@@ -6928,7 +6928,7 @@ function Purchase() {
                               </span>
                             ))}
                             {inStockOf(r) > 0 && (
-                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4, color: C.drop, background: C.drop + "1a", border: `1px solid ${C.drop}55`, whiteSpace: "nowrap" }}>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4, color: C.watch, background: C.watch + "1a", border: `1px solid ${C.watch}55`, whiteSpace: "nowrap" }}>
                                 在库 {inStockOf(r)}
                               </span>
                             )}
