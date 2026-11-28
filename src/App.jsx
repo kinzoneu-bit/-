@@ -140,28 +140,6 @@ const PLATFORMS = [
 const PLATFORM_LABEL = Object.fromEntries(PLATFORMS.map(p => [p.key, p.label]));
 // 平台 → 账号(店铺) 口径：与订单记录页完全一致 — KK 2026-11-26
 const PLAT_ACCOUNTS = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
-// 跨平台表的店铺下拉口径 — KK 2026-11-28：
-// 发货记录这类表 store 只存店名、不带平台，所以下拉要把 CD / Mano 的店并进来。
-// 同一店名挂在多个平台时(飞鸟 = 亚马逊店 + ManoMano 店) label 带平台名区分，value 仍是店名。
-const SHIP_STORE_OPTS = (() => {
-  const map = new Map();                       // 店名 -> [平台标签]
-  Object.entries(PLAT_ACCOUNTS).forEach(([p, arr]) =>
-    (arr || []).forEach(s => {
-      if (!map.has(s)) map.set(s, []);
-      map.get(s).push(PLATFORM_LABEL[p] || p);
-    }));
-  return [...map.entries()].map(([store, plats]) => ({
-    store,
-    label: plats.length > 1
-      ? `${store}（${plats.join(" / ")}）`
-      : (plats[0] === PLATFORM_LABEL.amazon ? store : `${store}（${plats[0]}）`),
-  }));
-})();
-const SHIP_STORE_NAMES = SHIP_STORE_OPTS.map(o => o.store);
-const shipStoreLabel = (s) => {
-  const hit = SHIP_STORE_OPTS.find(o => o.store === s);
-  return hit ? hit.label : s;
-};
 const SHARE_GROUP = ["飞鸟", "野趣", "屿阔"];                                // 三家共享 (人工/场地)
 const ALL_STORES = OPS_FIXED_STORES;
 // 角色 → 可见店铺范围 (不在此表内的角色 = 全部 6 家)
@@ -1817,29 +1795,33 @@ function Shipments() {
   const nameOf = (email) => (email === FINANCE_EMAIL ? "夏蕾" : email === SUPPLIER_EMAIL ? "雪梅" : (String(email || "").split("@")[0] || "?"));
 
   const [rows, setRows] = useState([]);
+  // KK 2026-11-28：跟库存统计一致 —— 先选平台，再选店铺，同名店铺(飞鸟)不再混淆
+  const [filterPlatform, setFilterPlatform] = useState("amazon");   // 默认亚马逊，保持现有习惯
+  const platView = myStores ? "amazon" : filterPlatform;            // 黄丹(采购)锁死亚马逊
   const [filterStore, setFilterStore] = useState("");
   const [filterBatch, setFilterBatch] = useState([]);     // 多选: 发货批次(可同时选几个)
   const [batchOpts, setBatchOpts] = useState([]);
-  // 初始就给全量店铺：加载期间下拉不再是空的（KK 2026-11-28）
-  const [storeOpts, setStoreOpts] = useState(myStores || SHIP_STORE_NAMES);
+  // 初始就给当前平台的店铺：加载期间下拉不再是空的
+  const [storeOpts, setStoreOpts] = useState(myStores || PLAT_ACCOUNTS[filterPlatform] || []);
   const [loaded, setLoaded] = useState(false);
 
   const load = async () => {
-    let q = supabase.from("shipments").select("*");
+    let q = supabase.from("shipments").select("*").eq("platform", platView);
     if (myStores) q = q.in("store", myStores);
     if (filterStore) q = q.eq("store", filterStore);
     if (filterBatch.length) q = q.in("ship_batch", filterBatch);
     const { data, error } = await q.order("ship_date", { ascending: true }).limit(2000);
     if (error) { alert("读取失败(请先建表 shipments): " + error.message); return; }
     setRows(data || []);
-    if (!loaded) {
-      let qa = supabase.from("shipments").select("store, ship_batch, ship_date");
+    // 下拉选项每次都按当前平台重算 —— 切平台后店铺/批次列表必须跟着变
+    {
+      let qa = supabase.from("shipments").select("store, ship_batch, ship_date").eq("platform", platView);
       if (myStores) qa = qa.in("store", myStores);
       const { data: all } = await qa;
-      // 下拉固定用全平台店铺 (亚马逊 6 店 + CD 梦想 + Mano 飞鸟) —
-      // 即使该店还没有发货记录也要能选到 (KK 2026-09-29 / 2026-11-28)
+      // 店铺下拉 = 该平台固定账号 + 库里实际出现过的店 (即使没发货记录也要能选到)
+      // 亚马逊固定 6 家；CD 固定「梦想」；Mano 固定「飞鸟」— 与订单记录页同一口径
       const dataStores = [...new Set((all || []).map(r => r.store).filter(Boolean))];
-      const base = myStores ? myStores.slice() : SHIP_STORE_NAMES.slice();
+      const base = myStores ? myStores.slice() : (PLAT_ACCOUNTS[platView] || []).slice();
       const st = [...base, ...dataStores.filter(s => !base.includes(s))];
       setStoreOpts(st);
       const m = {};
@@ -1854,7 +1836,7 @@ function Shipments() {
     if (!shipRole || !loaded) return;
     const t = setTimeout(load, 300);
     return () => clearTimeout(t);
-  }, [filterStore, filterBatch]);
+  }, [filterStore, filterBatch, filterPlatform]);
 
   // 勾选切换 (运费已付) · admin + 采购(黄丹)
   const toggleField = async (rowId, field, current) => {
@@ -1903,6 +1885,8 @@ function Shipments() {
       if (SHIP_NUM.includes(k)) { clean[k] = Number(v); return; }
       clean[k] = v;
     });
+    // 平台跟随该行原值，不因当前筛选变化（KK 2026-11-28）
+    clean.platform = (rows.find(r => r.id === editShip.id) || {}).platform || platView;
     // 记「录入人」; 若该批已复核, 非金额字段的改动把它打回「待复核」
     Object.assign(clean, g ? ownerPatch(g) : { batch_owner: myEmail, batch_owner_at: new Date().toISOString() });
     const { error } = await writeShip(clean, [editShip.id]);
@@ -1923,6 +1907,8 @@ function Shipments() {
     if (!confirm(`确认将「${r.product_name}」标记为已上架？\n\n上架数量 = 发货 ${r.qty} − 损耗 ${r.loss_qty || 0} = ${avail}\n上架日期 = ${today}（可之后编辑修改）`)) return;
     const rec = {
       store: r.store || null,
+      // 库存页按 platform 过滤，这里必须带上，否则「标记已上架」写进去的行在库存里查不到
+      platform: r.platform || "amazon",
       ship_date: r.ship_date || null,
       ship_warehouse: r.ship_warehouse || null,
       ship_batch: r.ship_batch || null,
@@ -2339,14 +2325,23 @@ function Shipments() {
         </div>
       </div>
 
-      {/* 筛选: 店铺 */}
+      {/* 筛选: 平台 → 店铺 → 批次（与库存统计同一套顺序） */}
       <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* 收窄角色(黄丹)只给亚马逊, 平台下拉不显示 */}
+          {!myStores && <>
+            <span style={{ fontSize: 12, color: C.sub }}>平台:</span>
+            <select value={filterPlatform}
+              onChange={e => { setFilterPlatform(e.target.value); setFilterStore(""); setFilterBatch([]); }}
+              style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${filterPlatform !== "amazon" ? C.brand : C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, fontWeight: filterPlatform !== "amazon" ? 700 : 400 }}>
+              {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+            </select>
+          </>}
           <span style={{ fontSize: 12, color: C.sub }}>店铺:</span>
           <select value={filterStore} onChange={e => setFilterStore(e.target.value)}
             style={{ padding: "6px 10px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12 }}>
             <option value="">全部店铺</option>
-            {storeOpts.map(s => <option key={s} value={s}>{shipStoreLabel(s)}</option>)}
+            {storeOpts.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <span style={{ fontSize: 12, color: C.sub }}>发货批次:</span>
           <MultiSelect label="批次" options={batchOpts} value={filterBatch} onChange={setFilterBatch} width={280} allText="全部批次" />
