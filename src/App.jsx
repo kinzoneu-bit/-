@@ -138,6 +138,8 @@ const PLATFORMS = [
   { key: "manomano",  label: "ManoMano" },
 ];
 const PLATFORM_LABEL = Object.fromEntries(PLATFORMS.map(p => [p.key, p.label]));
+// 发货分配标签用的短名（表格里一行能塞下 3 个平台）
+const PLAT_SHORT = { amazon: "亚", cdiscount: "CD", manomano: "Mano" };
 // 平台 → 账号(店铺) 口径：与订单记录页完全一致 — KK 2026-11-26
 const PLAT_ACCOUNTS = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
 // 采购单不分平台（KK 2026-11-28）：一张采购单只记「买了什么、多少、给哪个店」，
@@ -6402,13 +6404,18 @@ function Purchase() {
     setLoading(true); setErr("");
     // v_purchase_overview 建视图时定死了列，加不了「入库日期」；
     // 单独查 purchase_records 再按 id 合并，避免为了一列重建视图 — KK 2026-11-28
-    const [poR, supR, dtR] = await Promise.all([
+    const [poR, supR, dtR, batR] = await Promise.all([
       supabase.from("v_purchase_overview").select("*").order("order_date", { ascending: false, nullsFirst: false }).limit(1000),
       supabase.from("purchase_suppliers").select("*").order("name"),
       supabase.from("purchase_records").select("id,warehouse_in_date").limit(2000),
+      // 发货分配一次性取全量（KK 2026-11-28）：行上就要看到「哪个平台发多少」，不能展开才拉
+      supabase.from("purchase_batches").select("*").order("ship_date").limit(3000),
     ]);
     const dmap = {};
     (dtR.data || []).forEach(x => { dmap[x.id] = x.warehouse_in_date || null; });
+    const bmap = {};
+    (batR.data || []).forEach(b => { (bmap[b.purchase_id] = bmap[b.purchase_id] || []).push(b); });
+    setBats(bmap);
     if (poR.error) setErr(poR.error.message);
     else setRows((poR.data || []).map(r => ({ ...r, warehouse_in_date: dmap[r.id] || null })));
     if (!supR.error) setSupList(supR.data || []);
@@ -6430,18 +6437,24 @@ function Purchase() {
       const { data } = await supabase.from("purchase_payments").select("*").eq("purchase_id", id).order("pay_date");
       setPays(p => ({ ...p, [id]: data || [] }));
     }
-    if (!bats[id]) {
-      const { data } = await supabase.from("purchase_batches").select("*").eq("purchase_id", id).order("ship_date");
-      setBats(p => ({ ...p, [id]: data || [] }));
-    }
+  };
+  // 行上直接开录入（KK 2026-11-28）：不用先展开再找「+ 录入批次」
+  const openBat = async (r, firstRow) => {
+    if (openId !== r.id) await toggle(r.id);
+    setBatDraft({
+      purchase_id: r.id, poQty: Number(r.qty || 0), usedQty: Number(r.ship_qty || 0),
+      rows: firstRow ? [firstRow] : [blankBatRow(r.store)],
+    });
   };
 
   // ---- 采购单表单 ----
+  // 发货分配（平台/店铺/批次号/数量/发货日）是采购单的专属栏目，不塞备注 — KK 2026-11-28
   const blankPO = () => ({
     id: null, po_no: "", order_date: TODAY, store: "", supplier: "", supplier_id: "",
     product_name: "", sku: "", asin: "", qty: "", unit_price: "", goods_amount: "",
     freight: "", tax_amount: "", total_amount: "", currency: "CNY",
     pay_terms: "", pay_date: "", arrive_date: "", warehouse_in_date: "", tracking_no: "", note: "",
+    batRows: [], batDel: [],
   });
   const editPO = (r) => setForm({
     id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY, store: r.store || "",
@@ -6453,6 +6466,12 @@ function Purchase() {
     pay_date: r.pay_date || "", arrive_date: r.arrive_date || "",
     warehouse_in_date: r.warehouse_in_date || "", tracking_no: r.tracking_no || "", note: r.note || "",
     created_at: r.created_at || null,
+    batRows: (bats[r.id] || []).map(b => ({
+      id: b.id, platform: b.platform || "amazon", store: b.store || "",
+      ship_batch: b.ship_batch || "", qty: b.qty ?? "", ship_date: b.ship_date || "",
+      tracking_no: b.tracking_no || "",
+    })),
+    batDel: [],
   });
   const setF = (k, v) => setForm(f => {
     const n = { ...f, [k]: v };
@@ -6464,6 +6483,24 @@ function Purchase() {
         : +(Number(goods) + Number(n.freight || 0) + Number(n.tax_amount || 0)).toFixed(2);
     }
     return n;
+  });
+  // 表单里的发货分配行
+  const newBatRow = () => ({ platform: "amazon", store: "", ship_batch: "", qty: "", ship_date: "", tracking_no: "" });
+  const setBatRow = (i, k, v) => setForm(f => {
+    const rows = (f.batRows || []).map((x, j) => j === i ? { ...x, [k]: v } : x);
+    if (k === "platform") {
+      const acc = PLAT_ACCOUNTS[v] || [];
+      if (!acc.includes(rows[i].store)) rows[i].store = acc[0] || "";
+    }
+    return { ...f, batRows: rows };
+  });
+  const delBatRow = (i) => setForm(f => {
+    const row = (f.batRows || [])[i];
+    return {
+      ...f,
+      batRows: f.batRows.filter((_, j) => j !== i),
+      batDel: row && row.id ? [...(f.batDel || []), row.id] : (f.batDel || []),
+    };
   });
 
   const submitPO = () => {
@@ -6500,11 +6537,45 @@ function Purchase() {
       tracking_no: f.tracking_no || null, note: f.note || null,
       requested_by: f.requested_by || meEmail || null,
     };
+    // 发货分配合计不能超过采购数量（超出会被「在库」算成负数）
+    const batRowsIn = (f.batRows || []).filter(x => Number(x.qty || 0) > 0);
+    const batSum = batRowsIn.reduce((a, x) => a + Number(x.qty || 0), 0);
+    if (batSum > Number(f.qty || 0)) {
+      return alert(`发货分配合计 ${batSum} 件 > 采购数量 ${f.qty} 件，请先改数量。`);
+    }
     askPwd(async () => {
-      const { error } = f.id
-        ? await supabase.from("purchase_records").update(payload).eq("id", f.id)
-        : await supabase.from("purchase_records").insert(payload);
-      if (error) throw error;
+      const pid = f.id;
+      if (pid) {
+        const { error } = await supabase.from("purchase_records").update(payload).eq("id", pid);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from("purchase_records").insert(payload).select("id").single();
+        if (error) throw error;
+        if (data) f.id = data.id;
+      }
+      const newPid = f.id;
+      // 发货分配：删掉的 / 数量清零的 → 删除；已有 id → 更新；新行 → 插入
+      for (const id of (f.batDel || [])) {
+        const { error } = await supabase.from("purchase_batches").delete().eq("id", id);
+        if (error) throw error;
+      }
+      for (const x of (f.batRows || [])) {
+        const q = Number(x.qty || 0);
+        const base = {
+          purchase_id: newPid, platform: x.platform || "amazon", store: x.store || null,
+          ship_batch: String(x.ship_batch || "").trim() || null, qty: q || 0,
+          ship_date: x.ship_date || null, tracking_no: x.tracking_no || null,
+        };
+        if (x.id) {
+          const { error } = q > 0
+            ? await supabase.from("purchase_batches").update(base).eq("id", x.id)
+            : await supabase.from("purchase_batches").delete().eq("id", x.id);
+          if (error) throw error;
+        } else if (q > 0) {
+          const { error } = await supabase.from("purchase_batches").insert(base);
+          if (error) throw error;
+        }
+      }
       setForm(null); await load();
     }, f.id ? "修改采购单" : (isRequester ? "提交采购需求" : "新增采购单"));
   };
@@ -6661,7 +6732,7 @@ function Purchase() {
   const inStockOf = (r) => Math.max(0, Number(r.qty || 0) - Number(r.ship_qty || 0));
 
   // ---- 样式 ----
-  const GRID = "34px 118px 88px 78px 78px 78px 76px 108px minmax(168px, 1fr) 54px 80px 92px 104px 88px 82px 74px";
+  const GRID = "34px 118px 88px 78px 78px 78px 76px 108px minmax(168px, 1fr) 54px 80px 92px 104px 88px minmax(164px, 0.9fr) 74px";
   const th = { padding: "9px 10px", fontSize: 11.5, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78", whiteSpace: "nowrap" };
   const td = { padding: "8px 10px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const inp = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
@@ -6788,7 +6859,7 @@ function Purchase() {
                   <div style={{ ...th, textAlign: "right" }}>总额 ¥</div>
                   <div style={{ ...th, textAlign: "right" }}>已付 / 状态</div>
                   <div style={{ ...th, textAlign: "center" }}>收货</div>
-                  <div style={{ ...th, textAlign: "center" }}>批次 / 在库</div>
+                  <div style={{ ...th, textAlign: "center" }}>发货分配 <span style={{ fontWeight: 400, color: "#9db6d8" }}>平台·店铺 数量</span></div>
                   <div style={{ ...th, textAlign: "center", borderRight: "none" }}>操作</div>
                 </div>
 
@@ -6802,6 +6873,7 @@ function Purchase() {
                   const pst = r.pay_status_calc || "unpaid";
                   const rst = r.receive_status || "pending";
                   const open = openId === r.id;
+                  const bs = bats[r.id] || [];
                   return (
                     <React.Fragment key={r.id}>
                       <div onClick={() => toggle(r.id)} className="prow"
@@ -6844,13 +6916,31 @@ function Purchase() {
                           <span style={tag(PUR_RECV_TONE[rst])}>{PUR_RECV_LABEL[rst] || rst}</span>
                           <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>{r.received_qty ?? 0}/{r.qty ?? 0}{Number(r.damaged_qty) > 0 ? ` · 破损${r.damaged_qty}` : ""}</div>
                         </div>
-                        <div style={{ ...td, textAlign: "center" }}>
-                          <span style={{ color: r.batch_cnt ? C.ink : C.faint, fontWeight: r.batch_cnt ? 600 : 400 }}>
-                            {r.batch_cnt || 0} 批
-                          </span>
-                          <div style={{ fontSize: 10.5, marginTop: 1, color: inStockOf(r) > 0 ? C.watch : C.faint }}>
-                            在库 {inStockOf(r)}
+                        <div style={{ ...td, whiteSpace: "normal" }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 3, alignItems: "center" }}>
+                            {bs.map(b => (
+                              <span key={b.id} title={`${PLATFORM_LABEL[b.platform || "amazon"] || "亚马逊"} · ${b.store || "未指定店铺"} · ${b.ship_batch || "未填货件号"} · 发货 ${b.ship_date || "—"}`}
+                                style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4, whiteSpace: "nowrap",
+                                  color: b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub,
+                                  background: (b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub) + "1f",
+                                  border: `1px solid ${(b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub)}55` }}>
+                                {PLAT_SHORT[b.platform || "amazon"] || "亚"}·{b.store || "—"} {b.qty}
+                              </span>
+                            ))}
+                            {inStockOf(r) > 0 && (
+                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4, color: C.drop, background: C.drop + "1a", border: `1px solid ${C.drop}55`, whiteSpace: "nowrap" }}>
+                                在库 {inStockOf(r)}
+                              </span>
+                            )}
+                            {!bs.length && inStockOf(r) === 0 && <span style={{ fontSize: 11, color: C.faint }}>—</span>}
                           </div>
+                          {canBat && (
+                            <button onClick={() => openBat(r)}
+                              title="就在这一行把「平台 / 店铺 / 批次号 / 数量 / 发货日」填进去"
+                              style={{ marginTop: 3, padding: "2px 8px", background: "transparent", border: `1px dashed ${C.brand}88`, borderRadius: 5, color: C.brand, fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}>
+                              {bs.length ? "+ 再发一批" : "+ 分配发货"}
+                            </button>
+                          )}
                         </div>
                         <div style={{ ...td, textAlign: "center", borderRight: "none" }} onClick={e => e.stopPropagation()}>
                           {canPO && <button onClick={() => editPO(r)} style={{ ...btnO, padding: "3px 8px" }}>改</button>}
@@ -6932,37 +7022,43 @@ function Purchase() {
                               </div>
                             </div>
 
-                            {/* 发货批次 —— 一批货可以拆给多个平台，一次可录多行 */}
-                            <div style={{ flex: "1 1 560px", minWidth: 480 }}>
+                            {/* 发货批次 —— 一批货可以拆给多个平台，一次可录多行
+                                放在左边第一位（order:-1）：KK 要在采购单后面直接看到并能填 */}
+                            <div style={{ flex: "1 1 560px", minWidth: 480, order: -1 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>发货批次</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>发货分配</span>
                                 <span style={{ fontSize: 11, color: C.faint }}>
-                                  一批货可拆给多个平台 · 货件号与「发货记录」对齐
+                                  平台 / 店铺 / 批次号 / 数量 / 发货日 · 一批货可拆给多个平台
                                 </span>
                                 <span style={{ fontSize: 11, color: inStockOf(r) > 0 ? C.watch : C.brand, fontWeight: 600 }}>
                                   已分配 {Number(r.ship_qty || 0)} / 采购 {Number(r.qty || 0)} · 在库 {inStockOf(r)}
                                 </span>
                                 {canBat && !batDraft && (
-                                  <button onClick={() => setBatDraft({
-                                    purchase_id: r.id, poQty: Number(r.qty || 0), usedQty: Number(r.ship_qty || 0),
-                                    rows: [blankBatRow(r.store)],
-                                  })}
-                                    style={{ ...btnO, marginLeft: "auto", color: C.brand, borderColor: C.brand + "66" }}>+ 录入批次</button>
+                                  <button onClick={() => openBat(r)}
+                                    style={{ ...btnO, marginLeft: "auto", color: C.brand, borderColor: C.brand + "66" }}>+ 录入分配</button>
                                 )}
                               </div>
                               <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "78px 74px 1fr 50px 88px 22px", background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
-                                  {["平台", "店铺", "货件号", "数量", "发货日", ""].map((h, ii) => (
+                                <div style={{ display: "grid", gridTemplateColumns: "88px 82px 1fr 52px 92px 22px", background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
+                                  {["平台", "店铺", "批次号 / 货件号", "数量", "发货日", ""].map((h, ii) => (
                                     <div key={ii} style={{ padding: "6px 8px", fontSize: 11, color: C.sub }}>{h}</div>
                                   ))}
                                 </div>
-                                {(bats[r.id] || []).length === 0 && (
-                                  <div style={{ padding: "12px 10px", fontSize: 11.5, color: C.faint }}>
-                                    暂未分配批次 · 全部 {inStockOf(r)} 件都算在库
-                                  </div>
+                                {(bats[r.id] || []).length === 0 && !(batDraft && batDraft.purchase_id === r.id) && (
+                                  canBat ? (
+                                    <div onClick={() => openBat(r)}
+                                      style={{ padding: "10px 10px", fontSize: 11.5, color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                                      <span style={{ border: `1px dashed ${C.brand}88`, borderRadius: 5, padding: "3px 10px", fontWeight: 600 }}>+ 点这里填写发货分配</span>
+                                      <span style={{ color: C.faint }}>整单 {inStockOf(r)} 件都算在库，没分出去之前不计入任何平台</span>
+                                    </div>
+                                  ) : (
+                                    <div style={{ padding: "12px 10px", fontSize: 11.5, color: C.faint }}>
+                                      暂未分配 · 全部 {inStockOf(r)} 件都算在库
+                                    </div>
+                                  )
                                 )}
                                 {(bats[r.id] || []).map(b => (
-                                  <div key={b.id} style={{ display: "grid", gridTemplateColumns: "78px 74px 1fr 50px 88px 22px", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
+                                  <div key={b.id} style={{ display: "grid", gridTemplateColumns: "88px 82px 1fr 52px 92px 22px", borderTop: `1px solid ${C.line}`, alignItems: "center" }}>
                                     <div style={{ padding: "6px 8px", fontSize: 11 }}>
                                       <span style={tag(b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub)}>
                                         {PLATFORM_LABEL[b.platform || "amazon"] || "亚马逊"}
@@ -6988,7 +7084,7 @@ function Purchase() {
                                   return (
                                     <div style={{ borderTop: `1px solid ${C.line}`, background: C.panel2, padding: 8 }}>
                                       {(batDraft.rows || []).map((x, i) => (
-                                        <div key={i} style={{ display: "grid", gridTemplateColumns: "78px 74px 1fr 50px 88px 22px", gap: 5, marginBottom: 5, alignItems: "center" }}>
+                                        <div key={i} style={{ display: "grid", gridTemplateColumns: "88px 82px 1fr 52px 92px 22px", gap: 5, marginBottom: 5, alignItems: "center" }}>
                                           <select value={x.platform || "amazon"} onChange={e => {
                                             const p = e.target.value;
                                             setBatDraft(d => ({ ...d, rows: d.rows.map((y, j) => j === i
@@ -7002,10 +7098,10 @@ function Purchase() {
                                             <option value="">未指定</option>
                                             {(PLAT_ACCOUNTS[x.platform || "amazon"] || []).map(s => <option key={s} value={s}>{s}</option>)}
                                           </select>
-                                          <input placeholder="货件号(选填)" value={x.ship_batch} onChange={e => setRow(i, "ship_batch", e.target.value)}
+                                          <input placeholder="批次号 / 货件号" value={x.ship_batch} onChange={e => setRow(i, "ship_batch", e.target.value)}
                                             style={{ ...inp, padding: "4px 6px", fontSize: 11 }} />
-                                          <input type="number" placeholder="数量" value={x.qty} onChange={e => setRow(i, "qty", e.target.value)}
-                                            style={{ ...inp, padding: "4px 6px", fontSize: 11 }} />
+                                          <input type="number" min="0" placeholder="数量" value={x.qty} onChange={e => setRow(i, "qty", e.target.value)}
+                                            style={{ ...inp, padding: "4px 6px", fontSize: 11, borderColor: over ? C.drop + "88" : C.line }} />
                                           <input type="date" value={x.ship_date || ""} onChange={e => setRow(i, "ship_date", e.target.value)}
                                             style={{ ...inp, padding: "4px 5px", fontSize: 11 }} />
                                           <div style={{ textAlign: "center" }}>
@@ -7204,8 +7300,70 @@ function Purchase() {
               <div style={{ display: "grid", gridTemplateColumns: isRequester ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 10 }}>
                 {!isRequester && <div><label style={lb}>付款条件</label><input value={form.pay_terms} onChange={e => setF("pay_terms", e.target.value)} placeholder="全款 / 30% 定金" style={inp} /></div>}
                 {!isRequester && <div><label style={lb}>追踪号</label><input value={form.tracking_no} onChange={e => setF("tracking_no", e.target.value)} style={inp} /></div>}
-                <div><label style={lb}>备注</label><input value={form.note} onChange={e => setF("note", e.target.value)} style={inp} /></div>
+                <div>
+                  <label style={lb}>备注 <span style={{ color: C.faint, fontSize: 10 }}>（只写说明；发货分配请录到列表「发货分配」栏）</span></label>
+                  <input value={form.note} onChange={e => setF("note", e.target.value)} style={inp} />
+                </div>
               </div>
+
+              {/* 发货分配 —— 采购单的专属栏目（KK 2026-11-28）：平台 / 店铺 / 批次号 / 数量 / 发货日 */}
+              {!isRequester && (() => {
+                const rows = form.batRows || [];
+                const sum = rows.reduce((a, x) => a + Number(x.qty || 0), 0);
+                const left = Number(form.qty || 0) - sum;
+                const over = sum > Number(form.qty || 0);
+                const G = "88px 82px 1fr 56px 122px 24px";
+                return (
+                  <>
+                    <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>
+                      发货分配
+                      <span style={{ fontWeight: 400, color: C.faint, marginLeft: 8 }}>
+                        平台 / 店铺 / 批次号 / 数量 / 发货日 · 一批货可拆多行，没分配的就是在库
+                      </span>
+                    </div>
+                    <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: G, background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
+                        {["平台", "店铺", "批次号 / 货件号", "数量", "发货日", ""].map((h, ii) => (
+                          <div key={ii} style={{ padding: "6px 8px", fontSize: 10.5, color: C.sub }}>{h}</div>
+                        ))}
+                      </div>
+                      {rows.length === 0 && (
+                        <div style={{ padding: "10px 10px", fontSize: 11, color: C.faint }}>
+                          还没分批发货 —— 整单都算在库，等真正发货时点列表里的「+ 分配发货」再填也行
+                        </div>
+                      )}
+                      {rows.map((x, i) => (
+                        <div key={i} style={{ display: "grid", gridTemplateColumns: G, gap: 5, padding: "4px 5px", borderTop: i ? `1px solid ${C.line}` : "none", alignItems: "center" }}>
+                          <select value={x.platform || "amazon"} onChange={e => setBatRow(i, "platform", e.target.value)}
+                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }}>
+                            {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                          </select>
+                          <select value={x.store || ""} onChange={e => setBatRow(i, "store", e.target.value)}
+                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }}>
+                            <option value="">未指定</option>
+                            {(PLAT_ACCOUNTS[x.platform || "amazon"] || []).map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                          <input placeholder="批次号 / 货件号" value={x.ship_batch || ""} onChange={e => setBatRow(i, "ship_batch", e.target.value)}
+                            style={{ ...inp, padding: "4px 6px", fontSize: 11 }} />
+                          <input type="number" min="0" placeholder="数量" value={x.qty ?? ""} onChange={e => setBatRow(i, "qty", e.target.value)}
+                            style={{ ...inp, padding: "4px 6px", fontSize: 11, borderColor: over ? C.drop + "88" : C.line }} />
+                          <input type="date" value={x.ship_date || ""} onChange={e => setBatRow(i, "ship_date", e.target.value)}
+                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }} />
+                          <div style={{ textAlign: "center" }}>
+                            <span onClick={() => delBatRow(i)} title="删掉这一行" style={{ cursor: "pointer", color: C.faint, fontSize: 12 }}>×</span>
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 8px", borderTop: `1px solid ${C.line}`, background: C.panel2 }}>
+                        <button onClick={() => setForm(f => ({ ...f, batRows: [...(f.batRows || []), newBatRow()] }))} style={btnO}>+ 加一行</button>
+                        <span style={{ fontSize: 11, color: over ? C.drop : C.sub }}>
+                          已分配 {sum} 件 / 采购 {form.qty || 0} 件 · 在库 {Math.max(0, left)} 件{over ? " · 超出采购数量" : ""}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
 
               <div style={{ marginTop: 12, fontSize: 11, color: C.faint }}>
                 {isRequester
