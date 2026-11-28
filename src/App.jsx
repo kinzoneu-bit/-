@@ -6082,6 +6082,8 @@ function Purchase() {
   const [payF, setPayF] = useState("");
   const [recvF, setRecvF] = useState("");
   const [kw, setKw] = useState("");
+  // 统计栏三个分类卡片的快速筛选：order=待采购 / pay=待付款 / recv=待入库
+  const [quick, setQuick] = useState("");
 
   const [openId, setOpenId] = useState(null);
   const [pays, setPays] = useState({});
@@ -6114,11 +6116,17 @@ function Purchase() {
 
   const load = async () => {
     setLoading(true); setErr("");
-    const [poR, supR] = await Promise.all([
+    // v_purchase_overview 建视图时定死了列，加不了「入库日期」；
+    // 单独查 purchase_records 再按 id 合并，避免为了一列重建视图 — KK 2026-11-28
+    const [poR, supR, dtR] = await Promise.all([
       supabase.from("v_purchase_overview").select("*").order("order_date", { ascending: false, nullsFirst: false }).limit(1000),
       supabase.from("purchase_suppliers").select("*").order("name"),
+      supabase.from("purchase_records").select("id,warehouse_in_date").limit(2000),
     ]);
-    if (poR.error) setErr(poR.error.message); else setRows(poR.data || []);
+    const dmap = {};
+    (dtR.data || []).forEach(x => { dmap[x.id] = x.warehouse_in_date || null; });
+    if (poR.error) setErr(poR.error.message);
+    else setRows((poR.data || []).map(r => ({ ...r, warehouse_in_date: dmap[r.id] || null })));
     if (!supR.error) setSupList(supR.data || []);
     else if (!poR.error) setErr(supR.error.message);
     setLoading(false);
@@ -6149,7 +6157,7 @@ function Purchase() {
     id: null, po_no: "", order_date: TODAY, store: "", supplier: "", supplier_id: "",
     product_name: "", sku: "", asin: "", qty: "", unit_price: "", goods_amount: "",
     freight: "", tax_amount: "", total_amount: "", currency: "CNY",
-    pay_terms: "", arrive_date: "", tracking_no: "", note: "",
+    pay_terms: "", pay_date: "", arrive_date: "", warehouse_in_date: "", tracking_no: "", note: "",
   });
   const editPO = (r) => setForm({
     id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY, store: r.store || "",
@@ -6158,7 +6166,9 @@ function Purchase() {
     qty: r.qty ?? "", unit_price: r.unit_price ?? "", goods_amount: r.goods_amount ?? "",
     freight: r.freight ?? "", tax_amount: r.tax_amount ?? "", total_amount: r.total_amount ?? "",
     currency: r.currency || "CNY", pay_terms: r.pay_terms || "",
-    arrive_date: r.arrive_date || "", tracking_no: r.tracking_no || "", note: r.note || "",
+    pay_date: r.pay_date || "", arrive_date: r.arrive_date || "",
+    warehouse_in_date: r.warehouse_in_date || "", tracking_no: r.tracking_no || "", note: r.note || "",
+    created_at: r.created_at || null,
   });
   const setF = (k, v) => setForm(f => {
     const n = { ...f, [k]: v };
@@ -6201,7 +6211,8 @@ function Purchase() {
       unit_price: purNum(f.unit_price), goods_amount: purNum(f.goods_amount),
       freight: purNum(f.freight), tax_amount: purNum(f.tax_amount), total_amount: purNum(f.total_amount),
       currency: f.currency || "CNY",
-      pay_terms: f.pay_terms || null, arrive_date: f.arrive_date || null,
+      pay_terms: f.pay_terms || null, pay_date: f.pay_date || null,
+      arrive_date: f.arrive_date || null, warehouse_in_date: f.warehouse_in_date || null,
       tracking_no: f.tracking_no || null, note: f.note || null,
       requested_by: f.requested_by || meEmail || null,
     };
@@ -6236,6 +6247,11 @@ function Purchase() {
       });
       if (error) throw error;
       setPayDraft(null);
+      // 付款日期自动回写到采购单（取最晚一笔），省得手工再填一次 — KK 2026-11-28
+      const { data: all } = await supabase.from("purchase_payments")
+        .select("pay_date").eq("purchase_id", d.purchase_id).order("pay_date", { ascending: false }).limit(1);
+      const lastPay = all && all[0] ? all[0].pay_date : d.pay_date;
+      await supabase.from("purchase_records").update({ pay_date: lastPay }).eq("id", d.purchase_id);
       const { data } = await supabase.from("purchase_payments").select("*").eq("purchase_id", d.purchase_id).order("pay_date");
       setPays(p => ({ ...p, [d.purchase_id]: data || [] }));
       await load();
@@ -6322,30 +6338,46 @@ function Purchase() {
   };
 
   // ---- 筛选与统计 ----
-  const view = rows.filter(r => {
+  // 采购链路三态（KK 2026-11-28）：待采购 → 待付款 → 待入库
+  const isOrdered = (r) => !!(r.supplier_id || r.supplier || r.po_no || Number(r.unit_price || 0) > 0);
+  const needOrder = (r) => !isOrdered(r);
+  const needPay = (r) => isOrdered(r) && (r.pay_status_calc || "unpaid") !== "paid";
+  const needRecv = (r) => (r.receive_status || "pending") !== "received";
+
+  // base = 只受「店铺 + 关键词」影响，统计栏数字跟着店铺走，但不被三态筛选带跑
+  const base = rows.filter(r => {
     if (storeF && r.store !== storeF) return false;
-    if (payF && (r.pay_status_calc || "unpaid") !== payF) return false;
-    if (recvF && (r.receive_status || "pending") !== recvF) return false;
     if (kw) {
       const s = `${r.po_no || ""} ${r.product_name || ""} ${r.sku || ""} ${r.asin || ""} ${r.supplier || ""}`.toLowerCase();
       if (!s.includes(kw.toLowerCase())) return false;
     }
     return true;
   });
+  const view = base.filter(r => {
+    if (quick === "order" && !needOrder(r)) return false;
+    if (quick === "pay" && !needPay(r)) return false;
+    if (quick === "recv" && !needRecv(r)) return false;
+    if (payF && (r.pay_status_calc || "unpaid") !== payF) return false;
+    if (recvF && (r.receive_status || "pending") !== recvF) return false;
+    return true;
+  });
   const sumTotal = view.reduce((a, r) => a + Number(r.total_amount || 0), 0);
   const sumPaid = view.reduce((a, r) => a + Number(r.pay_sum || 0), 0);
   const sumQty = view.reduce((a, r) => a + Number(r.qty || 0), 0);
   const sumRecv = view.reduce((a, r) => a + Number(r.received_qty || 0), 0);
-  // 需求已提、但雪梅还没下单（无供应商 / 无单价 / 无采购单号）
-  const isOrdered = (r) => !!(r.supplier_id || r.supplier || r.po_no || Number(r.unit_price || 0) > 0);
-  const underOrder = view.filter(r => !isOrdered(r)).length;
+  // 统计栏：待采购 / 待付款 / 待入库（基于 base，不受三态筛选自身影响）
+  const nOrder = base.filter(needOrder).length;
+  const nPay = base.filter(needPay).length;
+  const nRecv = base.filter(needRecv).length;
+  const sumUnpaid = base.reduce((a, r) => a + Math.max(0, Number(r.total_amount || 0) - Number(r.pay_sum || 0)), 0);
+  const qtyNotIn = base.reduce((a, r) => a + Math.max(0, Number(r.qty || 0) - Number(r.received_qty || 0)), 0);
   // 需求方在「雪梅下单前」看不到任何金额，下单后才开放成本（KK 定的后段可见）
   const hideCost = (r) => isRequester && !isOrdered(r);
   // 采购数量 − 已分配批次合计 = 在库（还没分给平台/店铺的货）— KK 2026-11-28
   const inStockOf = (r) => Math.max(0, Number(r.qty || 0) - Number(r.ship_qty || 0));
 
   // ---- 样式 ----
-  const GRID = "34px 132px 96px 84px 122px minmax(190px, 1fr) 62px 86px 102px 116px 96px 88px 84px";
+  const GRID = "34px 118px 88px 78px 78px 78px 76px 108px minmax(168px, 1fr) 54px 80px 92px 104px 88px 82px 74px";
   const th = { padding: "9px 10px", fontSize: 11.5, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78", whiteSpace: "nowrap" };
   const td = { padding: "8px 10px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const inp = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
@@ -6417,30 +6449,53 @@ function Purchase() {
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
             {[
-              ["采购单", `${view.length} 单`, C.ink],
-              ["采购总额", `¥${purMoney(sumTotal)}`, C.ink],
-              ["已付", `¥${purMoney(sumPaid)}`, C.brand],
-              ["未付余额", `¥${purMoney(sumTotal - sumPaid)}`, sumTotal - sumPaid > 0 ? C.drop : C.faint],
-              ["件数", `${sumQty} 件`, C.sub],
-              ["已收", `${sumRecv} / ${sumQty}`, sumRecv < sumQty ? C.watch : C.brand],
-              ["待下单", `${underOrder} 单`, underOrder > 0 ? C.watch : C.brand],
-            ].map(([l, v, c]) => (
-              <div key={l} style={{ ...card, padding: "7px 14px", minWidth: 104 }}>
-                <div style={{ fontSize: 10.5, color: C.faint }}>{l}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: c, marginTop: 2 }}>{v}</div>
-              </div>
-            ))}
+              ["采购单", `${view.length} 单`, C.ink, "", `${sumQty} 件`],
+              ["采购总额", `¥${purMoney(sumTotal)}`, C.ink, "", `已付 ¥${purMoney(sumPaid)}`],
+              ["待采购", `${nOrder} 单`, nOrder ? C.watch : C.brand, "order", "需求已提·未下单"],
+              ["待付款", `${nPay} 单`, nPay ? C.drop : C.brand, "pay", `未付 ¥${purMoney(sumUnpaid)}`],
+              ["待入库", `${nRecv} 单`, nRecv ? C.watch : C.brand, "recv", `未到 ${qtyNotIn} 件`],
+              ["已收", `${sumRecv} / ${sumQty}`, sumRecv < sumQty ? C.watch : C.brand, "", "件"],
+              ["在库", `${base.reduce((a, r) => a + inStockOf(r), 0)} 件`, C.sub, "", "未分配批次"],
+            ].map(([l, v, c, q, sub]) => {
+              const on = q && quick === q;
+              return (
+                <div key={l}
+                  onClick={() => q && setQuick(on ? "" : q)}
+                  title={q ? (on ? "再点一次取消筛选" : "点一下只看这类") : ""}
+                  style={{ ...card, padding: "7px 14px", minWidth: 108, cursor: q ? "pointer" : "default",
+                    border: `1px solid ${on ? c : C.line}`, background: on ? c + "14" : C.panel }}>
+                  <div style={{ fontSize: 10.5, color: on ? c : C.faint, fontWeight: on ? 700 : 400 }}>
+                    {l}{on ? " · 筛选中" : ""}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: c, marginTop: 2 }}>{v}</div>
+                  <div style={{ fontSize: 10, color: C.faint, marginTop: 1 }}>{sub}</div>
+                </div>
+              );
+            })}
           </div>
+
+          {quick && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 11.5, color: C.sub }}>
+              <span>
+                当前只看「{quick === "order" ? "待采购" : quick === "pay" ? "待付款" : "待入库"}」
+                · {view.length} 单
+              </span>
+              <span onClick={() => setQuick("")} style={{ cursor: "pointer", color: C.brand, fontWeight: 600 }}>取消</span>
+            </div>
+          )}
 
           {(loading || !roleReady) && <div style={{ padding: 30, textAlign: "center", color: C.faint }}>加载中…</div>}
 
           {!loading && roleReady && (
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-              <div style={{ minWidth: 1420 }}>
+              <div style={{ minWidth: 1470 }}>
                 <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
                   <div style={{ ...th, textAlign: "center" }} />
                   <div style={th}>采购单号</div>
                   <div style={th}>采购日期</div>
+                  <div style={th}>创建</div>
+                  <div style={th}>付款</div>
+                  <div style={th}>入库</div>
                   <div style={th}>店铺</div>
                   <div style={th}>供应商</div>
                   <div style={th}>产品 / SKU</div>
@@ -6470,6 +6525,12 @@ function Purchase() {
                         <div style={{ ...td, textAlign: "center", color: C.faint, fontSize: 10 }}>{open ? "▾" : "▸"}</div>
                         <div style={{ ...td, color: C.brand, fontWeight: 600 }}>{r.po_no || "—"}</div>
                         <div style={{ ...td, color: C.sub }}>{r.order_date || "—"}</div>
+                        {/* 采购链路三日期：创建(录入) → 付款 → 入库(实际到仓) */}
+                        <div style={{ ...td, color: C.faint, fontSize: 11 }}>{String(r.created_at || "").slice(0, 10) || "—"}</div>
+                        <div style={{ ...td, fontSize: 11, color: r.pay_date ? C.sub : C.faint }}>{r.pay_date || "未付"}</div>
+                        <div style={{ ...td, fontSize: 11, color: r.warehouse_in_date ? C.sub : (needRecv(r) ? C.watch : C.faint) }}>
+                          {r.warehouse_in_date || "未入库"}
+                        </div>
                         <div style={{ ...td, color: C.sub }}>{r.store || "—"}</div>
                         <div style={{ ...td, color: C.sub }}>
                           {isOrdered(r) ? (r.supplier || "—")
@@ -6697,6 +6758,8 @@ function Purchase() {
                             <span>货款 {purMoney(r.goods_amount)} · 运费 {purMoney(r.freight)} · 税费 {purMoney(r.tax_amount)}</span>
                             {r.pay_terms ? <span>付款条件 {r.pay_terms}</span> : null}
                             {r.arrive_date ? <span>预计到货 {r.arrive_date}</span> : null}
+                            <span>入库 {r.warehouse_in_date || "未入库"}</span>
+                            <span>创建 {String(r.created_at || "").slice(0, 10) || "—"}</span>
                             {r.note ? <span>备注 {r.note}</span> : null}
                           </div>
                         </div>
@@ -6840,10 +6903,22 @@ function Purchase() {
                 </div>
               </>)}
 
+              <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>
+                日期链路 <span style={{ color: C.faint, fontWeight: 500 }}>（创建日期系统自动记，付款 / 入库可手填，付款登记后也会自动回写）</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: isRequester ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 10 }}>
+                <div><label style={lb}>创建日期</label>
+                  <input value={form.id ? `系统记录 · ${form.created_at ? String(form.created_at).slice(0, 10) : ""}` : "保存后自动记录"}
+                    readOnly style={{ ...inp, color: C.faint, background: C.panel2 }} />
+                </div>
+                <div><label style={lb}>付款日期</label><input type="date" value={form.pay_date} onChange={e => setF("pay_date", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>预计到货</label><input type="date" value={form.arrive_date} onChange={e => setF("arrive_date", e.target.value)} style={inp} /></div>
+                <div><label style={lb}>入库日期</label><input type="date" value={form.warehouse_in_date} onChange={e => setF("warehouse_in_date", e.target.value)} style={inp} /></div>
+              </div>
+
               <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>到货 / 备注</div>
               <div style={{ display: "grid", gridTemplateColumns: isRequester ? "repeat(3, 1fr)" : "repeat(4, 1fr)", gap: 10 }}>
                 {!isRequester && <div><label style={lb}>付款条件</label><input value={form.pay_terms} onChange={e => setF("pay_terms", e.target.value)} placeholder="全款 / 30% 定金" style={inp} /></div>}
-                <div><label style={lb}>预计到货</label><input type="date" value={form.arrive_date} onChange={e => setF("arrive_date", e.target.value)} style={inp} /></div>
                 {!isRequester && <div><label style={lb}>追踪号</label><input value={form.tracking_no} onChange={e => setF("tracking_no", e.target.value)} style={inp} /></div>}
                 <div><label style={lb}>备注</label><input value={form.note} onChange={e => setF("note", e.target.value)} style={inp} /></div>
               </div>
