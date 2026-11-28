@@ -6677,7 +6677,7 @@ function Purchase() {
   const inStockOf = (r) => Math.max(0, Number(r.qty || 0) - Number(r.ship_qty || 0));
 
   // ---- 样式 ----
-  const GRID = "34px 118px 88px 78px 78px 78px 76px 108px minmax(168px, 1fr) 54px 80px 92px 104px 88px minmax(164px, 0.9fr) 74px";
+  const GRID = "34px 118px 88px 78px 78px 78px 76px 108px minmax(168px, 1fr) 54px 80px 92px 104px 88px 72px minmax(164px, 0.9fr) 74px";
   const th = { padding: "9px 10px", fontSize: 11.5, color: "#fff", fontWeight: 600, borderRight: "1px solid #2a4a78", whiteSpace: "nowrap" };
   const td = { padding: "8px 10px", fontSize: 12, color: C.ink, borderRight: `1px solid ${C.line}`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   const inp = { width: "100%", padding: "6px 8px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 6, color: C.ink, fontSize: 12, outline: "none", colorScheme: "dark" };
@@ -6757,7 +6757,7 @@ function Purchase() {
               ["待付款", `${nPay} 单`, nPay ? C.drop : C.brand, "pay", `未付 ¥${purMoney(sumUnpaid)}`],
               ["待入库", `${nRecv} 单`, nRecv ? C.watch : C.brand, "recv", `未到 ${qtyNotIn} 件`],
               ["已收", `${sumRecv} / ${sumQty}`, sumRecv < sumQty ? C.watch : C.brand, "", "件"],
-              ["在库", `${base.reduce((a, r) => a + inStockOf(r), 0)} 件`, C.sub, "", "未分配批次"],
+              ["剩余库存", `${base.reduce((a, r) => a + inStockOf(r), 0)} 件`, C.de, "", "已采购未分配"],
             ].map(([l, v, c, q, sub]) => {
               const on = q && quick === q;
               return (
@@ -6790,7 +6790,7 @@ function Purchase() {
 
           {!loading && roleReady && (
             <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "auto" }}>
-              <div style={{ minWidth: 1470 }}>
+              <div style={{ minWidth: 1546 }}>
                 <div style={{ display: "grid", gridTemplateColumns: GRID, background: "#1f3a68" }}>
                   <div style={{ ...th, textAlign: "center" }} />
                   <div style={th}>采购单号</div>
@@ -6806,6 +6806,7 @@ function Purchase() {
                   <div style={{ ...th, textAlign: "right" }}>总额 ¥</div>
                   <div style={{ ...th, textAlign: "right" }}>已付 / 状态</div>
                   <div style={{ ...th, textAlign: "center" }}>收货</div>
+                  <div style={{ ...th, textAlign: "center", color: "#cfe0f7" }}>剩余库存</div>
                   <div style={{ ...th, textAlign: "center" }}>发货分配 <span style={{ fontWeight: 400, color: "#9db6d8" }}>平台·店铺 数量</span></div>
                   <div style={{ ...th, textAlign: "center", borderRight: "none" }}>操作</div>
                 </div>
@@ -6863,6 +6864,17 @@ function Purchase() {
                           <span style={tag(PUR_RECV_TONE[rst])}>{PUR_RECV_LABEL[rst] || rst}</span>
                           <div style={{ fontSize: 10.5, color: C.faint, marginTop: 2 }}>{r.received_qty ?? 0}/{r.qty ?? 0}{Number(r.damaged_qty) > 0 ? ` · 破损${r.damaged_qty}` : ""}</div>
                         </div>
+                        {/* 剩余库存 = 采购数量 − 已分配（KK 2026-11-28）：蓝色单独一列，
+                            为 0 就不给「再发一批」，防超发 */}
+                        <div style={{ ...td, textAlign: "center" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: inStockOf(r) > 0 ? C.de : C.faint }}>
+                            {inStockOf(r)}
+                          </span>
+                          <span style={{ fontSize: 10, color: C.faint, marginLeft: 1 }}>件</span>
+                          {inStockOf(r) === 0 && (
+                            <div style={{ fontSize: 9.5, color: C.faint, marginTop: -1 }}>已发完</div>
+                          )}
+                        </div>
                         <div style={{ ...td, whiteSpace: "normal" }} onClick={e => e.stopPropagation()}>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 3, alignItems: "center" }}>
                             {bs.map(b => (
@@ -6874,20 +6886,17 @@ function Purchase() {
                                 {PLAT_SHORT[b.platform || "amazon"] || "amz"}·{b.store || "—"} {b.qty}
                               </span>
                             ))}
-                            {inStockOf(r) > 0 && (
-                              <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 5px", borderRadius: 4, color: C.watch, background: C.watch + "1a", border: `1px solid ${C.watch}55`, whiteSpace: "nowrap" }}>
-                                在库 {inStockOf(r)}
-                              </span>
-                            )}
-                            {!bs.length && inStockOf(r) === 0 && <span style={{ fontSize: 11, color: C.faint }}>—</span>}
+                            {!bs.length && <span style={{ fontSize: 11, color: C.faint }}>—</span>}
                           </div>
-                          {canBat && (
+                          {canBat && inStockOf(r) > 0 ? (
                             <button onClick={() => openBat(r)}
                               title="就在这一行把「平台 / 店铺 / 批次号 / 数量 / 发货日」填进去"
                               style={{ marginTop: 3, padding: "2px 8px", background: "transparent", border: `1px dashed ${C.brand}88`, borderRadius: 5, color: C.brand, fontSize: 10.5, fontWeight: 600, cursor: "pointer" }}>
                               {bs.length ? "+ 再发一批" : "+ 分配发货"}
                             </button>
-                          )}
+                          ) : canBat && bs.length > 0 ? (
+                            <div style={{ fontSize: 10, color: C.faint, marginTop: 3 }}>已全部分配</div>
+                          ) : null}
                         </div>
                         <div style={{ ...td, textAlign: "center", borderRight: "none" }} onClick={e => e.stopPropagation()}>
                           {canPO && <button onClick={() => editPO(r)} style={{ ...btnO, padding: "3px 8px" }}>改</button>}
@@ -6977,10 +6986,10 @@ function Purchase() {
                                 <span style={{ fontSize: 11, color: C.faint }}>
                                   平台 / 店铺 / 批次号 / 数量 / 发货日 · 一批货可拆给多个平台
                                 </span>
-                                <span style={{ fontSize: 11, color: inStockOf(r) > 0 ? C.watch : C.brand, fontWeight: 600 }}>
-                                  已分配 {Number(r.ship_qty || 0)} / 采购 {Number(r.qty || 0)} · 在库 {inStockOf(r)}
+                                <span style={{ fontSize: 11, color: inStockOf(r) > 0 ? C.de : C.faint, fontWeight: 600 }}>
+                                  已分配 {Number(r.ship_qty || 0)} / 采购 {Number(r.qty || 0)} · 剩余库存 {inStockOf(r)}
                                 </span>
-                                {canBat && !batDraft && (
+                                {canBat && !batDraft && inStockOf(r) > 0 && (
                                   <button onClick={() => openBat(r)}
                                     style={{ ...btnO, marginLeft: "auto", color: C.brand, borderColor: C.brand + "66" }}>+ 录入分配</button>
                                 )}
@@ -6992,15 +7001,15 @@ function Purchase() {
                                   ))}
                                 </div>
                                 {(bats[r.id] || []).length === 0 && !(batDraft && batDraft.purchase_id === r.id) && (
-                                  canBat ? (
+                                  canBat && inStockOf(r) > 0 ? (
                                     <div onClick={() => openBat(r)}
                                       style={{ padding: "10px 10px", fontSize: 11.5, color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
                                       <span style={{ border: `1px dashed ${C.brand}88`, borderRadius: 5, padding: "3px 10px", fontWeight: 600 }}>+ 点这里填写发货分配</span>
-                                      <span style={{ color: C.faint }}>整单 {inStockOf(r)} 件都算在库，没分出去之前不计入任何平台</span>
+                                      <span style={{ color: C.faint }}>整单 {inStockOf(r)} 件都是剩余库存，没分出去之前不计入任何平台</span>
                                     </div>
                                   ) : (
                                     <div style={{ padding: "12px 10px", fontSize: 11.5, color: C.faint }}>
-                                      暂未分配 · 全部 {inStockOf(r)} 件都算在库
+                                      暂未分配 · 全部 {inStockOf(r)} 件都是剩余库存
                                     </div>
                                   )
                                 )}
