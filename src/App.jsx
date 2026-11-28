@@ -6448,13 +6448,13 @@ function Purchase() {
   };
 
   // ---- 采购单表单 ----
-  // 发货分配（平台/店铺/批次号/数量/发货日）是采购单的专属栏目，不塞备注 — KK 2026-11-28
+  // 注意（KK 2026-11-28）：建单时不要求写发货分配 —— 有的货采购回来就放在家里/仓里，
+  // 未发货那部分天然就是「在库」，等真要发货时在列表里点「+ 分配发货」再填。
   const blankPO = () => ({
     id: null, po_no: "", order_date: TODAY, store: "", supplier: "", supplier_id: "",
     product_name: "", sku: "", asin: "", qty: "", unit_price: "", goods_amount: "",
     freight: "", tax_amount: "", total_amount: "", currency: "CNY",
     pay_terms: "", pay_date: "", arrive_date: "", warehouse_in_date: "", tracking_no: "", note: "",
-    batRows: [], batDel: [],
   });
   const editPO = (r) => setForm({
     id: r.id, po_no: r.po_no || "", order_date: r.order_date || TODAY, store: r.store || "",
@@ -6466,12 +6466,6 @@ function Purchase() {
     pay_date: r.pay_date || "", arrive_date: r.arrive_date || "",
     warehouse_in_date: r.warehouse_in_date || "", tracking_no: r.tracking_no || "", note: r.note || "",
     created_at: r.created_at || null,
-    batRows: (bats[r.id] || []).map(b => ({
-      id: b.id, platform: b.platform || "amazon", store: b.store || "",
-      ship_batch: b.ship_batch || "", qty: b.qty ?? "", ship_date: b.ship_date || "",
-      tracking_no: b.tracking_no || "",
-    })),
-    batDel: [],
   });
   const setF = (k, v) => setForm(f => {
     const n = { ...f, [k]: v };
@@ -6483,24 +6477,6 @@ function Purchase() {
         : +(Number(goods) + Number(n.freight || 0) + Number(n.tax_amount || 0)).toFixed(2);
     }
     return n;
-  });
-  // 表单里的发货分配行
-  const newBatRow = () => ({ platform: "amazon", store: "", ship_batch: "", qty: "", ship_date: "", tracking_no: "" });
-  const setBatRow = (i, k, v) => setForm(f => {
-    const rows = (f.batRows || []).map((x, j) => j === i ? { ...x, [k]: v } : x);
-    if (k === "platform") {
-      const acc = PLAT_ACCOUNTS[v] || [];
-      if (!acc.includes(rows[i].store)) rows[i].store = acc[0] || "";
-    }
-    return { ...f, batRows: rows };
-  });
-  const delBatRow = (i) => setForm(f => {
-    const row = (f.batRows || [])[i];
-    return {
-      ...f,
-      batRows: f.batRows.filter((_, j) => j !== i),
-      batDel: row && row.id ? [...(f.batDel || []), row.id] : (f.batDel || []),
-    };
   });
 
   const submitPO = () => {
@@ -6537,45 +6513,11 @@ function Purchase() {
       tracking_no: f.tracking_no || null, note: f.note || null,
       requested_by: f.requested_by || meEmail || null,
     };
-    // 发货分配合计不能超过采购数量（超出会被「在库」算成负数）
-    const batRowsIn = (f.batRows || []).filter(x => Number(x.qty || 0) > 0);
-    const batSum = batRowsIn.reduce((a, x) => a + Number(x.qty || 0), 0);
-    if (batSum > Number(f.qty || 0)) {
-      return alert(`发货分配合计 ${batSum} 件 > 采购数量 ${f.qty} 件，请先改数量。`);
-    }
     askPwd(async () => {
-      const pid = f.id;
-      if (pid) {
-        const { error } = await supabase.from("purchase_records").update(payload).eq("id", pid);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from("purchase_records").insert(payload).select("id").single();
-        if (error) throw error;
-        if (data) f.id = data.id;
-      }
-      const newPid = f.id;
-      // 发货分配：删掉的 / 数量清零的 → 删除；已有 id → 更新；新行 → 插入
-      for (const id of (f.batDel || [])) {
-        const { error } = await supabase.from("purchase_batches").delete().eq("id", id);
-        if (error) throw error;
-      }
-      for (const x of (f.batRows || [])) {
-        const q = Number(x.qty || 0);
-        const base = {
-          purchase_id: newPid, platform: x.platform || "amazon", store: x.store || null,
-          ship_batch: String(x.ship_batch || "").trim() || null, qty: q || 0,
-          ship_date: x.ship_date || null, tracking_no: x.tracking_no || null,
-        };
-        if (x.id) {
-          const { error } = q > 0
-            ? await supabase.from("purchase_batches").update(base).eq("id", x.id)
-            : await supabase.from("purchase_batches").delete().eq("id", x.id);
-          if (error) throw error;
-        } else if (q > 0) {
-          const { error } = await supabase.from("purchase_batches").insert(base);
-          if (error) throw error;
-        }
-      }
+      const { error } = f.id
+        ? await supabase.from("purchase_records").update(payload).eq("id", f.id)
+        : await supabase.from("purchase_records").insert(payload);
+      if (error) throw error;
       setForm(null); await load();
     }, f.id ? "修改采购单" : (isRequester ? "提交采购需求" : "新增采购单"));
   };
@@ -7306,64 +7248,6 @@ function Purchase() {
                 </div>
               </div>
 
-              {/* 发货分配 —— 采购单的专属栏目（KK 2026-11-28）：平台 / 店铺 / 批次号 / 数量 / 发货日 */}
-              {!isRequester && (() => {
-                const rows = form.batRows || [];
-                const sum = rows.reduce((a, x) => a + Number(x.qty || 0), 0);
-                const left = Number(form.qty || 0) - sum;
-                const over = sum > Number(form.qty || 0);
-                const G = "88px 82px 1fr 56px 122px 24px";
-                return (
-                  <>
-                    <div style={{ fontSize: 11, color: C.brand, fontWeight: 700, margin: "16px 0 8px" }}>
-                      发货分配
-                      <span style={{ fontWeight: 400, color: C.faint, marginLeft: 8 }}>
-                        平台 / 店铺 / 批次号 / 数量 / 发货日 · 一批货可拆多行，没分配的就是在库
-                      </span>
-                    </div>
-                    <div style={{ border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: G, background: C.panel2, borderBottom: `1px solid ${C.line}` }}>
-                        {["平台", "店铺", "批次号 / 货件号", "数量", "发货日", ""].map((h, ii) => (
-                          <div key={ii} style={{ padding: "6px 8px", fontSize: 10.5, color: C.sub }}>{h}</div>
-                        ))}
-                      </div>
-                      {rows.length === 0 && (
-                        <div style={{ padding: "10px 10px", fontSize: 11, color: C.faint }}>
-                          还没分批发货 —— 整单都算在库，等真正发货时点列表里的「+ 分配发货」再填也行
-                        </div>
-                      )}
-                      {rows.map((x, i) => (
-                        <div key={i} style={{ display: "grid", gridTemplateColumns: G, gap: 5, padding: "4px 5px", borderTop: i ? `1px solid ${C.line}` : "none", alignItems: "center" }}>
-                          <select value={x.platform || "amazon"} onChange={e => setBatRow(i, "platform", e.target.value)}
-                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }}>
-                            {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-                          </select>
-                          <select value={x.store || ""} onChange={e => setBatRow(i, "store", e.target.value)}
-                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }}>
-                            <option value="">未指定</option>
-                            {(PLAT_ACCOUNTS[x.platform || "amazon"] || []).map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                          <input placeholder="批次号 / 货件号" value={x.ship_batch || ""} onChange={e => setBatRow(i, "ship_batch", e.target.value)}
-                            style={{ ...inp, padding: "4px 6px", fontSize: 11 }} />
-                          <input type="number" min="0" placeholder="数量" value={x.qty ?? ""} onChange={e => setBatRow(i, "qty", e.target.value)}
-                            style={{ ...inp, padding: "4px 6px", fontSize: 11, borderColor: over ? C.drop + "88" : C.line }} />
-                          <input type="date" value={x.ship_date || ""} onChange={e => setBatRow(i, "ship_date", e.target.value)}
-                            style={{ ...inp, padding: "4px 5px", fontSize: 11 }} />
-                          <div style={{ textAlign: "center" }}>
-                            <span onClick={() => delBatRow(i)} title="删掉这一行" style={{ cursor: "pointer", color: C.faint, fontSize: 12 }}>×</span>
-                          </div>
-                        </div>
-                      ))}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 8px", borderTop: `1px solid ${C.line}`, background: C.panel2 }}>
-                        <button onClick={() => setForm(f => ({ ...f, batRows: [...(f.batRows || []), newBatRow()] }))} style={btnO}>+ 加一行</button>
-                        <span style={{ fontSize: 11, color: over ? C.drop : C.sub }}>
-                          已分配 {sum} 件 / 采购 {form.qty || 0} 件 · 在库 {Math.max(0, left)} 件{over ? " · 超出采购数量" : ""}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
 
               <div style={{ marginTop: 12, fontSize: 11, color: C.faint }}>
                 {isRequester
