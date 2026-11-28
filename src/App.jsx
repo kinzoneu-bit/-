@@ -139,7 +139,7 @@ const PLATFORMS = [
 ];
 const PLATFORM_LABEL = Object.fromEntries(PLATFORMS.map(p => [p.key, p.label]));
 // 发货分配标签用的短名（表格里一行能塞下 3 个平台）
-const PLAT_SHORT = { amazon: "亚", cdiscount: "CD", manomano: "Mano" };
+const PLAT_SHORT = { amazon: "amz", cdiscount: "CD", manomano: "Mano" };
 // 平台 → 账号(店铺) 口径：与订单记录页完全一致 — KK 2026-11-26
 const PLAT_ACCOUNTS = { amazon: OPS_FIXED_STORES, cdiscount: ["梦想"], manomano: ["飞鸟"] };
 // 采购单不分平台（KK 2026-11-28）：一张采购单只记「买了什么、多少、给哪个店」，
@@ -6866,7 +6866,7 @@ function Purchase() {
                                   color: b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub,
                                   background: (b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub) + "1f",
                                   border: `1px solid ${(b.platform === "cdiscount" ? C.watch : b.platform === "manomano" ? C.brand : C.sub)}55` }}>
-                                {PLAT_SHORT[b.platform || "amazon"] || "亚"}·{b.store || "—"} {b.qty}
+                                {PLAT_SHORT[b.platform || "amazon"] || "amz"}·{b.store || "—"} {b.qty}
                               </span>
                             ))}
                             {inStockOf(r) > 0 && (
