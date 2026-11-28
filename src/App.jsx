@@ -7319,38 +7319,32 @@ const OPS_SITES = ["FR", "DE", "UK", "ES", "IT", "SE", "BE", "NL"];
 const OPS_MONTHLY_SITE = "月固定";
 const OPS_MONTHLY_CATS = { "网络IP费用": 88 };
 const OPS_CATS = ["网络IP费用", "广告", "仓储", "长期仓储", "erp", "服务订阅", "优惠券", "弃置费用", "生产者延伸费", "店铺月租", "入库费用", "亚马逊物流客户退货费(非服装和非鞋类)"];
-// Cdiscount 店铺级费用名目 —— 按 CD 后台(Facture / 回款单)实际收费科目，不套亚马逊 (KK 2026-11-26)
-// ① 平台服务费 = 回款单 servicesAmount 打包总额（API 只给这一个数，未拆明细时记这里）
-// ② 其余按 CD 结算单科目拆分；拆开后「平台服务费」那行留 0，不能与明细项同时填（会重复计）
-// ③ 佣金 / 处理费 / FBC 配送费 / 环保金 属订单级，已进订单记录毛利，不在此页
+// Cdiscount 归集口径 —— 按 CD 账单归集表定稿的 8 个归集类别 (KK 2026-11-28)
+// 原始账单科目(Facture / Avoir)按下面映射归并，一个类别 = 一组原始科目的净额
+// 「订单级」三项(佣金/配送履约/生产者延伸)在 CD 账单里也是逐单扣款，归集表同样统计，
+//   但系统里订单记录已按单记录：这里录入仅用于「与账单核对」，不要在毛利核算里重复叠加
 const OPS_CATS_CD = [
-  "平台服务费",       // Services —— 回款单打包数（含月租+服务，明细未拆时记这里）
-  "平台月租",         // Abonnement €39.99/月
-  "增值订阅",         // Options payantes / Premium
-  "仓储费",           // Frais de stockage（按 m³·天）
-  "长期仓储费",       // Frais de stockage longue durée（超库龄）
-  "入库接收费",       // Frais de réception（含未预报入库附加费）
-  "退货处置费",       // Traitement des retours
-  "销毁费",           // Mise au rebut
-  "撤仓运费",         // Enlèvement / Rapatriement
-  "广告费",           // Publicité / CARS（按点击）
-  "平台罚款",         // Pénalités（迟发/缺货/纠纷）
-  "汇兑手续费",       // Frais de change
+  "店铺月租",           // Abonnement
+  "平台佣金",           // Commission produit − Avoir de commission
+  "平台服务费",         // Facture service(无标签) + Frais de gestion + Facilités − Remboursement service
+  "配送履约费",         // expédition + frais de port + prestation − 返还
+  "仓储",               // Facture logistique stockage
+  "广告",               // Facture service (Sponsored Products / Premium Ads)
+  "生产者延伸费",       // Facture service (D3E / Eco Emballage)
+  "其他平台费用(兜底)", // 以上归不进去的其他扣款
 ];
-// 类目 → 账单科目原名（页面上做副标题，方便跟结算单逐行核对）
+// 订单级类别: 订单记录里有逐单明细，运维费用录入仅作账单核对口径
+const OPS_CD_ORDER_CATS = ["平台佣金", "配送履约费", "生产者延伸费"];
+// 类目 → 原始账单科目组成（页面上做副标题，方便跟结算单逐行核对）
 const OPS_CD_HINT = {
-  "平台服务费": "Services · 回款单打包",
-  "平台月租": "Abonnement €39.99",
-  "增值订阅": "Options payantes",
-  "仓储费": "Frais de stockage",
-  "长期仓储费": "Stockage longue durée",
-  "入库接收费": "Frais de réception",
-  "退货处置费": "Traitement retours",
-  "销毁费": "Mise au rebut",
-  "撤仓运费": "Enlèvement",
-  "广告费": "Publicité / CARS",
-  "平台罚款": "Pénalités",
-  "汇兑手续费": "Frais de change",
+  "店铺月租": "Abonnement",
+  "平台佣金": "Commission produit − Avoir de commission",
+  "平台服务费": "Facture service + Frais de gestion + Facilités − Remboursement service",
+  "配送履约费": "expédition + frais de port + prestation − 返还",
+  "仓储": "Facture logistique stockage",
+  "广告": "Facture service (Sponsored Products / Premium Ads)",
+  "生产者延伸费": "Facture service (D3E / Eco Emballage)",
+  "其他平台费用(兜底)": "未归集的其他扣款",
 };
 // 店铺口径常量 (OPS_FIXED_STORES / SHARE_GROUP / ALL_STORES / ROLE_STORES) 已提到文件顶部统一定义
 const OPS_SITE_CATS = OPS_CATS.filter(c => OPS_MONTHLY_CATS[c] === undefined);
@@ -7494,19 +7488,19 @@ function CostBook() {
     fbc_fee: ord.fbc, eco_tax: ord.eco, refund_loss: ord.loss,
   };
   // 店铺级金额：取运维费用当月已录入（¥）；key 对齐 cost_items.code
-  // Cdiscount 名目（2026-11-26 改）：平台服务费/平台月租/增值订阅/仓储费/长期仓储费/入库接收费/退货处置费/销毁费/撤仓运费/广告费/平台罚款/汇兑手续费
-  // 旧名（仓储/入库费用/弃置费用/广告/服务订阅/店铺月租）保留兼容，防历史行取不到
+  // Cdiscount 名目（2026-11-28 改 8 类归集口径）：店铺月租 / 平台佣金 / 平台服务费 / 配送履约费 / 仓储 / 广告 / 生产者延伸费 / 其他平台费用(兜底)
+  // 旧名（仓储费/入库费用/弃置费用/广告费/平台月租/服务订阅…）保留在后面做兼容，防历史行取不到
   const pick = (...names) => { for (const n of names) if (storeCost[n] !== undefined) return storeCost[n]; return undefined; };
   const STORE_AMT = {
-    storage: pick("仓储费", "仓储"),
+    storage: pick("仓储", "仓储费", "长期仓储费"),
     storage_long: pick("长期仓储费", "长期仓储"),
     inbound: pick("入库接收费", "入库费用"),
     return_handling: pick("退货处置费", "亚马逊物流客户退货费(非服装和非鞋类)"),
     destruction: pick("销毁费", "弃置费用"),
     removal: pick("撤仓运费"),
-    subscription: pick("平台服务费", "平台月租", "服务订阅", "店铺月租"),
-    ads: pick("广告费", "广告"),
-    penalty: pick("平台罚款"),
+    subscription: pick("店铺月租", "平台服务费", "平台月租", "服务订阅"),
+    ads: pick("广告", "广告费"),
+    penalty: pick("平台罚款", "其他平台费用(兜底)"),
     fx: pick("汇兑手续费"),
   };
   const ST = {
@@ -8172,6 +8166,10 @@ function OpsFee() {
                   {plat === "cdiscount" && OPS_CD_HINT[cat] && (
                     <span title={`账单科目：${OPS_CD_HINT[cat]}`} style={{ marginLeft: 6, fontSize: 10, color: C.faint, fontWeight: 500 }}>{OPS_CD_HINT[cat]}</span>
                   )}
+                  {plat === "cdiscount" && OPS_CD_ORDER_CATS.includes(cat) && (
+                    <span title="订单记录里已有逐单明细（佣金 commission_amt / 履约 fbc_fee / 环保 eco_tax）。此处录入仅用于与 CD 账单核对总额，不要在毛利里再叠加一次"
+                      style={{ marginLeft: 6, fontSize: 10, color: "#b07414", border: "1px solid #b07414", borderRadius: 4, padding: "1px 5px", fontWeight: 500 }}>订单级</span>
+                  )}
                 </div>
                 {SITES.map(site => {
                   const v = getVal(site, cat);
@@ -8402,7 +8400,7 @@ function StoreMonthly() {
   const opsCost = (store) => {
     if (!opsRows.some(r => r.store === store)) return 0;
     // 只统计运维费用页面定义的标准类别 —— 历史遗留的变体类别名不计入, 防虚增 (KK 2026-09-19)
-    // CD 自 2026-11-26 起按 CD 账单科目记账（平台月租/仓储费/入库接收费…），需按行所属平台取对应类目表；
+    // CD 自 2026-11-28 起按 CD 账单 8 类归集口径记账（店铺月租/平台佣金/平台服务费/配送履约费/仓储/广告/生产者延伸费/其他），需按行所属平台取对应类目表；
     // 亚马逊 / ManoMano 仍走 OPS_CATS，口径不变
     const catOK = (r) => (r.platform === "cdiscount" ? OPS_CATS_CD : OPS_CATS).includes(r.category);
     const eur = opsRows.filter(r => r.store === store && catOK(r) && !Object.prototype.hasOwnProperty.call(OPS_MONTHLY_CATS, r.category))
